@@ -33,7 +33,7 @@ export function MovedPage({ to }: { to: string }) {
 export function SupervisorLeaveRedirect({ children }: { children: ReactNode }) {
   const capabilities = useCapabilities()
   const location = useLocation()
-  if (!capabilities.approve_leave) return <>{children}</>
+  if (!capabilities.approve_leave || new URLSearchParams(location.search).get('mine') === '1') return <>{children}</>
   const query = new URLSearchParams(location.search)
   query.set('kind', 'leave')
   return <Navigate replace to={`/admin/approvals?${query}${location.hash}`} state={location.state} />

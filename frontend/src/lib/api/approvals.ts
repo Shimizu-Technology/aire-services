@@ -1,4 +1,11 @@
-import { fetchApi, type ApprovalReason, type PendingApprovalsParams, type TimeEntry } from '../api'
+import {
+  fetchApi,
+  type ApprovalReason,
+  type PendingApprovalsParams,
+  type TimeEntry,
+  type LeaveRequest,
+  type PaginationMeta,
+} from '../api'
 
 export type ReviewEntry = TimeEntry & {
   version: number
@@ -52,6 +59,19 @@ export interface HistoryChange {
   }[]
 }
 export const approvalsApi = {
+  entry: (id: number) => fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}`),
+  approvedLeave: (start: string, end: string, page: number) => {
+    const query = new URLSearchParams({
+      status: 'approved',
+      start_date: start,
+      end_date: end,
+      page: String(page),
+      per_page: '100',
+    })
+    return fetchApi<{ leave_requests: LeaveRequest[]; pagination: PaginationMeta }>(
+      `/api/v1/leave_requests?${query}`,
+    )
+  },
   pending: (params: PendingApprovalsParams) => {
     const query = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {

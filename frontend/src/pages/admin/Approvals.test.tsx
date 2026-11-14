@@ -9,7 +9,7 @@ import { ToastProvider } from '../../components/ui'
 import Approvals from './Approvals'
 import { reviewEntry } from '../../test/approvalFixtures'
 const auth = vi.hoisted(() => ({
-  currentUser: { id: 10, approval_group: 'cfi' },
+  currentUser: { id: 10, approval_group: 'cfi', time_tracking_enabled: true },
   isClerkEnabled: true,
   userRole: 'manager',
 }))
@@ -241,4 +241,82 @@ it('shows Pay stubs only when the viewer can send them and visible requests exis
     'true',
   )
   expect(await screen.findByText('An owner or admin needs to send this one')).toBeInTheDocument()
+})
+
+it('asks before approving a By day group spanning people', async () => {
+  renderInbox('/admin/approvals?group=day')
+  fireEvent.click(await screen.findByRole('button', { name: /Approve 3 shifts for/ }))
+  expect(approvalsApi.review).not.toHaveBeenCalled()
+  expect(screen.getByRole('alertdialog')).toHaveTextContent('2 people')
+  fireEvent.click(
+    within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Approve 3 shifts' }),
+  )
+  await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
+})
+
+it('group approval removes only its committed IDs from a cross-person selection', async () => {
+  renderInbox()
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Marcus Quinata' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Grace Torres' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+  await waitFor(() =>
+    expect(screen.getByRole('region', { name: 'Selected shifts' })).toHaveTextContent('1 shift'),
+  )
+  expect(screen.getByRole('checkbox', { name: 'Select Grace Torres' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'Select Marcus Quinata' })).not.toBeChecked()
+})
+
+it('keeps the full disabled reason on a Shift+A confirmation after going offline', async () => {
+  const user = userEvent.setup()
+  renderInbox()
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Marcus Quinata' }))
+  const row = screen
+    .getByRole('list', { name: 'Ordinary shifts by person' })
+    .querySelector<HTMLElement>('[data-list-row]')!
+  row.focus()
+  await user.keyboard('{Shift>}a{/Shift}')
+  act(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    window.dispatchEvent(new Event('offline'))
+  })
+  const confirm = within(screen.getByRole('alertdialog')).getByRole('button', {
+    name: 'Approve 2 shifts',
+  })
+  expect(confirm).toBeDisabled()
+  expect(confirm).toHaveAttribute('title', 'Reconnect to approve')
+})
+
+it.each(['leave', 'stubs'])(
+  'waits for people and shows retryable errors for kind=%s',
+  async kind => {
+    let resolve!: (value: Awaited<ReturnType<typeof api.getUsers>>) => void
+    vi.mocked(api.getUsers).mockImplementationOnce(
+      () =>
+        new Promise(done => {
+          resolve = done
+        }),
+    )
+    renderInbox(`/admin/approvals?kind=${kind}&dept=cfi`)
+    expect(await screen.findByText('Loading departments and people…')).toBeInTheDocument()
+    expect(screen.queryByText('No leave requests waiting.')).not.toBeInTheDocument()
+    await act(async () => resolve({ error: "Couldn't load departments and people." }))
+    expect(await screen.findByText("Couldn't load departments and people.")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(api.getUsers).toHaveBeenCalledTimes(2))
+  },
+)
+
+it('drops a remembered department that no longer exists', async () => {
+  localStorage.setItem('aire.approvals.department.10', 'removed-team')
+  renderInbox('/admin/approvals?kind=leave')
+  await waitFor(() => expect(localStorage.getItem('aire.approvals.department.10')).toBe('all'))
+  expect(screen.getByRole('tab', { name: 'Everyone' })).toHaveAttribute('aria-selected', 'true')
+})
+
+it('links tracking supervisors to their own leave page from the Leave chip', async () => {
+  renderInbox('/admin/approvals?kind=leave')
+  expect(await screen.findByRole('link', { name: 'Request your own leave' })).toHaveAttribute(
+    'href',
+    '/admin/leave?mine=1',
+  )
 })

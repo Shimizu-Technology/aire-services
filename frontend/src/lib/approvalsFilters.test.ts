@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { approvalSelection, exclusionCopy, isOrdinary, pendingParams } from './approvalsFilters'
+import {
+  approvalChunks,
+  approvalSelection,
+  exclusionCopy,
+  isOrdinary,
+  pendingParams,
+} from './approvalsFilters'
 import { reviewEntry } from '../test/approvalFixtures'
 const entry = (id: number, overrides = {}) => reviewEntry(id, id, { version: id + 7, ...overrides })
 describe('approval snapshots', () => {
@@ -50,4 +56,36 @@ it('names excluded shift counts and overtime hours in the confirmation', () => {
     exceptions: [{ key: 'overtime', label: 'Overtime' }],
   })
   expect(exclusionCopy([overtime])).toContain('1 shift · Overtime · 6.0h overtime waiting')
+})
+
+it('packs a person’s Sunday–Saturday week together across the old boundary', () => {
+  const rows = Array.from({ length: 99 }, (_, index) => reviewEntry(index + 1, index + 1))
+  rows.push(reviewEntry(100, 100, { work_date: '2026-11-09' }))
+  rows.push(reviewEntry(101, 100, { work_date: '2026-11-10' }))
+  const chunks = approvalChunks(approvalSelection(rows).items, 100, rows)
+  expect(chunks.map(chunk => chunk.length)).toEqual([99, 2])
+  expect(chunks[1].map(item => item.id)).toEqual([100, 101])
+  expect(
+    chunks
+      .flat()
+      .map(item => item.id)
+      .sort((a, b) => a - b),
+  ).toEqual(rows.map(row => row.id))
+})
+it('separates Sunday weeks and splits only a group exceeding the API limit', () => {
+  const rows = [
+    reviewEntry(1, 1, { work_date: '2026-11-14' }),
+    reviewEntry(2, 1, { work_date: '2026-11-15' }),
+    reviewEntry(3, 1, { work_date: '2026-11-16' }),
+  ]
+  expect(
+    approvalChunks(approvalSelection(rows).items, 2, rows).map(chunk => chunk.map(item => item.id)),
+  ).toEqual([[1], [2, 3]])
+  expect(
+    approvalChunks(
+      approvalSelection([reviewEntry(1), reviewEntry(2, 1), reviewEntry(3, 1)]).items,
+      2,
+      [reviewEntry(1), reviewEntry(2, 1), reviewEntry(3, 1)],
+    ).map(chunk => chunk.length),
+  ).toEqual([2, 1])
 })

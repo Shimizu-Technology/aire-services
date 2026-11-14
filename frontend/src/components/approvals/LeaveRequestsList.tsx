@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type LeaveRequest } from '../../lib/api'
+import { approvalsApi } from '../../lib/api/approvals'
 import { formatWorkDate } from '../../lib/dateUtils'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import {
@@ -35,9 +36,18 @@ export default function LeaveRequestsList({
   useEffect(() => {
     let active = true
     const load = async () => {
+      if (!requests.length) {
+        setApproved([])
+        return
+      }
+      const start = requests.map(request => request.start_date).sort()[0]
+      const end = requests
+        .map(request => request.end_date)
+        .sort()
+        .at(-1)!
       const rows: LeaveRequest[] = []
       for (let page = 1; ; page++) {
-        const response = await api.getLeaveRequests('approved', page, 100)
+        const response = await approvalsApi.approvedLeave(start, end, page)
         if (!response.data || !active) return
         rows.push(...response.data.leave_requests)
         if (page >= response.data.pagination.total_pages) break

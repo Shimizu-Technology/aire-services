@@ -9,6 +9,7 @@ import {
 import { addDateDays, businessWeekStart, formatWorkDate } from '../../lib/dateUtils'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { Button, ErrorState, Field, Sheet, StatusPill, Textarea } from '../ui'
+import type { ApprovalResult } from './useReviewBatch'
 import EditTimeEntryModal from '../time-tracking/EditTimeEntryModal'
 
 const when = (value: string) =>
@@ -18,7 +19,7 @@ const when = (value: string) =>
     timeStyle: 'short',
   }).format(new Date(value))
 export default function ReviewSheet({
-  entry,
+  entry: initialEntry,
   onClose,
   onApprove,
   onReload,
@@ -28,12 +29,13 @@ export default function ReviewSheet({
 }: {
   entry: ReviewEntry
   onClose: (saved?: boolean) => void
-  onApprove: (items: ReviewItem[], label: string) => Promise<boolean>
+  onApprove: (items: ReviewItem[], label: string) => Promise<ApprovalResult>
   onReload: () => Promise<void>
   busy: boolean
   categories: TimeCategory[]
   onDirty: (dirty: boolean) => void
 }) {
+  const [entry, setCurrentEntry] = useState(initialEntry)
   const online = useOnlineStatus()
   const [history, setHistory] = useState<HistoryChange[] | null>(null)
   const [historyError, setHistoryError] = useState(false)
@@ -44,6 +46,7 @@ export default function ReviewSheet({
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [unknown, setUnknown] = useState(false)
   const [editing, setEditing] = useState(false)
   const lock = useRef(false)
   const overtime = entry.overtime_status === 'pending'
@@ -62,7 +65,7 @@ export default function ReviewSheet({
     return () => {
       active = false
     }
-  }, [entry.id, historyAttempt])
+  }, [entry.id, entry.version, historyAttempt])
   useEffect(() => {
     let active = true
     const start = businessWeekStart(entry.work_date)
@@ -81,12 +84,12 @@ export default function ReviewSheet({
     return () => {
       active = false
     }
-  }, [entry.user.id, entry.work_date])
+  }, [entry.user.id, entry.work_date, entry.version])
   const approve = async (includeOvertime: boolean) => {
     if (lock.current || busy || !online) return
     lock.current = true
     try {
-      const ok = await onApprove(
+      const result = await onApprove(
         [
           {
             id: entry.id,
@@ -100,9 +103,12 @@ export default function ReviewSheet({
           ? `Approved ${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime for ${entry.user.full_name}`
           : `Approved time for ${entry.user.full_name}`,
       )
-      if (ok) {
+      if (result === 'ok') {
         onDirty(false)
         onClose(true)
+      } else if (result === 'unknown') {
+        setUnknown(true)
+        setError("We couldn't confirm whether this saved. Reload before deciding again.")
       } else
         setError(
           'This decision could not be saved. The list has been refreshed; close this review and check the shift again.',
@@ -117,6 +123,20 @@ export default function ReviewSheet({
     setSaving(true)
     setError('')
     try {
+      const fresh = await api.getTimeEntry(entry.id)
+      if (!fresh.data) {
+        setError(fresh.error || "Couldn't check the current shift. Nothing was denied.")
+        return
+      }
+      if (fresh.data.time_entry.version !== entry.version) {
+        setCurrentEntry({ ...entry, ...fresh.data.time_entry })
+        setDenying(null)
+        setNote('')
+        setHistoryAttempt(value => value + 1)
+        setError('This shift changed since you opened it. Nothing was denied.')
+        await onReload()
+        return
+      }
       const response =
         denying === 'overtime'
           ? await api.denyOvertime(entry.id, note.trim())
@@ -133,7 +153,22 @@ export default function ReviewSheet({
       setSaving(false)
     }
   }
-  const blocked = busy || saving || !online || entry.needs_another_approver
+  const reloadDecision = async () => {
+    setSaving(true)
+    try {
+      await onReload()
+      const fresh = await api.getTimeEntry(entry.id)
+      if (!fresh.data) return
+      setCurrentEntry({ ...entry, ...fresh.data.time_entry })
+      setHistoryAttempt(value => value + 1)
+      setWeek(null)
+      setUnknown(false)
+      setError('')
+    } finally {
+      setSaving(false)
+    }
+  }
+  const blocked = busy || saving || !online || unknown || entry.needs_another_approver
   return (
     <>
       <Sheet
@@ -187,7 +222,8 @@ export default function ReviewSheet({
                     disabled={blocked || entry.pending_overtime_hours === undefined}
                     title={!online ? 'Reconnect to approve' : undefined}
                   >
-                    Approve {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime
+                    Approve {entry.approval_status === 'pending' ? 'time + ' : ''}
+                    {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime
                   </Button>
                 )}
                 <Button
@@ -337,6 +373,17 @@ export default function ReviewSheet({
                 maxLength={2000}
               />
             </Field>
+          )}
+          {unknown && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void reloadDecision()
+              }}
+              disabled={busy || saving || !online}
+            >
+              Reload
+            </Button>
           )}
           {error && (
             <p

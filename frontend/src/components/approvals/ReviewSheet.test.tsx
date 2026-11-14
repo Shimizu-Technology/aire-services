@@ -5,7 +5,12 @@ import { reviewEntry } from '../../test/approvalFixtures'
 import { api } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
 vi.mock('../../lib/api', () => ({
-  api: { getTimeEntries: vi.fn(), denyTimeEntry: vi.fn(), denyOvertime: vi.fn() },
+  api: {
+    getTimeEntry: vi.fn(),
+    getTimeEntries: vi.fn(),
+    denyTimeEntry: vi.fn(),
+    denyOvertime: vi.fn(),
+  },
 }))
 vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { history: vi.fn() } }))
 vi.mock('../time-tracking/EditTimeEntryModal', () => ({ default: () => null }))
@@ -16,7 +21,7 @@ const props = () => ({
     approval_note: 'Employee edited entry',
   }),
   onClose: vi.fn(),
-  onApprove: vi.fn().mockResolvedValue(true),
+  onApprove: vi.fn().mockResolvedValue('ok'),
   onReload: vi.fn(),
   busy: false,
   categories: [],
@@ -24,6 +29,7 @@ const props = () => ({
 })
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(api.getTimeEntry).mockResolvedValue({ data: { time_entry: reviewEntry(7, 1) } })
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
   vi.mocked(api.getTimeEntries).mockResolvedValue({
     data: {
@@ -83,4 +89,55 @@ it('requires a note for denial and preserves server errors', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
   expect(await screen.findByText('The period has locked.')).toBeInTheDocument()
   expect(api.denyTimeEntry).toHaveBeenCalledWith(7, 'Please correct this shift.')
+})
+
+it('blocks decisions after an unknown outcome and offers Reload without claiming rejection', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.onApprove.mockResolvedValue('unknown')
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve time' }))
+  expect(
+    await screen.findByText(
+      "We couldn't confirm whether this saved. Reload before deciding again.",
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByText(/could not be saved/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Approve time' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+  await waitFor(() => expect(config.onReload).toHaveBeenCalled())
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Approve time' })).toBeEnabled())
+  expect(api.getTimeEntry).toHaveBeenCalledWith(7)
+})
+
+it('refuses stale denial, refreshes the sheet, and never sends the denial', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  vi.mocked(api.getTimeEntry).mockResolvedValue({
+    data: { time_entry: reviewEntry(7, 1, { version: 18, description: 'New shift facts' }) },
+  })
+  const config = props()
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Deny…' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Stale note' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
+  expect(
+    await screen.findByText('This shift changed since you opened it. Nothing was denied.'),
+  ).toBeInTheDocument()
+  expect(screen.getByText('New shift facts')).toBeInTheDocument()
+  expect(api.denyTimeEntry).not.toHaveBeenCalled()
+  expect(config.onReload).toHaveBeenCalledOnce()
+})
+
+it('names time as well as overtime when both decisions are pending', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.entry = { ...config.entry, overtime_status: 'pending', pending_overtime_hours: 6 }
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve time + 6.0h overtime' }))
+  await waitFor(() =>
+    expect(config.onApprove).toHaveBeenCalledWith(
+      [{ id: 7, version: 17, approve_time: true, approve_overtime: true, overtime_hours: 6 }],
+      expect.any(String),
+    ),
+  )
 })

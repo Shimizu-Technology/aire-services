@@ -1,5 +1,6 @@
 import type { PendingApprovalsParams } from './api'
 import type { ReviewEntry, ReviewItem } from './api/approvals'
+import { businessWeekStart } from './dateUtils'
 import { parsePayPeriodStart } from './payPeriods'
 
 export function pendingParams(query: URLSearchParams, department: string): PendingApprovalsParams {
@@ -110,4 +111,34 @@ export function exclusionCopy(rows: ReviewEntry[]) {
       return `${name}: ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} · ${reasons.join(', ')}${overtime > 0 ? ` · ${overtime.toFixed(1)}h overtime waiting` : ''}`
     })
     .join('; ')
+}
+
+/** Keep a person's Sun–Sat overtime week together, preserving first-seen order. */
+export function approvalChunks(
+  items: readonly ReviewItem[],
+  limit: number,
+  rows: readonly ReviewEntry[] = [],
+): ReviewItem[][] {
+  const byId = new Map(rows.map(row => [row.id, row]))
+  const groups = new Map<string, ReviewItem[]>()
+  for (const item of items) {
+    const row = byId.get(item.id)
+    const key = row ? `${row.user.id}/${businessWeekStart(row.work_date)}` : `entry/${item.id}`
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
+  const chunks: ReviewItem[][] = []
+  let current: ReviewItem[] = []
+  for (const group of groups.values()) {
+    if (current.length && current.length + group.length > limit) {
+      chunks.push(current)
+      current = []
+    }
+    if (group.length > limit) {
+      for (let offset = 0; offset < group.length; offset += limit) {
+        chunks.push(group.slice(offset, offset + limit))
+      }
+    } else current.push(...group)
+  }
+  if (current.length) chunks.push(current)
+  return chunks
 }

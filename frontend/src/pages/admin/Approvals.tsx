@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   api,
   type ApprovalGroupOption,
@@ -112,7 +112,7 @@ function ApprovalsInbox() {
   const capabilities = useCapabilities()
   const online = useOnlineStatus()
   const [query, setQuery] = useSearchParams()
-  const department = query.get('dept') || rememberedDepartment(currentUser?.id)
+  const requestedDepartment = query.get('dept') || rememberedDepartment(currentUser?.id)
   const groupBy = query.get('group') === 'day' ? 'day' : 'person'
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [review, setReview] = useState<ReviewEntry | null>(null)
@@ -124,6 +124,15 @@ function ApprovalsInbox() {
   } | null>(null)
   const [people, setPeople] = useState<UserSummary[]>([])
   const [groups, setGroups] = useState<ApprovalGroupOption[]>([])
+  const [peopleLoading, setPeopleLoading] = useState(true)
+  const [peopleError, setPeopleError] = useState('')
+  const department =
+    !peopleLoading &&
+    !peopleError &&
+    requestedDepartment !== 'all' &&
+    !groups.some(group => group.key === requestedDepartment)
+      ? 'all'
+      : requestedDepartment
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [workers, setWorkers] = useState<WorkerStatus[]>([])
   const [cutoff, setCutoff] = useState<PayrollCutoffResponse | null>(null)
@@ -135,7 +144,10 @@ function ApprovalsInbox() {
   const changing = useRef(false)
   const params = useMemo(() => pendingParams(query, department), [query, department])
   const inbox = useApprovalsQuery(params, Boolean(selected.size || review || confirmation))
-  const batches = useReviewBatch(inbox.reload)
+  const removeApprovedSelection = useCallback((ids: number[]) => {
+    setSelected(current => new Set([...current].filter(id => !ids.includes(id))))
+  }, [])
+  const batches = useReviewBatch(inbox.reload, removeApprovedSelection)
   const entries = inbox.data?.pending_entries ?? EMPTY
   const ordinary = entries.filter(isOrdinary)
   const needsLook = entries.filter(entry => !isOrdinary(entry))
@@ -177,24 +189,40 @@ function ApprovalsInbox() {
     setExtrasLoading(false)
   }, [capabilities.send_pay_statements])
 
+  const loadPeople = useCallback(async () => {
+    setPeopleLoading(true)
+    setPeopleError('')
+    try {
+      const response = await api.getUsers()
+      if (!response.data) {
+        setPeopleError(response.error || "Couldn't load departments and people.")
+        return
+      }
+      setPeople(response.data.users)
+      setGroups(response.data.approval_groups ?? [])
+    } catch {
+      setPeopleError("Couldn't load departments and people.")
+    } finally {
+      setPeopleLoading(false)
+    }
+  }, [])
   useEffect(() => {
     void loadExtras()
+    void loadPeople()
     let active = true
-    void Promise.all([api.getUsers(), api.getTimeCategories(), api.getPayrollCutoff()]).then(
-      ([users, cats, period]) => {
-        if (!active) return
-        if (users.data) {
-          setPeople(users.data.users)
-          setGroups(users.data.approval_groups ?? [])
-        }
-        if (cats.data) setCategories(cats.data.time_categories)
-        if (period.data) setCutoff(period.data)
-      },
-    )
+    void Promise.all([api.getTimeCategories(), api.getPayrollCutoff()]).then(([cats, period]) => {
+      if (!active) return
+      if (cats.data) setCategories(cats.data.time_categories)
+      if (period.data) setCutoff(period.data)
+    })
     return () => {
       active = false
     }
-  }, [loadExtras])
+  }, [loadExtras, loadPeople])
+  useEffect(() => {
+    if (!peopleLoading && !peopleError && department !== requestedDepartment)
+      rememberDepartment(currentUser?.id, 'all')
+  }, [peopleLoading, peopleError, department, requestedDepartment, currentUser?.id])
 
   const changeQuery = async (next: URLSearchParams) => {
     if (changing.current || batches.busy) return
@@ -243,13 +271,16 @@ function ApprovalsInbox() {
       snapshot.items,
       inbox.data?.review_summary.batch_limit ?? 0,
       `Approved ${snapshot.rows.length} ${noun}${person}`,
+      'ordinary',
+      snapshot.rows,
     )
-    clearSelection()
     setConfirmation(null)
     return complete
   }
   const approveGroup = async (rows: ReviewEntry[]) => {
-    await approveSnapshot(approvalSelection(rows))
+    const snapshot = approvalSelection(rows)
+    if (snapshot.people.length > 1) setConfirmation({ snapshot, all: false })
+    else await approveSnapshot(snapshot)
   }
   const requestAll = () => {
     setConfirmation({ snapshot: approvalSelection(ordinary), all: true })
@@ -290,7 +321,7 @@ function ApprovalsInbox() {
     void closeReview(saved)
   }
   const approveReviewed = (items: ReviewItem[], label: string) => {
-    return batches.approve(items, 31, label, 'reviewed')
+    return batches.approve(items, 31, label, 'reviewed', review ? [review] : [])
   }
   const reloadApprovals = () => {
     void inbox.reload()
@@ -360,7 +391,8 @@ function ApprovalsInbox() {
   const kind: ApprovalKind =
     query.get('kind') === 'leave'
       ? 'leave'
-      : query.get('kind') === 'stubs' && showStubs
+      : query.get('kind') === 'stubs' &&
+          (showStubs || peopleLoading || Boolean(peopleError) || extrasLoading)
         ? 'stubs'
         : 'time'
   const lockAt = cutoff?.cutoff.cutoff_at
@@ -418,6 +450,17 @@ function ApprovalsInbox() {
           className="rounded-card border border-amber-200 bg-amber-50 p-3 text-body-sm"
         >
           {batches.notice}
+          {batches.notice.includes('Reload') && (
+            <Button
+              variant="ghost"
+              disabled={disabled}
+              onClick={() => {
+                void batches.refresh()
+              }}
+            >
+              Reload
+            </Button>
+          )}
         </p>
       )}
       <RecentApprovals
@@ -453,7 +496,26 @@ function ApprovalsInbox() {
           />
         )}
         {kind === 'leave' &&
-          (extrasError.leave ? (
+          capabilities.approve_leave &&
+          currentUser?.time_tracking_enabled === true && (
+            <Link
+              className="inline-flex min-h-11 items-center font-semibold text-primary underline"
+              to="/admin/leave?mine=1"
+            >
+              Request your own leave
+            </Link>
+          )}
+        {kind === 'leave' &&
+          (peopleError ? (
+            <ErrorState
+              title={peopleError}
+              onRetry={() => {
+                void loadPeople()
+              }}
+            />
+          ) : peopleLoading ? (
+            <p>Loading departments and people…</p>
+          ) : extrasError.leave ? (
             <ErrorState
               title="Couldn't load leave requests."
               onRetry={reloadExtras}
@@ -468,7 +530,16 @@ function ApprovalsInbox() {
             />
           ))}
         {kind === 'stubs' &&
-          (extrasError.stubs ? (
+          (peopleError ? (
+            <ErrorState
+              title={peopleError}
+              onRetry={() => {
+                void loadPeople()
+              }}
+            />
+          ) : peopleLoading || extrasLoading ? (
+            <p>Loading departments and people…</p>
+          ) : extrasError.stubs ? (
             <ErrorState
               title={extrasError.stubs}
               onRetry={reloadExtras}
@@ -502,7 +573,8 @@ function ApprovalsInbox() {
         }
       />
       <ApproveAllDialog
-        offline={!online}
+        disabled={disabled}
+        disabledReason={disabledReason}
         selection={confirmation?.snapshot ?? null}
         ordinary={confirmation?.all}
         exclusions={exclusionCopy(needsLook)}
@@ -528,7 +600,7 @@ function ApprovalsInbox() {
           busy={batches.busy}
           onDirty={setReviewDirty}
           onClose={handleCloseReview}
-          onReload={inbox.reload}
+          onReload={batches.refresh}
           onApprove={approveReviewed}
         />
       )}

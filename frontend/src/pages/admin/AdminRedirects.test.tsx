@@ -169,3 +169,11 @@ describe('supervisor leave inbox', () => {
     expect(page()).toBe('Leave')
   })
 })
+
+
+it.each(['owner', 'admin', 'manager'] as const)('keeps %s own leave at mine=1 without redirecting', role => {
+  auth.role = role
+  render(<MemoryRouter initialEntries={['/admin/leave?mine=1']}><SupervisorLeaveRedirect><Probe name="Own leave" /></SupervisorLeaveRedirect></MemoryRouter>)
+  expect(page()).toBe('Own leave')
+  expect(url()).toBe('/admin/leave?mine=1')
+})

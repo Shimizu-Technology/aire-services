@@ -9,7 +9,8 @@ export default function ApproveAllDialog({
   onCancel,
   ordinary = true,
   lockCopy,
-  offline = false,
+  disabled = false,
+  disabledReason,
 }: {
   selection: ApprovalSelection | null
   exclusions: string
@@ -18,7 +19,8 @@ export default function ApproveAllDialog({
   onCancel: () => void
   ordinary?: boolean
   lockCopy?: string
-  offline?: boolean
+  disabled?: boolean
+  disabledReason?: string
 }) {
   if (!selection) return null
   const shiftNoun = selection.rows.length === 1 ? 'shift' : 'shifts'
@@ -57,8 +59,8 @@ export default function ApproveAllDialog({
       }
       confirmLabel={`Approve ${selection.rows.length} ${shiftNoun}`}
       busy={busy}
-      confirmDisabled={offline}
-      confirmDisabledReason="Reconnect to approve"
+      confirmDisabled={disabled}
+      confirmDisabledReason={disabledReason}
       onConfirm={onConfirm}
       onCancel={onCancel}
     />
