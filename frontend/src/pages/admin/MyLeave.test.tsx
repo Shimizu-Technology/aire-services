@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
 import MyLeave from './MyLeave'
+import { todayInGuam } from '../../lib/payPeriods'
 
 vi.mock('../../contexts/AuthContext', () => ({
   useAuthContext: () => ({ currentUser: { id: 5 } }),
@@ -73,6 +74,27 @@ it('cancels only a pending request owned by the viewer', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
   await waitFor(() => expect(cancel).toHaveBeenCalledWith(9))
   expect(await screen.findByText('Your request was cancelled.')).toBeInTheDocument()
+})
+
+it('shows approved days in the current month only when those requests exist', async () => {
+  const month = todayInGuam().slice(0, 7)
+  vi.mocked(api.getLeaveRequests).mockResolvedValue({
+    data: {
+      leave_requests: [
+        {
+          ...request,
+          status: 'approved',
+          start_date: `${month}-03`,
+          end_date: `${month}-04`,
+        },
+      ],
+      pagination: { current_page: 1, per_page: 100, total_count: 1, total_pages: 1 },
+    },
+  })
+  open()
+  expect(
+    await screen.findByText(/You have 2 days of time off already approved/),
+  ).toBeInTheDocument()
 })
 
 it('filters another person’s requests even when a supervisor reuses MyLeave', async () => {

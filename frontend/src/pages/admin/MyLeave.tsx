@@ -4,6 +4,7 @@ import type { LeaveRequest } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
+import { payPeriodContaining, todayInGuam } from '../../lib/payPeriods'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import {
@@ -37,6 +38,16 @@ export default function MyLeave() {
   const [busy, setBusy] = useState<number | null>(null)
   const [uncertain, setUncertain] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const today = todayInGuam()
+  const monthStart = `${today.slice(0, 7)}-01`
+  const monthEnd = payPeriodContaining(`${today.slice(0, 7)}-16`).end
+  const approvedDays = (requests ?? [])
+    .filter((request) => request.status === 'approved')
+    .reduce((sum, request) => {
+      const from = request.start_date > monthStart ? request.start_date : monthStart
+      const to = request.end_date < monthEnd ? request.end_date : monthEnd
+      return sum + Math.max(0, (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1)
+    }, 0)
   const load = useCallback(async () => {
     if (!viewerId) return
     const result = await myTimeApi.leave(viewerId)
@@ -78,6 +89,12 @@ export default function MyLeave() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <PageHeader title="Leave" />
+      {approvedDays > 0 && (
+        <p className="text-body-sm text-ink-muted">
+          You have {approvedDays} {approvedDays === 1 ? 'day' : 'days'} of time off
+          already approved in {formatDateOnly(today, { month: 'long' })}.
+        </p>
+      )}
       {message && <p role="status">{message}</p>}
       {!online && (
         <p role="status">No connection. Reconnect to request or cancel time off.</p>
