@@ -1,4 +1,9 @@
-export function WorkChips({ categories, value, onChange, disabled = false }: {
+export function WorkChips({
+  categories,
+  value,
+  onChange,
+  disabled = false,
+}: {
   categories: Array<{ id: number; name: string }>
   value: number | null
   onChange: (id: number) => void
@@ -11,7 +16,7 @@ export function WorkChips({ categories, value, onChange, disabled = false }: {
         What are you working on?
       </legend>
       <div className="flex flex-wrap gap-2">
-        {categories.map(category => (
+        {categories.map((category) => (
           <label
             key={category.id}
             className="relative flex min-h-[52px] cursor-pointer items-center"

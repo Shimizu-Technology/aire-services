@@ -8,6 +8,7 @@ import type { PayPeriod } from '../payPeriods'
 export const myTimeApi = {
   status: () => api.getClockStatus(),
   categories: () => api.getTimeCategories(),
+  people: () => api.getUsers(),
   entries: (viewerId: number, period: PayPeriod) =>
     timecardsApi.personEntries(viewerId, period),
   clockIn: (categoryId: number, location?: Parameters<typeof api.clockIn>[3]) =>
@@ -16,24 +17,45 @@ export const myTimeApi = {
   startBreak: () => api.startBreak(),
   endBreak: () => api.endBreak(),
   switchWork: (categoryId: number) => api.switchCategory(categoryId),
-  askForFix: (entry: TimeEntry, change: {
-    start_time: string
-    end_time: string
-    break_minutes: number | null
-    time_category_id: number
-    description: string
-  }, reason: string) => api.updateTimeEntry(entry.id, {
-    ...change,
-    expected_version: entry.version,
-    ...(entry.approval_status === 'denied'
-      ? { review_action: 'resubmit_denied' as const }
-      : {}),
-  }, reason),
+  askForFix: (
+    entry: TimeEntry,
+    change: {
+      start_time: string
+      end_time: string
+      break_minutes: number | null
+      time_category_id: number
+      description: string
+      breaks?: Array<{ id?: number; start_time: string; end_time: string }>
+    },
+    reason: string,
+  ) =>
+    api.updateTimeEntry(
+      entry.id,
+      {
+        ...change,
+        expected_version: entry.version,
+        description: [change.description, `Requested fix: ${reason}`]
+          .filter(Boolean)
+          .join('\n'),
+      },
+      reason,
+    ),
   addTime: (shift: Parameters<typeof api.createTimeEntry>[0]) => {
-    const { work_date, start_time, end_time, time_category_id, break_minutes, description } = shift
+    const {
+      work_date,
+      start_time,
+      end_time,
+      time_category_id,
+      break_minutes,
+      description,
+    } = shift
     return api.createTimeEntry({
-      work_date, start_time, end_time, time_category_id,
-      break_minutes, description,
+      work_date,
+      start_time,
+      end_time,
+      time_category_id,
+      break_minutes,
+      description,
     })
   },
   leave: async (viewerId: number) => {
@@ -41,7 +63,9 @@ export const myTimeApi = {
     for (let page = 1; page <= 20; page += 1) {
       const result = await api.getLeaveRequests(undefined, page, 100)
       if (!result.data) return { error: result.error || "Couldn't load your requests." }
-      requests.push(...result.data.leave_requests.filter(row => row.user.id === viewerId))
+      requests.push(
+        ...result.data.leave_requests.filter((row) => row.user.id === viewerId),
+      )
       if (page >= result.data.pagination.total_pages) return { data: requests }
     }
     return { error: 'Too many requests to load. Ask Chels for help.' }

@@ -6,6 +6,5 @@ import TimeTracking from './TimeTracking'
 // here until that lands; MyLeave itself is reusable for ?mine=1.
 export default function EmployeeLeaveRoute() {
   const capabilities = useCapabilities()
-  return capabilities.manage_team_time
-    ? <TimeTracking section="leave" /> : <MyLeave />
+  return capabilities.manage_team_time ? <TimeTracking section="leave" /> : <MyLeave />
 }
