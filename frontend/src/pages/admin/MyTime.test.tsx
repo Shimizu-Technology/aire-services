@@ -65,6 +65,43 @@ const open = async () => {
   )
 }
 
+it('enables Clock in while the optional initial summary is still pending', async () => {
+  let finish!: (value: Awaited<ReturnType<typeof myTimeApi.entries>>) => void
+  vi.mocked(myTimeApi.entries).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  await open()
+  expect(
+    screen.getByRole('radio', { name: 'Flight Instruction' }),
+  ).toBeChecked()
+  expect(
+    screen.getByText('Open My Hours to check your time.'),
+  ).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('radio', { name: 'Ground School' }))
+  await act(async () => {
+    finish({ data: [shift({ time_category: categories[0] })] })
+  })
+  expect(screen.getByRole('radio', { name: 'Ground School' })).toBeChecked()
+})
+
+it('requires status recovery after a refused punch whose reconciliation read fails', async () => {
+  await open()
+  vi.mocked(myTimeApi.clockIn).mockResolvedValue({
+    error: 'Already clocked in',
+    status: 422,
+  })
+  vi.mocked(myTimeApi.status).mockResolvedValue({ error: 'Read failed' })
+  fireEvent.click(screen.getByRole('button', { name: 'Clock in' }))
+  expect(await screen.findByText('Status not confirmed')).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('Already clocked in')
+  expect(screen.queryByText('Off the clock')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Clock in' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+})
+
 it('preselects the last work and flips state only after server success', async () => {
   let finish!: (value: Awaited<ReturnType<typeof myTimeApi.clockIn>>) => void
   vi.mocked(myTimeApi.clockIn).mockImplementation(

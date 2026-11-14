@@ -57,6 +57,7 @@ export default function MyTime() {
   const inFlight = useRef(false)
   const statusGeneration = useRef(0)
   const summaryGeneration = useRef(0)
+  const workChoiceTouched = useRef(false)
   const unconfirmed = useRef(false)
   const hasConfirmedStatus = useRef(false)
   const storageKey = `aire-last-work-${viewerId}`
@@ -85,6 +86,7 @@ export default function MyTime() {
     hasConfirmedStatus.current = true
     setStatus(result.data)
     if (result.data.clocked_in && result.data.time_category) {
+      workChoiceTouched.current = true
       setChoice(result.data.time_category.id)
     }
     setMustRefresh(false)
@@ -100,32 +102,44 @@ export default function MyTime() {
     return result.data
   }, [refreshSummary])
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     const summaryRequest = ++summaryGeneration.current
-    const [, categoryResult, shifts] = await Promise.all([
-      readStatus(),
-      myTimeApi.categories(),
-      viewerId
-        ? myTimeApi.entries(viewerId, currentPayPeriod())
-        : Promise.resolve(null),
-    ])
-    if (categoryResult.data) {
-      const available = categoryResult.data.time_categories
+    let saved: number | null = null
+    try {
+      saved = Number(localStorage.getItem(storageKey)) || null
+    } catch {
+      /* Storage is optional. */
+    }
+    const categoryRead = myTimeApi.categories()
+    void readStatus()
+    void categoryRead.then((result) => {
+      if (!result.data) {
+        setCategoryState('error')
+        return
+      }
+      const available = result.data.time_categories
       setCategories(available)
       setCategoryState('ready')
-      let saved: number | null = null
-      try {
-        saved = Number(localStorage.getItem(storageKey)) || null
-      } catch {
-        /* Storage is optional. */
+      if (!workChoiceTouched.current) {
+        setChoice(chooseLastCategory(available, [], saved))
       }
-      setChoice(chooseLastCategory(available, shifts?.data ?? [], saved))
-    }
-    if (!categoryResult.data) setCategoryState('error')
-    if (shifts?.data && summaryRequest === summaryGeneration.current) {
-      setEntries(shifts.data)
-      setSummaryLoaded(true)
-    }
+    })
+    if (!viewerId) return
+    // This optional read can finish later without holding up clock actions.
+    void myTimeApi
+      .entries(viewerId, currentPayPeriod())
+      .then(async (shifts) => {
+        if (summaryRequest !== summaryGeneration.current || !shifts.data) return
+        setEntries(shifts.data)
+        setSummaryLoaded(true)
+        const result = await categoryRead
+        if (summaryRequest !== summaryGeneration.current) return
+        if (result.data && !workChoiceTouched.current) {
+          setChoice(
+            chooseLastCategory(result.data.time_categories, shifts.data, saved),
+          )
+        }
+      })
   }, [viewerId, storageKey, readStatus])
 
   useEffect(() => {
@@ -170,6 +184,7 @@ export default function MyTime() {
   const punch = async (action: Action) => {
     if (inFlight.current || !online || mustRefresh) return
     inFlight.current = true
+    workChoiceTouched.current = true
     ++statusGeneration.current
     ++summaryGeneration.current
     setBusy(true)
@@ -215,6 +230,7 @@ export default function MyTime() {
           // A kiosk or another phone may have changed the clock since our read.
           // A real refusal is safe to retry once that status refresh finishes.
           setError(result.error || 'Nothing was saved. Try again.')
+          markUnconfirmed()
           await readStatus()
         }
         return
@@ -463,7 +479,10 @@ export default function MyTime() {
                 <WorkChips
                   categories={categories}
                   value={choice}
-                  onChange={setChoice}
+                  onChange={(id) => {
+                    workChoiceTouched.current = true
+                    setChoice(id)
+                  }}
                   disabled={blocked}
                 />
                 {categoryState === 'ready' && categories.length === 0 && (
