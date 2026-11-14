@@ -16,6 +16,8 @@ export function AccessTab({ user, myPayForEveryone, myPayError, onResetPin, onDe
   const [role, setRole] = useState(user.role)
   const [personal, setPersonal] = useState(user.personal_access_enabled)
   const [email, setEmail] = useState(user.email || '')
+  const [first, setFirst] = useState(user.first_name || '')
+  const [last, setLast] = useState(user.last_name || '')
   const [myPay, setMyPay] = useState(Boolean(user.my_pay_enabled))
   const [sendInvite, setSendInvite] = useState(false)
   const [notice, setNotice] = useState('')
@@ -24,10 +26,10 @@ export function AccessTab({ user, myPayForEveryone, myPayError, onResetPin, onDe
   const ended = user.employment_status === 'terminated'
   const self = currentUser?.id === user.id
   const accessLocked = user.can_change_access === false || ended
-  const dirty = sendInvite || role !== user.role || personal !== user.personal_access_enabled || email !== (user.email || '') || myPay !== Boolean(user.my_pay_enabled)
-  const discard = () => { setRole(user.role); setPersonal(user.personal_access_enabled); setEmail(user.email || ''); setMyPay(Boolean(user.my_pay_enabled)); setSendInvite(false); edit.setError('') }
+  const dirty = (!personal && (first !== (user.first_name || '') || last !== (user.last_name || ''))) || sendInvite || role !== user.role || personal !== user.personal_access_enabled || email !== (user.email || '') || myPay !== Boolean(user.my_pay_enabled)
+  const discard = () => { setRole(user.role); setPersonal(user.personal_access_enabled); setEmail(user.email || ''); setMyPay(Boolean(user.my_pay_enabled)); setFirst(user.first_name || ''); setLast(user.last_name || ''); setSendInvite(false); edit.setError('') }
   const save = () => void edit.save({ role, personal_access_enabled: personal, ...(email !== (user.email || '') ? { email: email.trim() || null } : {}), my_pay_enabled: myPay, send_invitation: personal && sendInvite,
-    ...(!personal ? { first_name: user.first_name || user.full_name || user.display_name, last_name: user.last_name || '' } : {}) })
+    ...(!personal ? { first_name: first.trim(), last_name: last.trim() } : {}) })
   const unsaved = useUnsavedChanges({ dirty, onSave: save, onDiscard: discard, saving: edit.saving,
     shouldBlock: blockPathOrParams('tab'), what: 'Access', saveLabel: 'Save', saveDisabled: edit.conflict || ended,
     summary: role !== user.role ? `Role: ${roleLabel(user.role)} → ${roleLabel(role)}` : 'Sign-in and My Pay' })
@@ -49,6 +51,10 @@ export function AccessTab({ user, myPayForEveryone, myPayError, onResetPin, onDe
       <Field label="Email" help={user.has_clerk_account && !user.is_pending ? 'Activated accounts update their email in Clerk.' : 'An email is required for personal sign-in.'}>
         <Input type="email" value={email} disabled={accessLocked || !personal || (user.has_clerk_account && !user.is_pending) || edit.saving} onChange={event => setEmail(event.target.value)} />
       </Field>
+      {!personal && !ended && <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Kiosk first name" required><Input value={first} disabled={accessLocked || edit.saving} onChange={e => setFirst(e.target.value)} /></Field>
+        <Field label="Kiosk last name"><Input value={last} disabled={accessLocked || edit.saving} onChange={e => setLast(e.target.value)} /></Field>
+      </div>}
       {personal && (user.is_pending || !user.has_clerk_account) && !accessLocked && <Switch label="Send invitation when saved" checked={sendInvite} onChange={setSendInvite} disabled={edit.saving} />}
       {user.is_pending && user.personal_access_enabled && !accessLocked && <Button variant="secondary" loading={resending} disabled={dirty} onClick={() => void resend()}>Resend invite</Button>}
       {accessLocked && !ended && <p className="text-body-sm text-ink-muted">Only an owner can change an owner's or admin's sign-in and kiosk access.</p>}

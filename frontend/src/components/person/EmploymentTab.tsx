@@ -77,7 +77,7 @@ export function EmploymentTab({ user, onSaved }: { user: AdminUser; onSaved: (us
             {options.value.groups.map(group => <Chip key={group.key} checked={groups.includes(group.key)} disabled={ended || edit.saving} onChange={() => setGroups(toggle(groups, group.key))}>{group.label}</Chip>)}
             {!options.value.groups.length && <p className="text-body-sm text-ink-muted">No departments configured.</p>}
           </div></fieldset>
-          <Switch label="Tracks work hours" checked={tracking} onChange={setTracking} disabled={user.can_change_access === false || (!user.personal_access_enabled && !tracking)} description="Includes shared kiosk access. Clock them out before changing this setup." />
+          <Switch label="Tracks work hours" checked={tracking} onChange={setTracking} disabled={user.can_change_access === false || !user.personal_access_enabled} description={user.personal_access_enabled ? "Includes shared kiosk access. Clock them out before changing this setup." : "Kiosk-only staff must track work hours. Enable personal sign-in in Access before turning this off."} />
           {tracking && <fieldset><legend className="mb-2 text-body-sm font-medium">Work they can clock</legend><div className="flex flex-wrap gap-2">
             {options.value.categories.filter(category => category.is_active || categories.includes(category.id)).map(category => <Chip key={category.id} checked={categories.includes(category.id)} disabled={ended || edit.saving} onChange={() => setCategories(toggle(categories, category.id))}>{category.name}{!category.is_active && ' (inactive)'}</Chip>)}
           </div><p className="mt-2 text-body-sm text-ink-muted">Choose at least one active work type.</p></fieldset>}
@@ -95,7 +95,7 @@ export function EmploymentTab({ user, onSaved }: { user: AdminUser; onSaved: (us
         {user.termination_reason && <p className="text-body-sm text-ink-muted [overflow-wrap:anywhere]">{user.termination_reason}</p>}
         {user.can_change_access !== false && <Button variant="secondary" onClick={() => setReactivating(true)}>Reactivate…</Button>}</>
         : <><p className="text-body-sm text-ink-muted">Turns off sign-in, the kiosk and My Pay, and revokes open pay stub links. Their hours and paychecks stay.</p>
-          {user.can_change_access !== false && <Button variant="danger-outline" disabled={dirty || edit.saving} onClick={() => setEnding(true)}>End {personName(user)}'s employment…</Button>}
+          {user.can_change_access !== false && <Button variant="danger-outline" className="max-w-full whitespace-normal! text-left [overflow-wrap:anywhere]" disabled={dirty || edit.saving} onClick={() => setEnding(true)}>End {personName(user)}'s employment…</Button>}
           {dirty && <p className="text-body-sm text-ink-muted">Save or discard changes before ending employment.</p>}</>}
       {user.can_change_access === false && <p className="text-body-sm text-ink-muted">Only an owner can end or restore employment for an owner or admin.</p>}
     </section>

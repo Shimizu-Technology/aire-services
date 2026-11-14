@@ -36,6 +36,14 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     expect(worker.approval_group_keys).to eq([ "cfi" ])
   end
 
+  it "returns the conflict copy when another editor promoted the person beyond this admin's access" do
+    worker.update!(role: "admin", admin_edit_version: 1)
+    edit(worker, { role: "manager", staff_title: "Stale" }, version: 0)
+    expect(response).to have_http_status(:conflict)
+    expect(response.parsed_body["error"]).to eq(AdminPersonEdit::MESSAGE)
+    expect(worker.reload).to have_attributes(role: "admin", staff_title: nil, admin_edit_version: 1)
+  end
+
   it "requires a valid version, rather than silently allowing an unprotected update" do
     [ nil, "invalid", -1, "0.5" ].each do |version|
       edit(worker, { staff_title: "Must not save" }, version: version)

@@ -131,6 +131,9 @@ module Api
           if params[:person_edit].present?
             params.merge!(JSON.parse(params[:person_edit]))
           end
+          # Refuse an already-stale form before evaluating its old role or
+          # access choices. The authoritative check repeats under the row lock.
+          AdminPersonEdit.check!(@user, params[:admin_edit_version])
           validate_media_upload!(params[:photo], media_type: "image", attachment_name: :photo) if params[:photo].present?
           if @user.id == current_user.id && params[:role].present? && params[:role] != current_user.role
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity

@@ -88,6 +88,13 @@ describe('Access', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload person' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ role: 'admin', admin_edit_version: 5 })))
   })
+  it('keeps kiosk names editable when turning personal sign-in off', async () => {
+    access()
+    fireEvent.click(screen.getByRole('switch', { name: 'Personal sign-in' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Kiosk first name' }), { target: { value: 'Ana María' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(7, expect.objectContaining({ personal_access_enabled: false, first_name: 'Ana María', last_name: 'Rivera' }), undefined))
+  })
   it('guards tab navigation, keeps the draft, then discards it on request', async () => {
     access()
     fireEvent.click(screen.getByRole('radio', { name: /^Manager/ }))
@@ -119,6 +126,11 @@ describe('Employment', () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(7, expect.objectContaining({ admin_edit_version: 4,
       staff_title: 'Senior instructor', approval_groups: ['cfi', 'ops'], time_category_ids: [1, 2], is_intern: true,
       public_team_bio: 'Flight instructor based in Guam.', public_team_sort_order: 3 }), null))
+  })
+  it('keeps the only access path enabled for kiosk-only staff', async () => {
+    open(<EmploymentTab user={{ ...person, personal_access_enabled: false }} onSaved={onSaved} />)
+    expect(await screen.findByRole('switch', { name: 'Tracks work hours' })).toBeDisabled()
+    expect(screen.getByText(/Enable personal sign-in in Access before turning this off/)).toBeInTheDocument()
   })
   it('rejects an oversized photo without losing other draft changes', () => {
     open(<EmploymentTab user={person} onSaved={onSaved} />)
