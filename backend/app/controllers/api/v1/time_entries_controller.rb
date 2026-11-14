@@ -12,6 +12,8 @@ module Api
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
       before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval, :review_history ]
 
+      around_action :check_expected_time_entry_version, only: [ :update, :approve, :deny, :approve_overtime, :deny_overtime ]
+
       # GET /api/v1/time_entries
       def index
         @time_entries = current_user.can_manage_team_time? ? TimeEntry.all : TimeEntry.for_user(current_user)
@@ -677,6 +679,34 @@ module Api
         @own_time_needs_another_approver && entry.user_id == current_user.id
       end
 
+      # TimeEntry#lock! acquires the employee lock before reloading the entry.
+      # Keep the comparison and the entire write in that same transaction so a
+      # change after a client's preflight GET cannot slip past the check.
+      def check_expected_time_entry_version
+        attributes = action_name == "update" ? params[:time_entry] : params
+        return yield unless attributes&.key?(:expected_version)
+        return yield if action_name == "update" && attributes[:review_action].present?
+
+        @time_entry.with_lock do
+          version = attributes[:expected_version]
+          if version.to_s.match?(/\A\d+\z/) && @time_entry.lock_version == version.to_i
+            yield
+          else
+            render_stale_time_entry
+          end
+        end
+      end
+
+      def render_stale_time_entry
+        @stale_time_entry_response = true
+        render json: { error: "This shift changed since you opened it. Nothing was saved.", code: "stale_entry" }, status: :conflict
+      end
+
+      # A rejected stale write must not create even the fallback request audit.
+      def write_default_audit_event
+        super unless @stale_time_entry_response
+      end
+
       def with_export_invalidation(entry, reason)
         TimeEntry.transaction do
           updated_entry = yield
@@ -715,8 +745,8 @@ module Api
                                        action: attributes.delete("review_action"), attributes: attributes,
                                        reason: correction_reason)
         render json: { time_entry: serialize_time_entry(@time_entry) }
-      rescue TimeEntryReviewCorrection::StaleEntryError => e
-        render json: { error: e.message, code: "stale_entry" }, status: :conflict
+      rescue TimeEntryReviewCorrection::StaleEntryError
+        render_stale_time_entry
       rescue TimeEntryReviewCorrection::CorrectionError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
