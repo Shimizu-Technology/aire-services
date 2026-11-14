@@ -1,6 +1,7 @@
 // First, before analytics or anything else loads: take a pay stub link
 // token out of the URL. Imports run in order, so this runs before PostHog.
 import './lib/payStubLinkTokenGuard'
+import { installStaleBuildReload } from './lib/staleBuildReload'
 import { StagingContext } from './components/StagingContext'
 /* eslint-disable react-refresh/only-export-components */
 import { StrictMode } from 'react'
@@ -10,6 +11,9 @@ import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './contexts/AuthContext'
 import { PostHogProvider } from './providers/PostHogProvider'
+
+// A tab opened before a deploy reloads instead of going blank on its next page.
+installStaleBuildReload()
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 const isClerkEnabled = Boolean(PUBLISHABLE_KEY && PUBLISHABLE_KEY !== 'YOUR_PUBLISHABLE_KEY')
