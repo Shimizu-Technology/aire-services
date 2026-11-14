@@ -211,8 +211,12 @@ export interface TimecardPersonRow {
   employmentStatus: UserSummary['employment_status']
   terminationEffectiveOn: string | null
   timeCategoryIds: number[]
-  /** Approved hours this period; null when the summary couldn't load. */
-  approvedHours: number | null
+  /**
+   * Hours worked this period: counted time plus time still waiting. It always
+   * equals the timecard's Approved + Waiting + Overtime waiting. Null when the
+   * summary couldn't load.
+   */
+  workedHours: number | null
   waitingCount: number
   overtimeWaitingCount: number
   openClock: OpenClockState
@@ -253,7 +257,7 @@ export function buildPeopleRows(users: UserSummary[], summary: TimecardSummaryEm
       employmentStatus: user.employment_status,
       terminationEffectiveOn: user.termination_effective_on ?? null,
       timeCategoryIds: user.time_category_ids ?? [],
-      approvedHours: row ? row.total_hours : null,
+      workedHours: row ? Math.round((row.total_hours + (row.waiting_hours ?? 0)) * 100) / 100 : null,
       waitingCount,
       overtimeWaitingCount,
       openClock,

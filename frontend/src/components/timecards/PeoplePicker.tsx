@@ -97,7 +97,8 @@ export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterCha
         <ListGroup label="People" className="overflow-hidden rounded-card border border-line bg-surface">
           {shown.map((person) => {
             const pill = pillFor(person)
-            const hours = person.approvedHours === null ? null : `${formatHours(person.approvedHours)} approved`
+            // Hours worked, not "approved": the pill already says what's waiting.
+            const hours = person.workedHours === null ? null : `${formatHours(person.workedHours)} this period`
             return (
               <ListRow
                 key={person.id}

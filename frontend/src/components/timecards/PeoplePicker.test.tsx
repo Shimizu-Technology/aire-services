@@ -6,7 +6,7 @@ import { PeoplePicker } from './PeoplePicker'
 
 const row = (id: number, name: string, extra: Partial<TimecardPersonRow> = {}): TimecardPersonRow => ({
   id, name, firstName: name.split(' ')[0], groups: ['CFI'], employmentStatus: 'active', terminationEffectiveOn: null, timeCategoryIds: [],
-  approvedHours: 40, waitingCount: 0, overtimeWaitingCount: 0, openClock: null, openSince: null, needsLook: false, ...extra,
+  workedHours: 40, waitingCount: 0, overtimeWaitingCount: 0, openClock: null, openSince: null, needsLook: false, ...extra,
 })
 
 const PEOPLE = [

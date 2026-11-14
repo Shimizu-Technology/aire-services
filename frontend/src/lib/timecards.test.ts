@@ -86,7 +86,12 @@ describe('buildPeopleRows', () => {
     expect(rows.map(row => [row.name, row.needsLook, row.openClock])).toEqual([
       ['Caleb Perez', true, 'stale'], ['Ethan Cruz', true, null], ['Grace Torres', false, 'live'], ['Jun Santos', true, null], ['Kai Blas', false, null],
     ])
-    expect(rows[0]).toMatchObject({ approvedHours: 43.2, openSince: '2026-11-10', groups: ['CFI'] })
+    expect(rows[0]).toMatchObject({ workedHours: 43.2, openSince: '2026-11-10', groups: ['CFI'] })
+  })
+
+  it('counts hours worked as counted time plus time still waiting', () => {
+    const [row] = buildPeopleRows([user(2, 'Ethan Cruz')], [{ ...summaryRow(2, 57.5, { pending_count: 1, pending_overtime_count: 1 }), waiting_hours: 11.5 }], [], '2026-11-12')
+    expect(row.workedHours).toBe(69)
   })
 
   it('leaves out former staff with nothing this period and people who don’t track time', () => {
@@ -101,7 +106,7 @@ describe('buildPeopleRows', () => {
 
   it('lists everyone current without hours when the summary is unavailable', () => {
     const rows = buildPeopleRows([user(1, 'Caleb Perez'), user(2, 'Old Timer', { employment_status: 'terminated' })], null, [], '2026-11-12')
-    expect(rows).toEqual([expect.objectContaining({ name: 'Caleb Perez', approvedHours: null })])
+    expect(rows).toEqual([expect.objectContaining({ name: 'Caleb Perez', workedHours: null })])
   })
 })
 

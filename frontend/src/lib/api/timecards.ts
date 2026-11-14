@@ -9,6 +9,12 @@ import type { PayPeriod } from '../payPeriods'
 /** A person's hours report row without its per-entry rows (`summary_only=1`). */
 export type TimecardSummaryEmployee = Omit<HoursReportEmployee, 'days' | 'excluded_entries'> & {
   days: Array<Omit<HoursReportDay, 'entries'>>
+  /**
+   * Hours left out of total_hours that are still waiting (for approval, or
+   * held for an overtime review). total_hours + waiting_hours is every hour
+   * worked in the period. Absent from an API older than this field.
+   */
+  waiting_hours?: number
 }
 
 export type TimecardSummaryResponse = Omit<HoursReportResponse, 'employees'> & {
