@@ -36,6 +36,11 @@ const ClockIcon = () => (
   </svg>
 )
 
+/** "2.5h", "8.67h": enough digits to match the card's own hours. */
+function formatHours(hours: number) {
+  return `${Math.round(hours * 100) / 100}h`
+}
+
 function sumEntryHours(entries: WeekGridEntry[]): number {
   return entries.reduce((sum, entry) => sum + entry.hours, 0)
 }
@@ -158,10 +163,16 @@ export default function WeekGrid<T extends WeekGridEntry>({
                             {entry.hours.toFixed(2)}h
                           </div>
                           <div className="flex items-center gap-1">
-                            {entry.approval_status === 'pending' && <span className="h-2 w-2 rounded-full bg-amber-500" title="Pending approval" />}
-                            {entry.approval_status === 'denied' && <span className="h-2 w-2 rounded-full bg-red-500" title="Denied" />}
+                            {entry.approval_status === 'pending' && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />}
+                            {entry.approval_status === 'denied' && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-red-500" />}
                           </div>
                         </div>
+                        {entry.approval_status === 'pending' && (
+                          <div className="mt-1.5 text-xs font-semibold text-amber-800">{formatHours(entry.hours)} waiting</div>
+                        )}
+                        {entry.approval_status === 'denied' && (
+                          <div className="mt-1.5 text-xs font-semibold text-red-800">Denied</div>
+                        )}
                         {entry.formatted_start_time && entry.formatted_end_time && (
                           <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
                         )}
@@ -226,6 +237,7 @@ function CalendarUserGroup({
   hasDenied: boolean
   onClick: () => void
 }) {
+  const waitingHours = entries.filter(e => e.approval_status === 'pending').reduce((sum, e) => sum + e.hours, 0)
   const catSummary = entries.reduce((acc, e) => {
     const cat = e.time_category?.name || 'Other'
     acc[cat] = (acc[cat] || 0) + e.hours
@@ -247,10 +259,12 @@ function CalendarUserGroup({
             {totalHours.toFixed(2)}h
           </div>
           <div className="flex items-center gap-1.5">
-            {hasPending && <span className="h-2 w-2 rounded-full bg-amber-500" title="Has pending entries" />}
-            {hasDenied && <span className="h-2 w-2 rounded-full bg-red-500" title="Has denied entries" />}
+            {hasPending && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />}
+            {hasDenied && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-red-500" />}
           </div>
         </div>
+        {waitingHours > 0 && <div className="mt-1.5 text-xs font-semibold text-amber-800">{formatHours(waitingHours)} waiting</div>}
+        {hasDenied && <div className="mt-1.5 text-xs font-semibold text-red-800">Some denied</div>}
         {firstStart && lastEnd && (
           <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{firstStart} – {lastEnd}</div>
         )}

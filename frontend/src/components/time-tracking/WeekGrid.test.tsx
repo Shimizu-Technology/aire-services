@@ -71,4 +71,60 @@ describe('WeekGrid below 1280px (M4)', () => {
     const { container } = renderGrid()
     expect(container.querySelector('.bg-linear-to-l')).toBeNull()
   })
+
+  it('says "waiting" in words on a waiting shift, and the dot is only decoration', () => {
+    const { container } = renderGrid()
+    expect(screen.getByText('7.5h waiting')).toBeVisible()
+    const dot = container.querySelector('.bg-amber-500')
+    expect(dot).toHaveAttribute('aria-hidden', 'true')
+    expect(dot).not.toHaveAttribute('title')
+  })
+
+  it('shows no waiting text on an approved shift', () => {
+    render(
+      <WeekGrid
+        weekDates={weekDates}
+        entriesByDate={{ '2026-11-09': [{ ...entry, approval_status: 'approved' }] }}
+        hoursPerDay={{ '2026-11-09': 7.5 }}
+        ownerLabel={() => 'Joaquin Mendiola'}
+        openEditEntry={vi.fn()}
+        setPersonDayModal={vi.fn()}
+        openNewEntry={vi.fn()}
+        addDisabled={false}
+      />,
+    )
+    expect(screen.queryByText(/waiting/)).toBeNull()
+  })
+
+  it('adds up the waiting hours for a person with several shifts in one day', () => {
+    render(
+      <WeekGrid
+        weekDates={weekDates}
+        entriesByDate={{ '2026-11-09': [entry, { ...entry, id: 2, hours: 2.5 }, { ...entry, id: 3, hours: 4, approval_status: 'approved' }] }}
+        hoursPerDay={{ '2026-11-09': 14 }}
+        ownerLabel={() => 'Joaquin Mendiola'}
+        openEditEntry={vi.fn()}
+        setPersonDayModal={vi.fn()}
+        openNewEntry={vi.fn()}
+        addDisabled={false}
+      />,
+    )
+    expect(screen.getByText('10h waiting')).toBeVisible()
+  })
+
+  it('names a denied shift in words too', () => {
+    render(
+      <WeekGrid
+        weekDates={weekDates}
+        entriesByDate={{ '2026-11-09': [{ ...entry, approval_status: 'denied' }] }}
+        hoursPerDay={{ '2026-11-09': 0 }}
+        ownerLabel={() => 'Joaquin Mendiola'}
+        openEditEntry={vi.fn()}
+        setPersonDayModal={vi.fn()}
+        openNewEntry={vi.fn()}
+        addDisabled={false}
+      />,
+    )
+    expect(screen.getByText('Denied')).toBeVisible()
+  })
 })
