@@ -23,6 +23,8 @@ export interface ConfirmDialogProps {
   busy?: boolean
   /** When set, the action stays disabled until this exact text is typed. */
   requireText?: string
+  /** A third choice between Cancel and the action, e.g. "Discard changes". */
+  alternate?: { label: string; onClick: () => void; tone?: 'default' | 'danger' }
   onConfirm: () => void
   onCancel: () => void
 }
@@ -42,6 +44,7 @@ function OpenConfirmDialog({
   tone = 'default',
   busy = false,
   requireText,
+  alternate,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -105,6 +108,16 @@ function OpenConfirmDialog({
           <Button data-confirm-cancel variant="secondary" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
             {cancelLabel}
           </Button>
+          {alternate && (
+            <Button
+              variant={alternate.tone === 'danger' ? 'danger-outline' : 'secondary'}
+              onClick={alternate.onClick}
+              disabled={busy}
+              className="w-full sm:w-auto"
+            >
+              {alternate.label}
+            </Button>
+          )}
           <Button
             data-confirm-action
             variant={danger ? 'danger' : 'primary'}

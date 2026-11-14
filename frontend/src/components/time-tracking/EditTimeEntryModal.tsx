@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { shiftHistoryHref } from '../../lib/shiftHistory'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useConfirm } from '../ui/useConfirm'
 
 interface TimeCategoryOption {
@@ -96,6 +98,28 @@ function timeInputValue(value: string | null | undefined) {
   return hour && minute ? `${hour}:${minute}` : ''
 }
 
+function formFromEntry(entry: EditableTimeEntry) {
+  return {
+    work_date: entry.work_date,
+    start_time: entry.start_time || '08:00',
+    end_time: entry.end_time || '17:00',
+    description: entry.description || '',
+    time_category_id: entry.time_category?.id.toString() || '',
+    break_minutes: entry.break_minutes,
+  }
+}
+
+function breakRowsFromEntry(entry: EditableTimeEntry) {
+  return (entry.breaks || [])
+    .filter((row) => row.start_time && row.end_time)
+    .map((row) => ({
+      id: row.id,
+      start_time: timeInputValue(row.start_time),
+      end_time: timeInputValue(row.end_time),
+    }))
+    .filter((row) => row.start_time && row.end_time)
+}
+
 export default function EditTimeEntryModal({
   isOpen,
   entry,
@@ -128,6 +152,8 @@ export default function EditTimeEntryModal({
   const [exportReferences, setExportReferences] = useState<string[]>([])
   const [reviewAction, setReviewAction] = useState<'end_clock' | 'resubmit_denied' | null>(null)
   const [stopDate, setStopDate] = useState('')
+  const [historyGuard, setHistoryGuard] = useState(false)
+  const [categoryError, setCategoryError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   useDialogFocus(isOpen && !!entry, dialogRef, () => { if (!saving && !deleting) onClose() })
@@ -136,22 +162,10 @@ export default function EditTimeEntryModal({
   useEffect(() => {
     if (!isOpen || !entry) return
 
-    setFormData({
-      work_date: entry.work_date,
-      start_time: entry.start_time || '08:00',
-      end_time: entry.end_time || '17:00',
-      description: entry.description || '',
-      time_category_id: entry.time_category?.id.toString() || '',
-      break_minutes: entry.break_minutes,
-    })
-    setBreakRows((entry.breaks || [])
-      .filter((row) => row.start_time && row.end_time)
-      .map((row) => ({
-        id: row.id,
-        start_time: timeInputValue(row.start_time),
-        end_time: timeInputValue(row.end_time),
-      }))
-      .filter((row) => row.start_time && row.end_time))
+    setFormData(formFromEntry(entry))
+    setBreakRows(breakRowsFromEntry(entry))
+    setHistoryGuard(false)
+    setCategoryError(null)
     setReviewAction(null)
     setStopDate(entry.work_date)
     setError(null)
@@ -177,6 +191,15 @@ export default function EditTimeEntryModal({
     return Math.max(0, durationMinutes / 60)
   }, [entry, formData.break_minutes, formData.end_time, formData.start_time])
 
+  // Anything typed or chosen since the sheet opened. Looking at history must not throw it away.
+  const dirty = useMemo(() => {
+    if (!entry) return false
+    const initial = formFromEntry(entry)
+    return !!reviewAction || correctionReason.trim() !== '' ||
+      (Object.keys(initial) as Array<keyof typeof initial>).some((key) => formData[key] !== initial[key]) ||
+      JSON.stringify(breakRows) !== JSON.stringify(breakRowsFromEntry(entry))
+  }, [breakRows, correctionReason, entry, formData, reviewAction])
+
   const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email?.split('@')[0] || 'Team member'
   const isActiveClockEntry = entry?.entry_method === 'clock' && (entry.status === 'clocked_in' || entry.status === 'on_break')
 
@@ -185,20 +208,25 @@ export default function EditTimeEntryModal({
     onError?.(message)
   }
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!entry) return
+  // Saves the edit. True when it saved (or there was nothing to change).
+  const save = async (): Promise<boolean> => {
+    if (!entry) return false
+    setCategoryError(null)
     if ((!isActiveClockEntry || reviewAction === 'end_clock') && !formData.time_category_id) {
-      setLocalError('Choose a work category before saving this time entry')
-      return
+      const message = 'Choose the kind of work before saving this shift.'
+      setError(null)
+      setCategoryError(message)
+      onError?.(message)
+      window.setTimeout(() => document.getElementById(`${titleId}-category`)?.focus(), 0)
+      return false
     }
     if (reviewAction && !correctionReason.trim()) {
       setLocalError('Explain why this entry should be submitted for review')
-      return
+      return false
     }
     if (reviewAction && (entry.version == null || !Number.isInteger(entry.version) || entry.version < 0)) {
       setLocalError('Reload this entry before submitting the correction')
-      return
+      return false
     }
     setSaving(true)
     setLocalError(null)
@@ -243,7 +271,7 @@ export default function EditTimeEntryModal({
 
       if (!reviewAction && Object.keys(payload).length === 0) {
         await onSaved()
-        return
+        return true
       }
 
       const response = await api.updateTimeEntry(entry.id, payload, correctionReason || undefined)
@@ -254,15 +282,39 @@ export default function EditTimeEntryModal({
           setExportReferences(response.export_references || [])
         }
         setLocalError(response.error)
-        return
+        return false
       }
 
       await onSaved()
+      return true
     } catch {
       setLocalError('Failed to save time entry')
+      return false
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    await save()
+  }
+
+  const historyHref = entry
+    ? shiftHistoryHref({ entryId: entry.id, workDate: entry.work_date, personName: entry.user.full_name || entry.user.display_name || entry.user.email?.split('@')[0] || 'Team member' },
+      window.location)
+    : '#'
+
+  const handleHistoryClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!dirty || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    setHistoryGuard(true)
+  }
+
+  const saveThenViewHistory = async () => {
+    const saved = await save()
+    setHistoryGuard(false)
+    if (saved) window.location.assign(historyHref)
   }
 
   const handleDelete = async () => {
@@ -357,7 +409,7 @@ export default function EditTimeEntryModal({
                       : 'Every change, including notes, returns this entry to the approval queue.'}
                   </div>
                 )}
-                {canViewActivity && <a href={`/admin/activity?subject_type=TimeEntry&subject_id=${entry.id}`} className="mt-3 inline-flex text-xs font-semibold text-cyan-700 transition hover:text-cyan-900">
+                {canViewActivity && <a href={historyHref} onClick={handleHistoryClick} className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-cyan-700 underline-offset-2 transition hover:text-cyan-900 hover:underline">
                   View complete activity history
                 </a>}
               </div>
@@ -391,8 +443,9 @@ export default function EditTimeEntryModal({
                   </label>
                 )}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
+                  <label htmlFor={`${titleId}-date`} className="mb-1 block text-sm font-medium text-primary-dark">Work date <span aria-hidden="true">*</span></label>
                   <input
+                    id={`${titleId}-date`}
                     type="date"
                     disabled={!!reviewAction}
                     value={formData.work_date}
@@ -542,13 +595,16 @@ export default function EditTimeEntryModal({
                 )}
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
+                  <label htmlFor={`${titleId}-category`} className="mb-1 block text-sm font-medium text-primary-dark">Kind of work <span aria-hidden="true">*</span></label>
                   <select
+                    id={`${titleId}-category`}
                     disabled={reviewAction === 'resubmit_denied'}
                     value={formData.time_category_id}
-                    onChange={(event) => setFormData({ ...formData, time_category_id: event.target.value })}
-                    className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
-                    required={!isActiveClockEntry || reviewAction === 'end_clock'}
+                    onChange={(event) => { setCategoryError(null); setFormData({ ...formData, time_category_id: event.target.value }) }}
+                    aria-invalid={categoryError ? true : undefined}
+                    aria-describedby={[categories.length === 0 ? `${titleId}-category-hint` : '', categoryError ? `${titleId}-category-error` : ''].filter(Boolean).join(' ') || undefined}
+                    className={`w-full rounded-lg border px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary ${categoryError ? 'border-red-400' : 'border-neutral-warm'}`}
+                    aria-required={!isActiveClockEntry || reviewAction === 'end_clock'}
                   >
                     <option value="">Select category...</option>
                     {categories.map((category) => (
@@ -556,7 +612,10 @@ export default function EditTimeEntryModal({
                     ))}
                   </select>
                   {categories.length === 0 && (
-                    <p className="mt-1 text-xs font-medium text-red-600">Assign an active work category to this person before saving.</p>
+                    <p id={`${titleId}-category-hint`} className="mt-1 text-xs font-medium text-red-600">Assign an active work category to this person before saving.</p>
+                  )}
+                  {categoryError && (
+                    <p id={`${titleId}-category-error`} className="mt-1 text-sm font-medium text-red-700">Kind of work: {categoryError}</p>
                   )}
                 </div>
 
@@ -596,7 +655,7 @@ export default function EditTimeEntryModal({
                 </fieldset>
 
                 {error && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                  <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
                   </div>
                 )}
@@ -637,6 +696,17 @@ export default function EditTimeEntryModal({
             </div>
           </div>
           {confirmDialog}
+          <ConfirmDialog
+            open={historyGuard}
+            title="Save your changes before viewing history?"
+            description="You have changed this shift but haven't saved it yet. If you leave without saving, those changes are lost."
+            confirmLabel="Save and view history"
+            cancelLabel="Keep editing"
+            alternate={{ label: 'Discard changes', tone: 'danger', onClick: () => window.location.assign(historyHref) }}
+            busy={saving}
+            onConfirm={() => void saveThenViewHistory()}
+            onCancel={() => setHistoryGuard(false)}
+          />
         </div>,
     document.body,
   )
