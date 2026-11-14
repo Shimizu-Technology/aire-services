@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
-import type { HoursReportEntry, HoursReportResponse } from '../../lib/api'
+import type { HoursReportEmployee, HoursReportEntry, HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
   getSchedule: vi.fn(),
@@ -96,7 +96,7 @@ function linkedFixture(id = 90) {
   }
 }
 
-function prepareLinkedReport() {
+function prepareLinkedReport(employeeChanges: Partial<HoursReportEmployee> = {}) {
   const entry = linkedFixture()
   const report = makeHoursReport('2026-08-16', '2026-08-31', 4)
   report.employees = [{
@@ -107,6 +107,7 @@ function prepareLinkedReport() {
     first_work_date: entry.work_date, last_work_date: entry.work_date, ready: true,
     quality: report.quality, issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
     categories: [], weeks: [], days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [{ ...entry, quality_flags: [] }] }],
+    ...employeeChanges,
   }]
   apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: entry } })
   apiMock.getHoursReport.mockResolvedValue({ data: report })
@@ -140,6 +141,12 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
+  })
+
+  it('does not offer a zero-approved-OT button when only waiting overtime exists', async () => {
+    prepareLinkedReport({ overtime_hours: 3.42, approval_complete: false, payroll_hours: { ...approvedHours(4), overtime_waiting_hours: 3.42 } })
+    await screen.findByRole('button', { name: 'Review hours for Casey Employee' })
+    expect(screen.queryByTitle('View weekly overtime breakdown')).not.toBeInTheDocument()
   })
 
   it.each([

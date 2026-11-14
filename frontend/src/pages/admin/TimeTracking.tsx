@@ -2317,7 +2317,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}</td>
                       <td className="px-4 py-3 text-right text-sm font-semibold">
-                        {employee.overtime_hours > 0 ? (
+                        {(employee.payroll_hours?.approved_overtime_hours ?? 0) > 0 ? (
                           <button
                             type="button"
                             onClick={(event) => {
