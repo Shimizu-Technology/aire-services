@@ -38,7 +38,8 @@ class TimeEntryOverlap
   end
 
   # [start, end) in Guam. Shift times are times of day on the work date; an end
-  # at or before the start is the next morning. An open clock has no end.
+  # before the start is the next morning, and an end equal to the start is a
+  # zero-length shift (a mis-tap), never 24 hours. An open clock has no end.
   def self.interval(entry)
     return unless entry.work_date && entry.start_time
 
@@ -47,7 +48,7 @@ class TimeEntryOverlap
     return unless entry.end_time
 
     ends = on_day(entry.work_date, entry.end_time)
-    ends += 1.day if ends <= starts
+    ends += 1.day if ends < starts
     [ starts, ends ]
   end
 
@@ -101,7 +102,8 @@ class TimeEntryOverlap
   def self.on_day(date, time)
     zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
     local = time.in_time_zone(zone)
-    zone.local(date.year, date.month, date.day, local.hour, local.min, local.sec)
+    # Keep fractional seconds: sub-second clock punches must keep their order.
+    zone.local(date.year, date.month, date.day, local.hour, local.min, local.sec + local.subsec)
   end
   private_class_method :candidates, :on_day
 end

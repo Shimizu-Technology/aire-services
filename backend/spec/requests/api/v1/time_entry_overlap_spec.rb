@@ -132,6 +132,30 @@ RSpec.describe "Overlapping shifts", type: :request do
       )
     end
 
+    it "treats a sub-second mis-tap as zero length, not an overnight shift" do
+      tap = zone.local(2026, 11, 14, 8)
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 11, 14), entry_method: "clock",
+             status: "completed", start_time: tap + 0.1.seconds, end_time: tap + 0.5.seconds,
+             clock_in_at: tap + 0.1.seconds, clock_out_at: tap + 0.5.seconds, hours: 0)
+
+      add(employee, start: "12:00", finish: "16:00")
+      expect(response).to have_http_status(:created)
+
+      add(employee, date: "2026-11-13", start: "20:00", finish: "23:00")
+      expect(response).to have_http_status(:created)
+    end
+
+    it "still catches time added across a sub-second punch" do
+      tap = zone.local(2026, 11, 14, 8)
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 11, 14), entry_method: "clock",
+             status: "completed", start_time: tap + 0.1.seconds, end_time: tap + 0.5.seconds,
+             clock_in_at: tap + 0.1.seconds, clock_out_at: tap + 0.5.seconds, hours: 0)
+
+      add(employee, start: "07:00", finish: "09:00")
+
+      expect(response).to have_http_status(:unprocessable_entity)
+    end
+
     it "allows time before an open clock started" do
       clocked(employee, Date.new(2026, 11, 14), [ 13 ], nil)
 
