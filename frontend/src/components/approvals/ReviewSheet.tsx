@@ -196,7 +196,10 @@ export default function ReviewSheet({
       }
       if (row.version !== entry.version) {
         onDirty(false)
-        onClose(true, 'This shift changed since you opened it. Nothing was approved.')
+        onClose(
+          true,
+          'This shift changed since this approval attempt. Review its current values before deciding again.',
+        )
         return
       }
       setUnknown(false)

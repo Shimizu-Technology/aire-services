@@ -197,7 +197,7 @@ it('closes a changed unknown decision without merging stale exceptions or overti
   await waitFor(() =>
     expect(config.onClose).toHaveBeenCalledWith(
       true,
-      'This shift changed since you opened it. Nothing was approved.',
+      'This shift changed since this approval attempt. Review its current values before deciding again.',
     ),
   )
   expect(screen.queryByText('Changed after opening')).not.toBeInTheDocument()
@@ -322,7 +322,7 @@ it('does not report Saved when another approver changed and approved uncertain o
   await waitFor(() =>
     expect(config.onClose).toHaveBeenCalledWith(
       true,
-      'This shift changed since you opened it. Nothing was approved.',
+      'This shift changed since this approval attempt. Review its current values before deciding again.',
     ),
   )
   expect(config.onClose).not.toHaveBeenCalledWith(true, 'Saved')
