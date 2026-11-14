@@ -576,7 +576,7 @@ export default function AireKiosk() {
               {status?.clocked_in && categories.length > 1 && (
                 <p className="text-xs text-slate-400">Tap a different category to switch your current work type.</p>
               )}
-              <WorkChips categories={categories} value={selectedCategoryId} onChange={setSelectedCategoryId} disabled={!!actionLoading} />
+              <WorkChips dark categories={categories} value={selectedCategoryId} onChange={setSelectedCategoryId} disabled={!!actionLoading} />
             </div>
           ) : (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
