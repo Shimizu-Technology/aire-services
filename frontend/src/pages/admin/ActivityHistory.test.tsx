@@ -262,4 +262,31 @@ describe('ActivityHistory', () => {
     renderPage('/admin/activity?subject_type=TimeEntry&subject_id=44&shift_person=Chris&shift_date=2026-11-02&return_to=%2Fadmin%2Ftimecards')
     expect(await screen.findByRole('link', { name: "Back to Chris' Nov 2 shift" })).toBeInTheDocument()
   })
+
+  it.each([
+    ['time_entry.clock_ended', 'Ana ended the clock at 5:00 PM.'],
+    ['time_entry.denied_resubmitted', 'Ana changed the shift and sent it back for approval.'],
+    ['payroll_cockpit.time_entry_corrected', 'Ana corrected the shift from Payroll: Matches the timesheet.'],
+    ['time_entry.some_future_action', 'Ana made a change to this shift.'],
+  ])('puts the snapshots of %s behind Details and keeps plain sentences on the page', async (action, sentence) => {
+    const before = { work_date: '2026-11-13', end_time: null, clock_out_at: null, hours: 0, time_category_id: 1, breaks: [] }
+    const after = { work_date: '2026-11-13', end_time: '2026-11-13T07:00:00.000000Z', clock_out_at: '2026-11-13T07:00:00.000000Z', hours: 8, time_category_id: 1, breaks: [{ start_time: '2026-11-13T02:00:00.000000Z' }] }
+    const snapshotEvent = {
+      ...event, id: 95, action, summary: 'Ana did something to a shift',
+      actor: { id: 3, name: 'Ana', email: 'ana@example.com', role: 'manager', kind: 'user' },
+      changes: {}, details: { reason: 'Matches the timesheet', correction_reason: action === 'time_entry.some_future_action' ? undefined : 'Matches the timesheet', before, after, requires_approval: true },
+    }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [snapshotEvent], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Ana did something to a shift/ }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText(sentence)).toBeInTheDocument()
+    const details = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    // Nothing that looks like recorded data sits outside the Details disclosure.
+    const outside = panel.cloneNode(true) as HTMLElement
+    outside.querySelector('details')?.remove()
+    expect(outside.textContent).not.toMatch(/[{}[\]]|"work_date"|clock_out_at|time_category_id/)
+    expect(within(details).getAllByText(/clock_out_at/).length).toBeGreaterThan(0)
+  })
 })

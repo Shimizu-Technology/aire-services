@@ -68,8 +68,20 @@ export function formatHours(value: number) {
   return text.includes('.') ? text : `${text}.0`
 }
 
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+
+/** "5:00 PM" in Guam time. */
+export function formatTimeOfDay(value: string) {
+  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TIME_ZONE }).format(new Date(value))
+}
+
+function guamDay(value: string) {
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: TIME_ZONE }).format(new Date(value))
+}
+
 function formatValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === '') return 'not set'
+  if ((field === 'start_time' || field === 'end_time') && typeof value === 'string' && ISO_DATETIME.test(value)) return formatTimeOfDay(value)
   if (field === 'work_date' && typeof value === 'string') return formatDay(value)
   if (field === 'break_minutes' && typeof value === 'number') return formatMinutes(value)
   if (field === 'hours' && typeof value === 'number') return formatHours(value)
@@ -99,22 +111,18 @@ export function actorName(event: Pick<AuditLogEntry, 'actor'>) {
   return event.actor.name || event.actor.email?.split('@')[0] || 'Someone'
 }
 
-/**
- * Plain sentences for one recorded change, e.g.
- * "Chels changed clock-out from 3:30 PM to 3:00 PM." "Hours changed from 8.0 to 7.5." "Reason: …".
- * Empty when the event recorded no field changes (the event's own summary says enough).
- */
-export function describeChanges(event: Pick<AuditLogEntry, 'actor' | 'changes' | 'details'>): string[] {
-  const actor = actorName(event)
-  const fields = Object.entries(event.changes ?? {})
+type ChangeSummary = { items: string[]; hours: { from: string; to: string } | null | undefined }
+
+function summarizeChanges(changes: Record<string, unknown>): ChangeSummary {
+  const fields = Object.entries(changes)
   const hasTimes = fields.some(([field]) => field === 'start_time' || field === 'end_time')
   const items: string[] = []
-  let hoursChange: { from: string; to: string } | null | undefined
+  let hours: ChangeSummary['hours']
 
   for (const [field, raw] of fields) {
     const pair = pairOf(raw)
     if (field === 'hours') {
-      hoursChange = pair ? { from: formatValue(field, pair.from), to: formatValue(field, pair.to) } : null
+      hours = pair ? { from: formatValue(field, pair.from), to: formatValue(field, pair.to) } : null
       continue
     }
     if (COVERED_FIELDS.has(field)) {
@@ -138,15 +146,106 @@ export function describeChanges(event: Pick<AuditLogEntry, 'actor' | 'changes' |
       items.push(label)
     }
   }
+  return { items, hours }
+}
 
+const hoursRange = (hours: ChangeSummary['hours']) => (hours ? ` from ${hours.from} to ${hours.to}` : '')
+
+function reasonOf(details: Record<string, unknown> | undefined) {
+  for (const key of ['correction_reason', 'reason', 'review_note']) {
+    const value = details?.[key]
+    if (typeof value === 'string' && value.trim()) return { key, text: value.trim() }
+  }
+  return null
+}
+
+/**
+ * Plain sentences for one recorded change, e.g.
+ * "Chels changed clock-out from 3:30 PM to 3:00 PM." "Hours changed from 8.0 to 7.5." "Reason: …".
+ * Empty when the event recorded no field changes (the event's own summary says enough).
+ */
+export function describeChanges(event: Pick<AuditLogEntry, 'actor' | 'changes' | 'details'>): string[] {
+  const actor = actorName(event)
+  const { items, hours } = summarizeChanges(event.changes ?? {})
   const sentences: string[] = []
   if (items.length > 0) sentences.push(`${actor} changed ${joinList(items)}.`)
-  if (hoursChange !== undefined) {
-    const range = hoursChange ? ` from ${hoursChange.from} to ${hoursChange.to}` : ''
-    sentences.push(items.length > 0 ? `Hours changed${range}.` : `${actor} changed hours${range}.`)
+  if (hours !== undefined) {
+    sentences.push(items.length > 0 ? `Hours changed${hoursRange(hours)}.` : `${actor} changed hours${hoursRange(hours)}.`)
+  }
+  const reason = reasonOf(event.details)
+  if (sentences.length > 0 && reason) sentences.push(`Reason: ${reason.text}`)
+  return sentences
+}
+
+// Fields of a before/after snapshot worth telling the office about.
+const SNAPSHOT_FIELDS = ['work_date', 'start_time', 'end_time', 'clock_in_at', 'clock_out_at', 'hours', 'break_minutes', 'time_category_id', 'overtime_status', 'description', 'breaks']
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function snapshotChanges(before: Record<string, unknown>, after: Record<string, unknown>) {
+  const changes: Record<string, { from: unknown; to: unknown }> = {}
+  for (const field of SNAPSHOT_FIELDS) {
+    if (!(field in before) && !(field in after)) continue
+    if (JSON.stringify(before[field] ?? null) !== JSON.stringify(after[field] ?? null)) changes[field] = { from: before[field] ?? null, to: after[field] ?? null }
+  }
+  return changes
+}
+
+const ending = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
+
+export interface EventDescription {
+  sentences: string[]
+  /** Detail keys the sentences already say, so the panel doesn't repeat them. */
+  usedKeys: string[]
+}
+
+/**
+ * What to say about an event's recorded changes. Handles field changes (`changes`) and the
+ * before/after snapshots that review corrections and Payroll corrections keep in `details`.
+ * An event with recorded changes we can't put into words still gets a plain sentence, never
+ * raw data.
+ */
+export function describeEvent(event: Pick<AuditLogEntry, 'action' | 'actor' | 'changes' | 'details' | 'subject'>): EventDescription {
+  const actor = actorName(event)
+  const details = event.details ?? {}
+  const before = isRecord(details.before) ? details.before : null
+  const after = isRecord(details.after) ? details.after : null
+  const hasChanges = Object.keys(event.changes ?? {}).length > 0
+  const usedKeys: string[] = []
+
+  if (!before && !after) {
+    const sentences = describeChanges(event)
+    if (sentences.some((sentence) => sentence.startsWith('Reason: '))) usedKeys.push(reasonOf(details)?.key ?? '')
+    if (sentences.length === 0 && hasChanges) return { sentences: [`${actor} made a change to this ${event.subject?.type === 'TimeEntry' ? 'shift' : 'record'}.`], usedKeys }
+    return { sentences, usedKeys }
   }
 
-  const reason = event.details?.correction_reason ?? event.details?.review_note
-  if (sentences.length > 0 && typeof reason === 'string' && reason.trim()) sentences.push(`Reason: ${reason.trim()}`)
-  return sentences
+  const reason = reasonOf(details)
+  if (reason) usedKeys.push(reason.key)
+  const summary = summarizeChanges(snapshotChanges(before ?? {}, after ?? {}))
+  const changed: string[] = []
+  if (summary.items.length > 0) changed.push(`Changes: ${joinList(summary.items.map((item) => item.replace(/^the /, '')))}.`)
+  if (summary.hours !== undefined) changed.push(`Hours changed${hoursRange(summary.hours)}.`)
+
+  const sentences: string[] = []
+  if (event.action === 'time_entry.clock_ended') {
+    const stop = typeof after?.clock_out_at === 'string' ? after.clock_out_at : typeof after?.end_time === 'string' ? after.end_time : null
+    const workDate = typeof after?.work_date === 'string' ? after.work_date : null
+    const otherDay = stop && workDate && ISO_DATETIME.test(stop) && guamDay(stop) !== workDate ? ` on ${formatDay(guamDay(stop))}` : ''
+    sentences.push(stop && ISO_DATETIME.test(stop) ? `${actor} ended the clock at ${formatTimeOfDay(stop)}${otherDay}.` : `${actor} ended the clock.`)
+    if (typeof after?.hours === 'number') sentences.push(`The shift is now ${formatHours(after.hours)} hours and waiting for approval.`)
+    if (reason) sentences.push(`Reason: ${reason.text}`)
+  } else if (event.action === 'time_entry.denied_resubmitted') {
+    sentences.push(`${actor} changed the shift and sent it back for approval.`, ...changed)
+    if (reason) sentences.push(`Reason: ${reason.text}`)
+  } else if (event.action === 'payroll_cockpit.time_entry_corrected') {
+    sentences.push(reason ? `${actor} corrected the shift from Payroll: ${ending(reason.text)}` : `${actor} corrected the shift from Payroll.`, ...changed)
+  } else if (changed.length > 0 || hasChanges) {
+    sentences.push(`${actor} made a change to this ${event.subject?.type === 'TimeEntry' ? 'shift' : 'record'}.`, ...changed)
+  } else {
+    sentences.push(`${actor} made a change to this ${event.subject?.type === 'TimeEntry' ? 'shift' : 'record'}.`)
+  }
+  return { sentences, usedKeys }
 }

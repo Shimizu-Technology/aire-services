@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { actorName, describeChanges, formatGuamTime, formatHours } from './activitySentences'
+import { actorName, describeChanges, describeEvent, formatGuamTime, formatHours } from './activitySentences'
 
 const chels = { id: 1, name: 'Chels', email: 'chels@example.com', role: 'admin', kind: 'user' }
 
@@ -69,5 +69,59 @@ describe('formatting helpers', () => {
   it('shows Guam time and a safe actor name', () => {
     expect(formatGuamTime('2026-11-14T05:42:00Z')).toBe('Sat, Nov 14, 3:42 PM')
     expect(actorName({ actor: { ...chels, name: null, email: null } })).toBe('Someone')
+  })
+})
+
+describe('describeEvent: snapshots kept in details.before and details.after', () => {
+  const ana = { id: 3, name: 'Ana', email: 'ana@example.com', role: 'manager', kind: 'user' }
+  const subject = { type: 'TimeEntry', id: 9, name: '8 hours on 2026-11-13' }
+  const before = { work_date: '2026-11-13', start_time: '2026-11-12T21:00:00.000000Z', end_time: null, clock_in_at: '2026-11-12T21:00:00.000000Z', clock_out_at: null, hours: 0, break_minutes: 0, time_category_id: 1, approval_status: 'approved', status: 'clocked_in', lock_version: 3, breaks: [] }
+
+  it('says Ana ended the clock, when, and what it came to', () => {
+    const after = { ...before, end_time: '2026-11-13T07:00:00.000000Z', clock_out_at: '2026-11-13T07:00:00.000000Z', hours: 8, approval_status: 'pending', status: 'completed', lock_version: 4 }
+    const result = describeEvent({ action: 'time_entry.clock_ended', actor: ana, subject, changes: {}, details: { correction_reason: 'Forgot to clock out', before, after } })
+    expect(result.sentences).toEqual([
+      'Ana ended the clock at 5:00 PM.',
+      'The shift is now 8.0 hours and waiting for approval.',
+      'Reason: Forgot to clock out',
+    ])
+    expect(result.usedKeys).toEqual(['correction_reason'])
+    expect(result.sentences.join(' ')).not.toMatch(/[{}[\]"]|lock_version|approval_status/)
+  })
+
+  it('names a clock ended on another day', () => {
+    const after = { ...before, clock_out_at: '2026-11-14T03:30:00.000000Z', end_time: '2026-11-14T03:30:00.000000Z', hours: 8 }
+    expect(describeEvent({ action: 'time_entry.clock_ended', actor: ana, subject, changes: {}, details: { before, after } }).sentences[0])
+      .toBe('Ana ended the clock at 1:30 PM on Nov 14.')
+  })
+
+  it('says a denied shift was changed and sent back, with what changed', () => {
+    const beforeDenied = { ...before, status: 'completed', end_time: '2026-11-13T05:30:00.000000Z', clock_out_at: '2026-11-13T05:30:00.000000Z', hours: 8, approval_status: 'denied' }
+    const after = { ...beforeDenied, end_time: '2026-11-13T05:00:00.000000Z', clock_out_at: '2026-11-13T05:00:00.000000Z', hours: 7.5, approval_status: 'pending', time_category_id: 2 }
+    expect(describeEvent({ action: 'time_entry.denied_resubmitted', actor: ana, subject, changes: {}, details: { correction_reason: 'Wrong end time', before: beforeDenied, after } }).sentences).toEqual([
+      'Ana changed the shift and sent it back for approval.',
+      'Changes: clock-out from 3:30 PM to 3:00 PM and kind of work.',
+      'Hours changed from 8.0 to 7.5.',
+      'Reason: Wrong end time',
+    ])
+  })
+
+  it('says a Payroll correction came from Payroll, with its reason', () => {
+    const chels = { ...ana, name: 'Chels' }
+    const after = { ...before, hours: 7.5, end_time: '2026-11-13T05:00:00.000000Z' }
+    const result = describeEvent({ action: 'payroll_cockpit.time_entry_corrected', actor: chels, subject, changes: {}, details: { reason: 'Matches the paper timesheet', before, after } })
+    expect(result.sentences[0]).toBe('Chels corrected the shift from Payroll: Matches the paper timesheet.')
+    expect(result.usedKeys).toEqual(['reason'])
+  })
+
+  it('gives an unknown action with recorded data a plain sentence, never the data', () => {
+    const result = describeEvent({ action: 'time_entry.something_new', actor: ana, subject, changes: { mystery: { nested: { deep: 1 } } }, details: { before: { x: 1 }, after: { x: 2 } } })
+    expect(result.sentences).toEqual(['Ana made a change to this shift.'])
+    const bare = describeEvent({ action: 'time_entry.something_new', actor: ana, subject, changes: { odd: ['a', 'b', 'c'] }, details: {} })
+    expect(bare.sentences).toEqual(['Ana changed odd.'])
+  })
+
+  it('stays silent for events with nothing recorded, where the summary already says it', () => {
+    expect(describeEvent({ action: 'time_entry.approved', actor: ana, subject, changes: {}, details: { review_note: 'ok' } }).sentences).toEqual([])
   })
 })

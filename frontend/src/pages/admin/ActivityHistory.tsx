@@ -4,7 +4,7 @@ import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorksp
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
-import { describeChanges, formatDay } from '../../lib/activitySentences'
+import { describeEvent, formatDay } from '../../lib/activitySentences'
 
 const CATEGORY_LABELS: Record<string, string> = {
   activity: 'General activity',
@@ -117,10 +117,11 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
   const detailRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && !hideIdBesideName(field))
   const hiddenIdRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && hideIdBesideName(field))
   const changeRows = Object.entries(event.changes)
-  const sentences = describeChanges(event)
-  const reasonKey = event.details.correction_reason ? 'correction_reason' : 'review_note'
-  const reasonShown = sentences.some((sentence) => sentence.startsWith('Reason: '))
-  const contextRows = reasonShown ? detailRows.filter(([field]) => field !== reasonKey) : detailRows
+  const { sentences, usedKeys } = describeEvent(event)
+  const isPlain = ([, value]: [string, unknown]) => value === null || ['string', 'number', 'boolean'].includes(typeof value)
+  // Context keeps plain facts. Recorded snapshots and lists belong under Details, never on the page.
+  const contextRows = detailRows.filter((row) => isPlain(row) && !usedKeys.includes(row[0]))
+  const structuredRows = detailRows.filter((row) => !isPlain(row))
   const panelRef = useRef<HTMLElement>(null)
   const location = useLocation()
   const [compact, setCompact] = useState(() => window.innerWidth < 1280)
@@ -195,10 +196,10 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
 
         <details className="border-t border-slate-100 pt-4">
           <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Details</summary>
-          {changeRows.length > 0 && (
+          {(changeRows.length > 0 || structuredRows.length > 0) && (
             <div className="mt-2 space-y-2">
               <h4 className="text-xs font-semibold text-slate-500">Recorded changes</h4>
-              {changeRows.map(([field, value]) => (
+              {[...changeRows, ...structuredRows].map(([field, value]) => (
                 <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>
                   <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-700">{valueText(value)}</pre>
