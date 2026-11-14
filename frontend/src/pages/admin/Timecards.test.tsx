@@ -204,6 +204,15 @@ describe('Timecards on a phone', () => {
     expect(await screen.findByText("Added 8.0h for Caleb. It's waiting in Approvals.")).toBeInTheDocument()
   })
 
+  it("names the current period's lock from the next lock when the headline lock is an older period", async () => {
+    apiMock.getPayrollCutoff.mockResolvedValue({ data: {
+      cutoff: { period: { id: 0, start_date: '2026-10-16', end_date: '2026-10-31' }, cutoff_at: '2026-11-07T17:00:00+10:00', stage: 'passed' },
+      next_lock: { period: { id: 1, start_date: '2026-11-01', end_date: '2026-11-15' }, cutoff_at: '2026-11-18T17:00:00+10:00' },
+    } })
+    openAt('/admin/timecards')
+    expect(await screen.findByText('Nov 1–15 · locks Wed, Nov 18')).toBeInTheDocument()
+  })
+
   it('blocks Fix clock-out and Log missed time while work categories are missing, until a retry loads them', async () => {
     apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)', status: 502 })
     openAt('/admin/timecards?user_id=7&period=2026-11-01')

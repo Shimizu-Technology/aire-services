@@ -70,7 +70,7 @@ export default function Timecards() {
   const [categories, setCategories] = useState<TimeCategory[] | null>(null)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
   const [categoriesRetry, setCategoriesRetry] = useState(0)
-  const [lockAt, setLockAt] = useState<{ start: string; at: string } | null>(null)
+  const [locks, setLocks] = useState<Array<{ start: string; at: string }>>([])
   const [link, setLink] = useState<{ entryId: number; error: string | null } | null>(null)
   const linkError = entryId && link?.entryId === entryId ? link.error : null
   const [prefillFailure, setPrefillFailure] = useState<string | null>(null)
@@ -100,7 +100,13 @@ export default function Timecards() {
     let cancelled = false
     void timecardsApi.cutoff().then((response) => {
       const cutoff = response.data?.cutoff
-      if (!cancelled && cutoff?.period && cutoff.cutoff_at) setLockAt({ start: cutoff.period.start_date, at: cutoff.cutoff_at })
+      const next = response.data?.next_lock
+      if (cancelled) return
+      // The headline lock can be one that already happened; the next one belongs to the period being worked in.
+      setLocks([
+        ...(cutoff?.period && cutoff.cutoff_at ? [{ start: cutoff.period.start_date, at: cutoff.cutoff_at }] : []),
+        ...(next ? [{ start: next.period.start_date, at: next.cutoff_at }] : []),
+      ])
     })
     return () => { cancelled = true }
   }, [])
@@ -243,8 +249,8 @@ export default function Timecards() {
 
   // Everyone shows a week, so the header names the pay period that week falls in.
   const headerPeriod = showEveryone ? payPeriodContaining(weekDate) : period
-  const lock = lockAt && lockAt.start === period.start ? lockAt.at : null
-  const headerLock = lockAt && lockAt.start === headerPeriod.start ? lockAt.at : null
+  const lock = locks.find((item) => item.start === period.start)?.at ?? null
+  const headerLock = locks.find((item) => item.start === headerPeriod.start)?.at ?? null
   const description = `${formatPayPeriod(headerPeriod)}${headerLock ? ` · locks ${LOCK_FORMAT.format(new Date(headerLock))}` : ''}`
 
   const menuItems: MenuItem[] = person ? [

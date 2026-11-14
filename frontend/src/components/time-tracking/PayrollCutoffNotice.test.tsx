@@ -287,4 +287,45 @@ describe('Payroll cutoff notice', () => {
     expect(screen.queryByRole('region', { name: 'Payroll cutoff setup' })).not.toBeInTheDocument()
   })
 
+
+  describe('a lock that already happened (M10)', () => {
+    const passed = { ...cutoff, stage: 'passed' as const, now: '2026-11-14T09:00:00Z', cutoff_at: '2026-11-07T17:00:00+10:00', seconds_remaining: -604800 }
+    const nextLock = { period: { id: 8, start_date: '2026-11-01', end_date: '2026-11-15' }, cutoff_at: '2026-11-18T17:00:00+10:00' }
+
+    it('shows a quiet status, not the alarm, when nothing from that period is waiting', async () => {
+      auth.role = 'admin'
+      vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: passed, next_lock: nextLock, acknowledged: true } })
+      mount()
+      const status = await screen.findByRole('region', { name: 'Payroll lock status' })
+      expect(status).toHaveTextContent('Oct 16–31 is locked. Nov 1–15 locks Wed, Nov 18 at 5:00 PM.')
+      expect(screen.queryByRole('region', { name: 'Payroll cutoff' })).not.toBeInTheDocument()
+      expect(screen.queryByText(/cutoff has passed/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(LATE_HOURS_NOTICE)).not.toBeInTheDocument()
+    })
+
+    it('says only that the period is locked when no later lock is published', async () => {
+      auth.role = 'admin'
+      vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: passed, next_lock: null, acknowledged: true } })
+      mount()
+      expect(await screen.findByRole('region', { name: 'Payroll lock status' })).toHaveTextContent(/^Oct 16–31 is locked\.$/)
+    })
+
+    it('keeps the warning, in lock wording, while that period still has waiting items', async () => {
+      auth.role = 'admin'
+      vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 3 } })
+      vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: passed, next_lock: nextLock, acknowledged: true } })
+      mount()
+      expect(await screen.findByRole('link', { name: '3 pending approvals' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
+      const banner = screen.getByRole('region', { name: 'Payroll cutoff' })
+      expect(banner).toHaveTextContent('The payroll lock has passed.')
+      expect(banner).not.toHaveTextContent(/cutoff has passed/)
+      expect(screen.queryByRole('region', { name: 'Payroll lock status' })).not.toBeInTheDocument()
+    })
+
+    it('does not downgrade the warning for people who cannot see the waiting count', async () => {
+      vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: passed, acknowledged: true } })
+      mount()
+      expect(await screen.findByRole('region', { name: 'Payroll cutoff' })).toHaveTextContent('The payroll lock has passed.')
+    })
+  })
 })

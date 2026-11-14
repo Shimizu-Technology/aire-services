@@ -237,7 +237,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
         setMessage(await savedMessage(settings.schedules_enabled))
       } else {
         const reason = result.error || 'Could not save changes'
-        fail(reason, mapServerSettingError(reason, labelFor, (key) => keys.includes(key)))
+        fail(reason, mapServerSettingError(reason, labelFor, (key) => (keys as readonly string[]).includes(key)))
       }
     } catch (reason) {
       if (reason instanceof PayStubError && reason.code === 'invalid_email') {

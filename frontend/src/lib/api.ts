@@ -1621,7 +1621,9 @@ export interface PayrollLockTimeRequest {
   cutoff_at?: string;
   request_id: string;
 }
-export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null; lock_control?: PayrollLockControl | null }
+/** The soonest scheduled lock still ahead; staff responses only. */
+export interface PayrollNextLock { period: NonNullable<PayrollCutoff['period']>; cutoff_at: string }
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; next_lock?: PayrollNextLock | null; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null; lock_control?: PayrollLockControl | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {

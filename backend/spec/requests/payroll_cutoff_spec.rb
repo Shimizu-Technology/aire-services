@@ -117,6 +117,44 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     expect(response).to have_http_status(:unauthorized)
   end
 
+  describe "next lock" do
+    let(:later_cutoff) { guam.local(2026, 11, 18, 17) }
+    let!(:current_period) do
+      create(:payroll_calendar_period, start_date: "2026-11-01", end_date: "2026-11-15", pay_date: "2026-11-30",
+        cutoff_at: later_cutoff, schema_version: "2.0", cutoff_rule: "after_previous_regular_payday",
+        previous_regular_pay_date: "2026-11-15")
+    end
+
+    def read_next_lock
+      get "/api/v1/payroll_cutoff", headers: headers
+      response.parsed_body.fetch("next_lock")
+    end
+
+    it "tells staff when the current period locks while an earlier lock is the headline" do
+      period.update!(status: "finalized", payroll_batch: create(:payroll_batch), finalized_at: cutoff)
+      travel_to(cutoff + 1.hour)
+      expect(read_cutoff.dig("period", "start_date")).to eq("2026-10-16")
+      expect(read_cutoff.fetch("stage")).to eq("passed")
+      expect(read_next_lock).to eq(
+        "period" => { "id" => current_period.id, "start_date" => "2026-11-01", "end_date" => "2026-11-15" },
+        "cutoff_at" => "2026-11-18T17:00:00+10:00"
+      )
+    end
+
+    it "skips locks that already happened and manual periods, and is empty when nothing is ahead" do
+      current_period.update!(lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+      expect(read_next_lock["period"]["start_date"]).to eq("2026-10-16")
+      period.update!(status: "finalized", payroll_batch: create(:payroll_batch), finalized_at: cutoff)
+      expect(read_next_lock).to be_nil
+    end
+
+    it "is left out of the kiosk response" do
+      access = AireKioskAccessToken.issue_for(admin)
+      post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: access }
+      expect(response.parsed_body.keys).to contain_exactly("cutoff", "connected_payroll")
+    end
+  end
+
   it "persists acknowledgements across devices and invalidates on a changed stage" do
     payload = read_cutoff.slice("publication_id", "version", "stage").merge("period_id" => period.id)
     expect {
