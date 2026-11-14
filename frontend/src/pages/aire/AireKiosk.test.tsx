@@ -247,7 +247,7 @@ it.each([0.5, 1, 12, 13])('uses employee Clock confirmation thresholds at %s hou
       expect(screen.getByRole('dialog', { name: 'Clock out at 1:00 PM?' })).toBeInTheDocument()
       expect(screen.getByText(/Check that this is when you stopped working/)).toBeInTheDocument()
       expect(mocks.aireKioskClockOut).not.toHaveBeenCalled()
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock out', exact: true })) })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock out' })) })
     }
     expect(mocks.aireKioskClockOut).toHaveBeenCalledOnce()
   } finally { vi.useRealTimers() }
