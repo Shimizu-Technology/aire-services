@@ -10,10 +10,10 @@ import Person from './Person'
 
 const apiMock = vi.hoisted(() => ({
   getTimeEntries: vi.fn(), getTimeEntry: vi.fn(), getHoursReport: vi.fn(), getTimeCategories: vi.fn(), getPayrollCutoff: vi.fn(),
-  getLeaveRequests: vi.fn(), getMyPayAccess: vi.fn(), setUserMyPay: vi.fn(), resetKioskPin: vi.fn(), deleteUser: vi.fn(), resendInvite: vi.fn(),
+  getAdminAppSettings: vi.fn(), getAdminTimeCategories: vi.fn(), getLeaveRequests: vi.fn(), getMyPayAccess: vi.fn(), setUserMyPay: vi.fn(), resetKioskPin: vi.fn(), deleteUser: vi.fn(), resendInvite: vi.fn(),
 }))
 const fetchMock = vi.hoisted(() => vi.fn())
-vi.mock('../../lib/api', () => ({ api: apiMock, fetchApi: fetchMock }))
+vi.mock('../../lib/api', () => ({ api: apiMock, fetchApi: fetchMock, getAuthTokenValue: vi.fn() }))
 const evidenceMock = vi.hoisted(() => ({ activity: vi.fn(), periods: vi.fn(), period: vi.fn(), user: vi.fn(), schedule: vi.fn() }))
 vi.mock('../../lib/employeeEvidenceApi', () => ({ employeeEvidenceApi: evidenceMock }))
 const stubsMock = vi.hoisted(() => ({ workers: vi.fn(), statements: vi.fn(), send: vi.fn() }))
@@ -105,6 +105,8 @@ const selectedTab = () => screen.getByRole('tab', { selected: true })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [{ key: 'cfi', label: 'CFI' }] } })
+  apiMock.getAdminTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 1, key: 'instruction', name: 'Instruction', is_active: true }] } })
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-11-14T02:00:00Z'))
   restoreMedia = mockMatchMedia({ width: 1280 })
@@ -286,20 +288,16 @@ describe('person page', () => {
     expect(stubsMock.send).not.toHaveBeenCalled()
   })
 
-  it('opens the Edit dialog on Team from Access and Employment', async () => {
+  it('edits Access and Employment directly on the person page', async () => {
     open('/admin/users/7?tab=access')
     await screen.findByRole('heading', { level: 1, name: 'Casey Cruz' })
-    const access = screen.getByRole('region', { name: 'Access' })
-    expect(access).toHaveTextContent('Employee')
-    expect(access).toHaveTextContent('casey@aire.test')
-    const edit = within(access).getByRole('link', { name: 'Edit' })
-    expect(edit).toHaveAttribute('href', expect.stringMatching(/^\/admin\/users\?edit_user_id=7&return_to=/))
-
+    expect(screen.getByRole('group', { name: 'Role' })).toHaveTextContent('Employee')
+    expect(screen.getByRole('textbox', { name: 'Email' })).toHaveValue('casey@aire.test')
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Employment' }))
     const setup = await screen.findByRole('region', { name: 'Work setup' })
-    expect(setup).toHaveTextContent('Instruction')
-    expect(within(setup).getByRole('link', { name: 'Edit' })).toHaveAttribute('href', expect.stringContaining('edit_user_id=7'))
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    await within(setup).findByRole('checkbox', { name: 'Instruction' })
+    expect(within(setup).getByRole('textbox', { name: 'Job title' })).toHaveValue('Certified Flight Instructor')
   })
 
   it('resends an invite from Access and reports the actual outcome', async () => {

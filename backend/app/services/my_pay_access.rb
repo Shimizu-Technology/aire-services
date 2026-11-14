@@ -15,7 +15,7 @@ class MyPayAccess
         next if before == enabled
 
         # Only this switch changes, so unrelated profile validations must not block it.
-        user.update_columns(my_pay_enabled: enabled, updated_at: Time.current)
+        user.update_columns(my_pay_enabled: enabled, admin_edit_version: user.admin_edit_version + 1, updated_at: Time.current)
         AuditLog.record!(
           action: "user.my_pay_access_changed",
           auditable: user,

@@ -2272,3 +2272,13 @@ export const api = {
   getScheduleTimePresets: () =>
     fetchApi<ScheduleTimePresetsResponse>('/api/v1/schedule_time_presets'),
 };
+
+// Person-edit fields introduced after the Team/person shell.
+export interface AdminUser {
+  admin_edit_version?: number;
+  public_team_bio?: string | null;
+}
+
+export interface PublicTeamMember {
+  bio?: string | null;
+}
