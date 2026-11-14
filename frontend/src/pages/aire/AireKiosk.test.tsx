@@ -320,3 +320,65 @@ it('corrects stale clock state after a refused punch', async () => {
   expect(screen.getByText('On the clock')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Clock Out' })).toBeInTheDocument()
 })
+
+it('restarts idle time when confirmation opens at 29s and on sheet interaction', async () => {
+  vi.useFakeTimers()
+  const now = new Date('2026-11-14T03:00:00Z')
+  vi.setSystemTime(now)
+  try {
+    mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'token', current_status: { ...working, break_minutes: 0, clock_in_at: new Date(+now - 1800000).toISOString() }, available_categories: [category] } })
+    render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+    await verifyEmployee()
+    await act(async () => { vi.advanceTimersByTime(29000) })
+    fireEvent.click(screen.getByRole('button', { name: 'Clock Out' }))
+    await act(async () => { vi.advanceTimersByTime(2000) })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(27000) })
+    fireEvent.pointerDown(screen.getByRole('dialog'))
+    await act(async () => { vi.advanceTimersByTime(2000) })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' })
+    await act(async () => { vi.advanceTimersByTime(29000) })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(1000) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
+  } finally { vi.useRealTimers() }
+})
+
+it('shows Guam time when the device uses America/Los_Angeles', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-14T03:00:00Z'))
+  vi.stubEnv('TZ', 'America/Los_Angeles')
+  // Node worker threads cannot reliably change their native default zone at
+  // runtime. Model the device locale call too; an implicit-zone header fails.
+  const localeTime = Date.prototype.toLocaleTimeString
+  const spy = vi.spyOn(Date.prototype, 'toLocaleTimeString').mockImplementation(function(this: Date, locales, options) {
+    return localeTime.call(this, locales, { ...options, timeZone: options?.timeZone ?? 'America/Los_Angeles' })
+  })
+  try {
+    render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+    await verifyEmployee()
+    expect(screen.getByText('Guam · 1:00 PM')).toBeInTheDocument()
+    expect(screen.queryByText('Guam · 7:00 PM')).not.toBeInTheDocument()
+  } finally { spy.mockRestore(); vi.unstubAllEnvs(); vi.useRealTimers() }
+})
+
+it.each(['Invalid PIN', 'Kiosk access is temporarily locked. Please contact a manager.'])('places %s beside the PIN controls', async message => {
+  mocks.aireKioskVerify.mockResolvedValue({ error: message, status: 422 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  const pinSection = screen.getByRole('region', { name: 'Staff PIN' })
+  expect(pinSection).toContainElement(screen.getByRole('alert'))
+  expect(screen.getByRole('alert')).toHaveTextContent(message)
+  expect(screen.getByRole('button', { name: 'Verify PIN' }).compareDocumentPosition(screen.getByRole('alert')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+it('keeps punch errors beside the employee actions', async () => {
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  mocks.aireKioskClockIn.mockResolvedValue({ error: 'Punch refused', status: 422 })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock In' })) })
+  expect(screen.getByRole('alert')).toHaveTextContent('Punch refused')
+  expect(screen.getByRole('button', { name: 'Clock In' }).closest('section')).toContainElement(screen.getByRole('alert'))
+})

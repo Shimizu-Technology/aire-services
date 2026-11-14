@@ -317,6 +317,7 @@ export default function AireKiosk() {
 
     const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
     if (action === 'clock_out' && !confirmed && since && needsClockOutConfirm(since)) {
+      bumpIdleTimer()
       setConfirmClockOut(true)
       return
     }
@@ -570,7 +571,7 @@ export default function AireKiosk() {
           {employee ? (
             <header className="flex items-center justify-between gap-3 text-sm">
               <h1 className="font-semibold text-cyan-300">AIRE kiosk</h1>
-              <p className="tabular-nums text-slate-300">Guam · {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+              <p className="tabular-nums text-slate-300">Guam · {clockTime(now)}</p>
             </header>
           ) : <>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -581,10 +582,10 @@ export default function AireKiosk() {
             <div className="rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-right">
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Guam Time</p>
               <p className="mt-1 text-lg font-semibold text-cyan-200">
-                {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
+                {now.toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
               </p>
               <p className="text-xs text-slate-400">
-                {now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                {now.toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               </p>
             </div>
           </div>
@@ -667,8 +668,8 @@ export default function AireKiosk() {
             </div>
           </ClockActions></div>}
 
-          {error && (
-            <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
+          {employee && error && (
+            <p role="alert" className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
           )}
 
           {success && (
@@ -715,6 +716,8 @@ export default function AireKiosk() {
             {loading ? 'Verifying PIN...' : employee ? 'Verified' : 'Verify PIN'}
           </button>
 
+          {error && <p role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
+
           <div className="mt-6 grid grid-cols-3 gap-3">
             {keypad.map((key) => (
               <button
@@ -731,11 +734,13 @@ export default function AireKiosk() {
           </div>
         </section>}
       </div>
+      <div onPointerDownCapture={bumpIdleTimer} onKeyDownCapture={bumpIdleTimer} onClickCapture={bumpIdleTimer} onScrollCapture={bumpIdleTimer}>
       <Sheet open={confirmClockOut} onClose={() => setConfirmClockOut(false)}
         title={`Clock out at ${clockTime(new Date())}?`}
         footer={<Button fullWidth disabled={!!actionLoading || actionsCooling} onClick={() => void runAction('clock_out', true)}>Clock out</Button>}>
         <p>Worked {status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.</p>
       </Sheet>
+      </div>
     </div>
   )
 }
