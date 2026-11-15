@@ -549,7 +549,7 @@ function ApprovalsInbox() {
           currentUser?.time_tracking_enabled === true && (
             <Link
               className="inline-flex min-h-11 items-center font-semibold text-primary underline"
-              to="/admin/leave?mine=1"
+              to={`/admin/leave?mine=1&return_to=${encodeURIComponent(query.toString())}`}
             >
               Request your own leave
             </Link>

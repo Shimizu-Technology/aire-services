@@ -1,3 +1,4 @@
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
@@ -11,7 +12,7 @@ const decided = (): LeaveRequest => ({ ...row, version: 1, status: 'approved', r
 const response = (rows: LeaveRequest[]) => ({ data: { leave_requests: rows, pagination: { current_page: 1, per_page: 100, total_pages: 1, total_count: rows.length } } })
 const changed = vi.fn(async () => {})
 function show(rows: LeaveRequest[] = []) {
-  return render(<ToastProvider><LeaveOverview requests={rows} viewerId={4} onChanged={changed} matchesPerson={() => true} matchesDates={() => true} /></ToastProvider>)
+  return render(<MemoryRouter><ToastProvider><LeaveOverview requests={rows} viewerId={4} onChanged={changed} matchesPerson={() => true} matchesDates={() => true} /></ToastProvider></MemoryRouter>)
 }
 beforeEach(() => {
   vi.clearAllMocks()
@@ -47,7 +48,7 @@ it('shows correction reasons in history and requires a reason to save', async ()
   vi.mocked(api.getLeaveRequests).mockResolvedValue(response([approved]))
   vi.mocked(api.changeLeaveDecision).mockResolvedValue({ data: { leave_request: { ...row, version: 2 } } })
   show()
-  await screen.findByText('No approved absences this week · All departments.')
+  await screen.findByRole('button', { name: /Change decision for Ana/ })
   fireEvent.click(screen.getByRole('button', { name: 'Past decisions' }))
   expect(await screen.findByText(/Coverage arranged/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
@@ -105,4 +106,40 @@ it('replaces Undo with expiry guidance when its single timeout fires', async () 
     expect(screen.queryByRole('button', { name: /Undo approval for Ana/ })).not.toBeInTheDocument()
     expect(screen.getByText('Undo time is over — use Change decision.')).toBeInTheDocument()
   } finally { vi.useRealTimers() }
+})
+
+
+function LocationProbe() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  return <><output data-testid="location">{location.search}</output><button onClick={() => navigate(-1)}>Browser Back</button></>
+}
+
+it.each(['approved', 'past'])('restores %s and the Sunday week from the URL, preserving filters through Back', async (view) => {
+  render(<MemoryRouter initialEntries={[`/admin/approvals?kind=leave&dept=cfi&leave_view=${view}&week=2026-11-16`]}>
+    <ToastProvider><LeaveOverview requests={[]} viewerId={4} onChanged={changed} matchesPerson={() => true} matchesDates={() => true} /></ToastProvider>
+    <LocationProbe />
+  </MemoryRouter>)
+  expect(screen.getByRole('button', { name: view === 'approved' ? 'Approved' : 'Past decisions' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByText(/Sun, Nov 15 – Sat, Nov 21/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+  expect(screen.getByText(/Sun, Nov 22 – Sat, Nov 28/)).toBeInTheDocument()
+  expect(screen.getByTestId('location')).toHaveTextContent(`kind=leave&dept=cfi&leave_view=${view}&week=2026-11-22`)
+  fireEvent.click(screen.getByRole('button', { name: 'Waiting' }))
+  expect(screen.getByTestId('location')).toHaveTextContent('leave_view=waiting')
+  fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }))
+  expect(screen.getByRole('button', { name: view === 'approved' ? 'Approved' : 'Past decisions' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+it('includes Sunday absences and excludes the following Sunday from the roster', async () => {
+  vi.mocked(api.getLeaveRequests).mockResolvedValue(response([
+    { ...decided(), start_date: '2026-11-15', end_date: '2026-11-15' },
+    { ...decided(), id: 2, user: { ...row.user, full_name: 'Next Sunday' }, start_date: '2026-11-22', end_date: '2026-11-22' },
+  ]))
+  render(<MemoryRouter initialEntries={['/admin/approvals?kind=leave&week=2026-11-15']}><ToastProvider>
+    <LeaveOverview requests={[]} viewerId={4} onChanged={changed} matchesPerson={() => true} matchesDates={() => true} />
+  </ToastProvider></MemoryRouter>)
+  const roster = screen.getByRole('region', { name: 'Who is off this week' })
+  await waitFor(() => expect(roster).toHaveTextContent('Ana Rivera'))
+  expect(roster).not.toHaveTextContent('Next Sunday')
 })

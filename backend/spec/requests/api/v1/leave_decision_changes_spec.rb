@@ -32,7 +32,7 @@ RSpec.describe "Leave decision corrections", type: :request do
     expect(data["leave_request"]["decision_history"].first).to include("from" => "approved", "to" => "pending", "actor" => manager.full_name)
   end
   it "undoes a decline" do
-    post "/api/v1/leave_requests/#{leave.id}/decline", headers: headers
+    post "/api/v1/leave_requests/#{leave.id}/decline", params: { review_note: "Coverage unavailable" }, headers: headers
     undo
     expect(response).to have_http_status(:ok)
     expect(leave.reload.status).to eq("pending")

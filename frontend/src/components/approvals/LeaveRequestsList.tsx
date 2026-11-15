@@ -76,7 +76,7 @@ export default function LeaveRequestsList({
     }
   }, [requestKey, rangeStart, rangeEnd, overlapAttempt])
   const save = async (request: LeaveRequest, decline = false) => {
-    if (lock.current || !online || request.user.id === viewerId) return
+    if (lock.current || !online || request.user.id === viewerId || (decline && !note.trim())) return
     lock.current = true
     setBusy(true)
     setError('')
@@ -210,16 +210,17 @@ export default function LeaveRequestsList({
               if (declining) void save(declining, true)
             }}
             loading={busy}
-            disabled={!online}
+            disabled={!online || !note.trim()}
             title={!online ? 'Reconnect to decline' : undefined}
           >
             Decline leave
           </Button>
         }
       >
-        <Field label="Note (optional)">
-          <Textarea value={note} onChange={(event) => setNote(event.target.value)} />
+        <Field label="Reason (required)">
+          <Textarea required value={note} onChange={(event) => setNote(event.target.value)} />
         </Field>
+        <p className="text-body-sm text-ink-muted">Write a short reason so the employee knows why their leave was declined.</p>
         {error && <p role="alert">{error}</p>}
       </Sheet>
     </>

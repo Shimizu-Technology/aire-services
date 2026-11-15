@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { addDateDays, businessDateISO, businessWeekStart } from '../../lib/dateUtils'
+import { formatApprovalDate } from '../../lib/approvalsDates'
 import { api, type LeaveRequest } from '../../lib/api'
 import { leaveDateRange, leaveType } from './reviewPresentation'
 import LeaveRequestsList from './LeaveRequestsList'
@@ -15,22 +18,6 @@ import { useOnlineStatus } from '../../lib/useOnlineStatus'
 
 const person = (row: LeaveRequest) =>
   row.user.full_name || row.user.display_name || row.user.email
-const dateToday = () =>
-  new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Pacific/Guam',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-function weekRange(next: boolean) {
-  const date = new Date(`${dateToday()}T12:00:00Z`)
-  date.setUTCDate(
-    date.getUTCDate() - ((date.getUTCDay() + 6) % 7) + (next ? 7 : 0),
-  )
-  const start = date.toISOString().slice(0, 10)
-  date.setUTCDate(date.getUTCDate() + 6)
-  return [start, date.toISOString().slice(0, 10)]
-}
 const stamp = (value: string) =>
   new Date(value).toLocaleString('en-US', {
     timeZone: 'Pacific/Guam',
@@ -57,10 +44,26 @@ export default function LeaveOverview({
   matchesPerson: (id: number) => boolean
   matchesDates: (row: LeaveRequest) => boolean
 }) {
-  const [view, setView] = useState<'Waiting' | 'Approved' | 'Past decisions'>(
-    'Waiting',
-  )
-  const [nextWeek, setNextWeek] = useState(false)
+  const [query, setQuery] = useSearchParams()
+  const view = query.get('leave_view') === 'approved'
+    ? 'Approved'
+    : query.get('leave_view') === 'past' ? 'Past decisions' : 'Waiting'
+  const thisWeek = businessWeekStart()
+  const requestedWeek = query.get('week') || ''
+  const validWeek = /^\d{4}-\d{2}-\d{2}$/.test(requestedWeek) &&
+    Number.isFinite(Date.parse(`${requestedWeek}T12:00:00Z`)) &&
+    new Date(`${requestedWeek}T12:00:00Z`).toISOString().slice(0, 10) === requestedWeek
+  const start = validWeek ? businessWeekStart(requestedWeek) : thisWeek
+  const end = addDateDays(start, 6)
+  const nextWeek = start > thisWeek
+  const updateView = (key: string, value: string) => {
+    const next = new URLSearchParams(query)
+    next.set('kind', 'leave')
+    next.set('week', start)
+    next.set('leave_view', view === 'Approved' ? 'approved' : view === 'Past decisions' ? 'past' : 'waiting')
+    next.set(key, value)
+    setQuery(next)
+  }
   const [approved, setApproved] = useState<LeaveRequest[]>([])
   const [history, setHistory] = useState<LeaveRequest[]>([])
   const [historyPage, setHistoryPage] = useState(1)
@@ -83,14 +86,14 @@ export default function LeaveOverview({
     setLoading(true)
     try {
       const [offResult, decisionsResult] = await Promise.all([
-        api.getLeaveRequests('approved', 1, 100, undefined, startDate || weekRange(false)[0]),
+        api.getLeaveRequests('approved', 1, 100, undefined, startDate || thisWeek),
         api.getLeaveRequests(undefined, 1, 25, 'decisions'),
       ])
       if (!offResult.data || !decisionsResult.data)
         throw new Error(offResult.error || decisionsResult.error || "Couldn't load leave overview.")
       const off = [...offResult.data.leave_requests]
       for (let page = 2; page <= offResult.data.pagination.total_pages; page++) {
-        const result = await api.getLeaveRequests('approved', page, 100, undefined, startDate || weekRange(false)[0])
+        const result = await api.getLeaveRequests('approved', page, 100, undefined, startDate || thisWeek)
         if (!result.data) throw new Error(result.error || "Couldn't load approved leave.")
         off.push(...result.data.leave_requests)
       }
@@ -122,7 +125,7 @@ export default function LeaveOverview({
     } finally {
       if (id === generation.current) setLoading(false)
     }
-  }, [viewerId, startDate])
+  }, [viewerId, startDate, thisWeek])
   useEffect(() => {
     void reload()
     // Invalidate pending network responses after unmount.
@@ -199,7 +202,6 @@ export default function LeaveOverview({
       setBusy(false)
     }
   }
-  const [start, end] = weekRange(nextWeek)
   const off = approved
     .filter(
       (row) =>
@@ -216,7 +218,7 @@ export default function LeaveOverview({
     view === 'Waiting'
       ? recent
       : view === 'Approved'
-        ? approved.filter((row) => row.end_date >= dateToday()).sort((a, b) => a.start_date.localeCompare(b.start_date))
+        ? approved.filter((row) => row.end_date >= businessDateISO()).sort((a, b) => a.start_date.localeCompare(b.start_date))
         : history
   ).filter((row) => matchesPerson(row.user.id) && matchesDates(row))
   const renderDecision = (row: LeaveRequest) => (
@@ -307,13 +309,13 @@ export default function LeaveOverview({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setNextWeek(!nextWeek)}
+            onClick={() => updateView('week', nextWeek ? thisWeek : addDateDays(thisWeek, 7))}
           >
             {nextWeek ? 'This week' : 'Next week'}
           </Button>
         </div>
         <p className="text-body-sm text-ink-muted">
-          {leaveDateRange(start!, end!)} · Whole days · {departmentLabel}
+          {formatApprovalDate(start)} – {formatApprovalDate(end)} · Whole days · {departmentLabel}
         </p>
         {loading ? (
           <p>Loading approved absences…</p>
@@ -348,7 +350,7 @@ export default function LeaveOverview({
             key={label}
             aria-pressed={view === label}
             variant={view === label ? 'primary' : 'ghost'}
-            onClick={() => setView(label)}
+            onClick={() => updateView('leave_view', label === 'Approved' ? 'approved' : label === 'Past decisions' ? 'past' : 'waiting')}
           >
             {label}
           </Button>

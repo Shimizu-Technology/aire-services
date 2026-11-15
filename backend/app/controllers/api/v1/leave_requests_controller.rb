@@ -196,11 +196,16 @@ module Api
               next
             end
 
+            if status == "declined" && params[:review_note].to_s.strip.blank?
+              error_response = { error: "Write a short reason to decline this leave request.", status: :unprocessable_entity }
+              next
+            end
+
             @leave_request.update!(
               status: status,
               reviewed_by: current_user,
               reviewed_at: Time.current,
-              review_note: params[:review_note].presence,
+              review_note: params[:review_note].to_s.strip.presence,
               cancelled_by: nil,
               cancelled_at: nil
             )
