@@ -1,10 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
 import { ToastProvider } from '../ui'
 import LeaveRequestsList from './LeaveRequestsList'
 vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { approvedLeave: vi.fn() } }))
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-06T12:00:00Z'))
+})
+afterEach(() => vi.useRealTimers())
+
 it('bounds every approved-leave page to the displayed pending date range', async () => {
   const rows = [
     {

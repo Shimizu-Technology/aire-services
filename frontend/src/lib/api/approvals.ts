@@ -41,6 +41,7 @@ export interface ReviewItem {
   overtime_hours?: number
 }
 export interface ReviewBatch {
+  undone?: boolean
   review_batch_id: string
   undo_expires_at: string
   approved_count: number

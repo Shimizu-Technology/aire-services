@@ -44,11 +44,27 @@ function validBatch(data: unknown): data is ReviewBatch {
   )
 }
 
+// Settle lost replies; late results cannot update UI or change retry keys.
+function withDeadline<T>(request: Promise<T>, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(fallback), 30_000)
+    Promise.resolve(request)
+      .then(resolve, () => resolve(fallback))
+      .finally(() => window.clearTimeout(timer))
+  })
+}
+const unconfirmed = { code: 'client_deadline', error: 'Request could not be confirmed.' }
+const undoneRefusal =
+  'This approval was already undone. Review the refreshed list before approving again.'
+
 export function useReviewBatch(
   reloadFresh: () => Promise<void>,
   onCommitted?: (ids: number[]) => void,
 ) {
   const toast = useToast()
+  const latestReload = useRef(reloadFresh)
+  latestReload.current = reloadFresh
+  const reload = () => withDeadline(latestReload.current(), undefined)
   const lock = useRef(false)
   const retryKeys = useRef(new Map<string, string>())
   const uncertain = useRef(new Map<string, UncertainRequest>())
@@ -85,7 +101,7 @@ export function useReviewBatch(
     const errors: string[] = []
     try {
       for (const batch of [...batches].reverse()) {
-        const response = await approvalsApi.undo(batch.id)
+        const response = await withDeadline(approvalsApi.undo(batch.id), unconfirmed)
         if (
           (Number.isInteger(response.data?.undone_count) &&
             Number(response.data?.undone_count) >= 0) ||
@@ -109,7 +125,7 @@ export function useReviewBatch(
         .join(' ')
       setNotice(message)
       if (message) toast.show({ message, tone: errors.length ? 'danger' : 'default' })
-      await reloadFresh()
+      await reload()
     } finally {
       lock.current = false
       setBusy(false)
@@ -121,10 +137,10 @@ export function useReviewBatch(
     lock.current = true
     setBusy(true)
     try {
-      await reloadFresh()
+      await reload()
       for (const [fingerprint, request] of uncertain.current) {
         const states = await Promise.all(
-          request.items.map((item) => approvalsApi.entry(item.id)),
+          request.items.map((item) => withDeadline(approvalsApi.entry(item.id), {})),
         )
         // Only replay once all requested decisions are already saved. If the
         // first request never committed, this check prevents Reload approving
@@ -151,7 +167,17 @@ export function useReviewBatch(
             setNotice('Not saved. The list is up to date; you can approve again.')
           continue
         }
-        const response = await approvalsApi.review(request.items, request.key, request.mode)
+        const response = await withDeadline(
+          approvalsApi.review(request.items, request.key, request.mode),
+          unconfirmed,
+        )
+        if (response.data?.undone) {
+          uncertain.current.delete(fingerprint)
+          retryKeys.current.delete(fingerprint)
+          setNotice(undoneRefusal)
+          toast.show({ message: undoneRefusal, tone: 'danger' })
+          continue
+        }
         if (!validBatch(response.data)) continue
         remember(batchFor(response.data, request.items, request.rows), request.items)
         uncertain.current.delete(fingerprint)
@@ -190,22 +216,29 @@ export function useReviewBatch(
         const fingerprint = JSON.stringify({ mode, items: chunk })
         const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID()
         retryKeys.current.set(fingerprint, key)
-        const response = await approvalsApi.review(chunk, key, mode)
-        if (!validBatch(response.data)) {
-          const unknown = unknownOutcome(response.status)
+        const response = await withDeadline(
+          approvalsApi.review(chunk, key, mode),
+          unconfirmed,
+        )
+        if (response.data?.undone || !validBatch(response.data)) {
+          const unknown = !response.data?.undone && unknownOutcome(response.status)
           result = unknown ? 'unknown' : response.status === 409 ? 'conflict' : 'rejected'
           if (unknown) uncertain.current.set(fingerprint, { items: chunk, key, mode, rows })
           else {
             retryKeys.current.delete(fingerprint)
             uncertain.current.delete(fingerprint)
           }
-          const server = response.error || 'This approval was rejected.'
+          const server = response.data?.undone
+            ? undoneRefusal
+            : response.error || 'This approval was rejected.'
           const detail = server.replace(/Nothing was approved\.?/i, '').trim()
           refusal =
             unknown
-              ? items.length === 1
-                ? "We couldn't confirm this shift was approved. Reload before deciding again."
-                : `Confirmed ${approved} of ${items.length} shifts approved. We couldn't confirm whether this saved. This request's outcome is unknown. Reload before deciding again.`
+              ? response.code === 'client_deadline'
+                ? "We couldn't confirm that approval. The list has been refreshed — check before approving again."
+                : items.length === 1
+                  ? "We couldn't confirm this shift was approved. Reload before deciding again."
+                  : `Confirmed ${approved} of ${items.length} shifts approved. We couldn't confirm whether this saved. This request's outcome is unknown. Reload before deciding again.`
               : approved
                 ? `Approved ${approved} of ${items.length} shifts. The other ${items.length - approved} weren't approved. ${detail} The list is updated; check them and try again.`
                 : `${server} ${response.status === 409 ? 'The list is updated; check them and try again.' : ''}`
@@ -232,11 +265,11 @@ export function useReviewBatch(
           },
         })
       }
-      await reloadFresh()
+      await reload()
       if (refusal) {
         let message = refusal
         if (result === 'conflict') {
-          const state = items.length === 1 ? await approvalsApi.entry(items[0].id).catch(() => undefined) : undefined
+          const state = items.length === 1 ? await withDeadline(approvalsApi.entry(items[0].id), {}) : undefined
           const row = state?.data?.time_entry
           message = row?.approval_status === 'approved'
             ? `${row.approved_by?.full_name || 'Another manager'} already approved this. The list has been refreshed.`

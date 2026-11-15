@@ -363,3 +363,88 @@ it('announces a stale approval in a toast with the current approver and next ste
   expect(screen.getByRole('status')).toHaveTextContent('Roke already approved this. The list has been refreshed.')
   expect(result.current.undoBatches).toEqual([])
 })
+
+it('settles a never-resolving approval, preserves earlier Undo and retries with the same key', async () => {
+  vi.useFakeTimers()
+  try {
+    const reload = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('earlier'))
+    const { result } = renderHook(() => useReviewBatch(reload), { wrapper })
+    await act(async () => { await result.current.approve(items(1), 1, 'Earlier') })
+    vi.mocked(approvalsApi.review).mockImplementationOnce(() => new Promise(() => {}))
+    const payload = [{ ...items(1)[0], id: 2 }]
+    let pending!: Promise<ApprovalResult>
+    act(() => { pending = result.current.approve(payload, 1, 'Later') })
+    expect(result.current.busy).toBe(true)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    expect(await pending).toBe('unknown')
+    expect(result.current.busy).toBe(false)
+    expect(result.current.notice).toBe("We couldn't confirm that approval. The list has been refreshed — check before approving again.")
+    expect(reload).toHaveBeenCalledTimes(2)
+    expect(result.current.undoBatches.map(batch => batch.id)).toEqual(['earlier'])
+    vi.mocked(approvalsApi.undo).mockResolvedValueOnce({ data: { undone_count: 1 } })
+    await act(async () => { await result.current.undo(result.current.undoBatches) })
+    expect(approvalsApi.undo).toHaveBeenCalledWith('earlier')
+    const key = vi.mocked(approvalsApi.review).mock.calls[1][1]
+    vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('retry'))
+    await act(async () => { await result.current.approve(payload, 1, 'Retry') })
+    expect(vi.mocked(approvalsApi.review).mock.calls[2][1]).toBe(key)
+  } finally { vi.useRealTimers() }
+})
+
+it('refuses an already-undone 200 replay without remembering or committing it', async () => {
+  const committed = vi.fn()
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status: 200, data: { ...ok('undone').data, undone: true } })
+  const { result } = renderHook(() => useReviewBatch(vi.fn(), committed), { wrapper })
+  await act(async () => { expect(await result.current.approve(items(1), 100, 'Approved')).toBe('rejected') })
+  expect(result.current.undoBatches).toEqual([])
+  expect(committed).not.toHaveBeenCalled()
+  expect(screen.getByRole('status')).toHaveTextContent('This approval was already undone.')
+})
+
+it('toast Undo reloads the latest filter callback after rerender', async () => {
+  const oldReload = vi.fn()
+  const newReload = vi.fn()
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('batch'))
+  vi.mocked(approvalsApi.undo).mockResolvedValueOnce({ data: { undone_count: 1 } })
+  const { result, rerender } = renderHook(({ reload }) => useReviewBatch(reload), { wrapper, initialProps: { reload: oldReload } })
+  await act(async () => { await result.current.approve(items(1), 100, 'Approved') })
+  rerender({ reload: newReload })
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+  await waitFor(() => expect(newReload).toHaveBeenCalledOnce())
+  expect(oldReload).toHaveBeenCalledOnce()
+})
+
+it('refuses an undone replay during recovery without restoring Undo', async () => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status: 503 })
+  const committed = vi.fn()
+  const { result } = renderHook(() => useReviewBatch(vi.fn(), committed), { wrapper })
+  await act(async () => { await result.current.approve(items(1), 100, 'Approved') })
+  vi.mocked(approvalsApi.entry).mockResolvedValueOnce({
+    data: { time_entry: reviewEntry(1, 1, { approval_status: 'approved' }) },
+  })
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({
+    status: 200, data: { ...ok('already-undone').data, undone: true },
+  })
+  await act(async () => { expect((await result.current.refresh())?.size).toBe(0) })
+  expect(result.current.undoBatches).toEqual([])
+  expect(committed).not.toHaveBeenCalled()
+  expect(result.current.notice).toContain('already undone')
+})
+
+it('settles a never-resolving Undo and releases the lock for Reload', async () => {
+  vi.useFakeTimers()
+  try {
+    const reload = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(approvalsApi.undo).mockImplementationOnce(() => new Promise(() => {}))
+    const { result } = renderHook(() => useReviewBatch(reload), { wrapper })
+    let pending!: Promise<void>
+    act(() => { pending = result.current.undo([{ id: 'lost', count: 1, expiresAt: '2026-11-15T23:00:00Z' }]) })
+    expect(result.current.busy).toBe(true)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); await pending })
+    expect(result.current.busy).toBe(false)
+    expect(result.current.notice).toContain("couldn't confirm whether Undo saved")
+    await act(async () => { await result.current.refresh() })
+    expect(reload).toHaveBeenCalledTimes(2)
+  } finally { vi.useRealTimers() }
+})

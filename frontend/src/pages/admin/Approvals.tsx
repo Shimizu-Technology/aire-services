@@ -222,7 +222,9 @@ function ApprovalsInbox() {
     onDiscard: discardChanges,
   })
 
+  const extrasGeneration = useRef(0)
   const loadExtras = useCallback(async (quiet = false) => {
+    const generation = ++extrasGeneration.current
     if (!quiet) setExtrasLoading(true)
     const [leaveResult, stubResult, workerResult] = await Promise.allSettled([
       loadPendingLeave(),
@@ -231,6 +233,7 @@ function ApprovalsInbox() {
         : Promise.resolve({ requests: [] }),
       api.getWhosWorking(),
     ])
+    if (generation !== extrasGeneration.current) return
     const errors: ExtrasError = {}
     if (leaveResult.status === 'fulfilled') setLeave(leaveResult.value)
     else errors.leave = String(leaveResult.reason)
@@ -263,6 +266,7 @@ function ApprovalsInbox() {
     }
   }, [])
   useEffect(() => {
+    const generation = extrasGeneration
     void loadExtras()
     void loadPeople()
     let active = true
@@ -275,6 +279,7 @@ function ApprovalsInbox() {
     )
     return () => {
       active = false
+      generation.current++
     }
   }, [loadExtras, loadPeople])
   useEffect(() => {
@@ -337,8 +342,11 @@ function ApprovalsInbox() {
   }
   const approveGroup = async (rows: ReviewEntry[]) => {
     const snapshot = approvalSelection(rows)
-    if (snapshot.people.length > 1) setConfirmation({ snapshot, all: false })
-    else await approveSnapshot(snapshot)
+    if (snapshot.people.length > 1) {
+      setConfirmation({ snapshot, all: false })
+      return false
+    }
+    return (await approveSnapshot(snapshot)) === 'ok'
   }
   const requestAll = () => {
     setConfirmation({ snapshot: approvalSelection(ordinary), all: true })
@@ -494,7 +502,7 @@ function ApprovalsInbox() {
       {extrasError.workers && (
         <ErrorState title={extrasError.workers} onRetry={reloadExtras} />
       )}
-      {batches.notice && batches.notice.includes('Reload') && (
+      {batches.notice && (
         <p
           role="status"
           className="rounded-card border border-amber-200 bg-amber-50 p-3 text-body-sm"
