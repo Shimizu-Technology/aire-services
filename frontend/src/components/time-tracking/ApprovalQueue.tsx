@@ -917,12 +917,12 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               >
                 {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : approveLabel(entry)}
               </button>
-              {entry.original_employee_change && <button
+              {entry.entry_method === 'clock' && entry.original_employee_change && <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined, true)}
                 disabled={actionLoading === entry.id || queueUnavailable}
-                className="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">
+                className="order-3 col-span-2 min-h-11 min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold sm:order-none sm:flex-1">
                 Reject change, keep original time
-                <span className="block font-normal">{entry.original_employee_change.clock_in_at ? new Date(entry.original_employee_change.clock_in_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' }) : 'Original start'}–{entry.original_employee_change.clock_out_at ? new Date(entry.original_employee_change.clock_out_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' }) : 'original end'}</span>
+                <span className="block font-normal">{entry.original_employee_change.formatted_range}</span>
               </button>}
               <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}

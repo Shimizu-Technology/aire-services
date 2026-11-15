@@ -1,3 +1,4 @@
+import { clearKioskSession, readKioskSession, storeKioskSession, type StoredKioskAccessSession } from '../../lib/kioskSession'
 import { clockTime, needsClockOutConfirm, workedMilliseconds } from '../../lib/myTime'
 import { formatElapsed } from '../../lib/formatElapsed'
 import { ConfirmDialog } from '../../components/ui'
@@ -23,14 +24,6 @@ const IDLE_RESET_MS = 30_000
 const SUCCESS_RESET_MS = 8_000
 const SESSION_LIMIT_MS = 5 * 60_000
 const WARNING_MS = 10_000
-const KIOSK_ACCESS_STORAGE_KEY = 'aire_kiosk_access_session'
-
-interface StoredKioskAccessSession {
-  token: string
-  expiresAt: string
-  unlockedBy: string
-}
-
 function formatActionLabel(action: KioskAction) {
   switch (action) {
     case 'clock_in':
@@ -103,33 +96,38 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   const [requestingStub, setRequestingStub] = useState(false)
   // "Pay stub requests at the kiosk" in Settings; off until an owner or admin turns it on.
   const [payStubRequestsEnabled, setPayStubRequestsEnabled] = useState(false)
-  const [kioskAccessSession, setKioskAccessSession] = useState<StoredKioskAccessSession | null>(() => {
-    if (typeof window === 'undefined') return null
-    const raw = window.sessionStorage.getItem(KIOSK_ACCESS_STORAGE_KEY)
-    if (!raw) return null
-
-    try {
-      const parsed = JSON.parse(raw) as StoredKioskAccessSession
-      if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
-        window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
-        return null
-      }
-      return parsed
-    } catch {
-      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
-      return null
-    }
-  })
+  const [kioskAccessSession, setKioskAccessSession] = useState<StoredKioskAccessSession | null>(readKioskSession)
+  useEffect(() => {
+    const sync = () => setKioskAccessSession(readKioskSession())
+    window.addEventListener('storage', sync)
+    return () => window.removeEventListener('storage', sync)
+  }, [])
+  const [signOutProblem, setSignOutProblem] = useState(false)
   const signedOutStoredSession = useRef(false)
+  const revokeAfterSignOutFailure = useCallback(async (session: StoredKioskAccessSession) => {
+    setSignOutProblem(true)
+    const revoked = await api.revokeKioskSession(session.token)
+    if (revoked.error) {
+      // Keep the device reference and restrict this browser until either the
+      // provider signs out or the server confirms that it has been revoked.
+      try { await signOut({ redirectUrl: '/kiosk' }) } catch {
+        setKioskAccessSession(session)
+        setError('Sign-out failed. Retry sign-out before using this shared tablet.')
+        return
+      }
+    } else {
+      clearKioskSession()
+      setKioskAccessSession(null)
+    }
+    setError('Sign-out failed. Sign out before using this shared tablet.')
+  }, [signOut])
   useEffect(() => {
     if (!isClerkEnabled || !isSignedIn || !kioskAccessSession || signedOutStoredSession.current) return
     signedOutStoredSession.current = true
-    void signOut({ redirectUrl: '/kiosk' }).catch(() => {
-      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
-      setKioskAccessSession(null)
-      setError('Sign-out failed. Sign out before using this shared tablet.')
+    void signOut({ redirectUrl: '/kiosk' }).catch(async () => {
+      await revokeAfterSignOutFailure(kioskAccessSession)
     })
-  }, [isClerkEnabled, isSignedIn, kioskAccessSession, signOut])
+  }, [isClerkEnabled, isSignedIn, kioskAccessSession, signOut, revokeAfterSignOutFailure])
   const verifiedPinRef = useRef('')
   const sessionGeneration = useRef(0)
   const warningRequestRef = useRef(0)
@@ -180,7 +178,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     if (!kioskAccessSession) return
     if (new Date(kioskAccessSession.expiresAt).getTime() > Date.now()) return
 
-    window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+    clearKioskSession()
     setKioskAccessSession(null)
     clearSession()
   }, [clearSession, kioskAccessSession])
@@ -318,7 +316,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       setPin('')
       if (result.error?.match(/kiosk is locked/i)) {
         setKioskAccessSession(null)
-        if (typeof window !== 'undefined') window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+        if (typeof window !== 'undefined') clearKioskSession()
       }
       setLoading(false)
       return
@@ -414,7 +412,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       if (generation !== sessionGeneration.current) return
       if (!refreshed.data || refreshed.error) {
         if (refreshed.error?.match(/kiosk is locked/i)) {
-          window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+          clearKioskSession()
           setKioskAccessSession(null)
         }
         clearSession()
@@ -490,13 +488,12 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       expiresAt: result.data.expires_at,
       unlockedBy: result.data.unlocked_by.full_name,
     }
-    window.sessionStorage.setItem(KIOSK_ACCESS_STORAGE_KEY, JSON.stringify(session))
+    storeKioskSession(session)
     try {
       await signOut({ redirectUrl: '/kiosk' })
       setKioskAccessSession(session)
     } catch {
-      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
-      setError('Sign-out failed. Sign out before using this shared tablet.')
+      await revokeAfterSignOutFailure(session)
     }
     setUnlocking(false)
   }
@@ -505,12 +502,14 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     if (isClerkEnabled) {
       try {
         const result = await api.lockKiosk(kioskAccessToken || '', managerPin)
-        if (result.error) { setError(result.error); setConfirmLock(false); return }
+        if (result.error && result.status !== 401) { setError(result.error); setConfirmLock(false); return }
+        if (result.status === 401) setError('Kiosk session expired or was locked. Ask a manager to unlock it.')
       } catch { setError('Could not lock the kiosk. Check the connection and try again.'); setConfirmLock(false); return }
     }
     setManagerPin('')
+    setConfirmLock(false)
     if (typeof window !== 'undefined') {
-      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+      clearKioskSession()
     }
     setKioskAccessSession(null)
     clearSession()
@@ -604,6 +603,16 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
         </div>
       </main>
     )
+  }
+
+  if (signOutProblem && isSignedIn) {
+    return <main className="min-h-screen bg-slate-950 p-6 text-white">
+      <h1 className="text-xl font-semibold">Sign out before using this shared tablet</h1>
+      <p role="alert" className="mt-4">{error}</p>
+      <button className="mt-4 min-h-11 rounded border px-4" onClick={() => {
+        void signOut({ redirectUrl: '/kiosk' }).catch(() => setError('Sign-out is still unavailable. Try again.'))
+      }}>Retry sign-out</button>
+    </main>
   }
 
   return (

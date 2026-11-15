@@ -7,6 +7,18 @@ module Api
         before_action :authenticate_user!
         before_action -> { require_capability!(:unlock_kiosk) }
 
+        def lock_all
+          return render json: { error: "Administrator access required" }, status: :forbidden unless current_user.administrator?
+
+          count = KioskDeviceSession.transaction do
+            revoked = KioskDeviceSession.where(revoked_at: nil).where("expires_at > ?", Time.current).update_all(revoked_at: Time.current, updated_at: Time.current)
+            AuditLog.record!(action: "kiosk.all_locked", actor: current_user, auditable: current_user, event_category: "security",
+                             source: "admin", metadata: { revoked_count: revoked })
+            revoked
+          end
+          render json: { revoked_count: count }
+        end
+
         def create
           issued_at = Time.current
 

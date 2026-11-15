@@ -4,7 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import AireKiosk from './AireKiosk'
 
 const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null }))
-const mocks = vi.hoisted(() => ({ signOut: vi.fn().mockResolvedValue(undefined), lockKiosk: vi.fn(), createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn(), aireKioskStartBreak: vi.fn(), aireKioskSwitchCategory: vi.fn() }))
+const mocks = vi.hoisted(() => ({ signOut: vi.fn().mockResolvedValue(undefined), lockKiosk: vi.fn(), revokeKioskSession: vi.fn().mockResolvedValue({}), createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn(), aireKioskStartBreak: vi.fn(), aireKioskSwitchCategory: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
 const stubMocks = vi.hoisted(() => ({ choices: vi.fn(), request: vi.fn() }))
 vi.mock('../../lib/payStubsApi', async (importOriginal) => {
@@ -537,7 +537,7 @@ it('disables Switch work confirmation and controls while switching, then cools a
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   fireEvent.click(screen.getByRole('button', { name: 'Unlock kiosk' }))
   await waitFor(() => expect(mocks.signOut).toHaveBeenCalledWith({ redirectUrl: '/kiosk' }))
-  expect(JSON.parse(sessionStorage.getItem('aire_kiosk_access_session')!).token).toBe('new-device')
+  expect(JSON.parse(localStorage.getItem('aire_kiosk_access_session')!).token).toBe('new-device')
   expect(screen.queryByRole('link')).not.toBeInTheDocument()
  })
 
@@ -549,4 +549,28 @@ it('disables Switch work confirmation and controls while switching, then cools a
   fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
   await waitFor(() => expect(mocks.lockKiosk).toHaveBeenCalledWith('access', '864200'))
   await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
+ })
+
+ it('clears a remotely revoked device when Lock returns 401', async () => {
+  authMock.isSignedIn = false
+  authMock.userRole = null
+  mocks.lockKiosk.mockResolvedValue({ error: 'Kiosk session expired', status: 401 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
+  await screen.findByRole('button', { name: 'Manager or admin sign in' })
+  expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull()
+  expect(localStorage.getItem('aire_kiosk_access_session')).toBeNull()
+ })
+
+ it('revokes a newly issued device when Clerk sign-out fails', async () => {
+  sessionStorage.clear()
+  mocks.createAdminKioskSession.mockResolvedValue({ data: { kiosk_access_token: 'orphan', expires_at: '2099-01-01T00:00:00Z', unlocked_by: { full_name: 'Roke' } } })
+  mocks.signOut.mockRejectedValueOnce(new Error('Provider unavailable'))
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock kiosk' }))
+  await waitFor(() => expect(mocks.revokeKioskSession).toHaveBeenCalledWith('orphan'))
+  expect(localStorage.getItem('aire_kiosk_access_session')).toBeNull()
  })

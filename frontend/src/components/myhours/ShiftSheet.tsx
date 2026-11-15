@@ -43,7 +43,9 @@ export function ShiftSheet({
         day: 'numeric',
       })}
       footer={
-        entry.status === 'completed' ? (
+        entry.status === 'completed' && entry.approval_status === 'denied' ? (
+          <p className="text-body-sm text-ink-muted">This shift was denied. Ask a manager to review it before making changes.</p>
+        ) : entry.status === 'completed' ? (
           <div className="space-y-2">
             <Button fullWidth variant="secondary" onClick={onFix}>
               Ask for a fix
@@ -133,7 +135,7 @@ export function ShiftSheet({
           </div>
         )}
       </dl>
-      {entry.status === 'completed' && (
+      {entry.status === 'completed' && entry.approval_status !== 'denied' && (
         <p className="mt-5 text-body-sm text-ink-muted">
           Something wrong? Ask for a fix and say what happened. Your manager
           approves the change.

@@ -9,6 +9,10 @@ module Api
       PENDING_APPROVAL_DIRECTIONS = %w[asc desc].freeze
       PENDING_APPROVAL_TYPES = %w[time_entry overtime both].freeze
 
+      rescue_from ActiveRecord::Deadlocked, ActiveRecord::LockWaitTimeout do
+        render json: { error: PAYROLL_BUSY_MESSAGE, code: "payroll_busy" }, status: :conflict
+      end
+
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :reject_change, :approve, :deny, :approve_overtime, :deny_overtime ]
@@ -147,6 +151,10 @@ module Api
 
         return unless require_correction_reason_for_payroll_entry!
 
+        supervisor_edit = current_user.can_manage_team_time? && !own_time_needs_another_approver?(@time_entry)
+        if !supervisor_edit && @time_entry.approval_status == "denied"
+          return render json: { error: "This shift was denied. Ask a manager to review it before making changes." }, status: :unprocessable_entity
+        end
         original_change = EmployeeTimeChange.capture(@time_entry)
         old_values = {
           hours: @time_entry.hours.to_f,
@@ -179,8 +187,8 @@ module Api
 
         @time_entry.assign_attributes(update_params)
         # A manager whose own time needs another approver edits it like an employee.
-        supervisor_edit = current_user.can_manage_team_time? && !own_time_needs_another_approver?(@time_entry)
-        if !supervisor_edit || payroll_relevant_changes?(@time_entry, break_update)
+        pay_changed = payroll_relevant_changes?(@time_entry, break_update)
+        if !supervisor_edit || pay_changed
           update_params[:approval_status] = "pending"
           update_params[:approved_by] = nil
           update_params[:approved_at] = nil
@@ -190,10 +198,10 @@ module Api
           )
         end
 
-        if !supervisor_edit && @time_entry.status == "completed"
+        if !supervisor_edit && @time_entry.clock_entry? && @time_entry.status == "completed"
           update_params[:original_employee_change] = original_change["approval_status"] == "pending" ? (@time_entry.original_employee_change.presence || original_change) : original_change
           update_params[:rejected_employee_change] = nil
-        elsif supervisor_edit
+        elsif supervisor_edit && pay_changed
           update_params[:original_employee_change] = nil
           update_params[:rejected_employee_change] = nil
         end
@@ -1144,7 +1152,7 @@ module Api
           payroll_hours_by_date: @approval_hours&.segments_for(entry),
           id: entry.id,
           version: entry.lock_version,
-          original_employee_change: entry.original_employee_change&.slice("start_time", "end_time", "clock_in_at", "clock_out_at", "hours"),
+          original_employee_change: EmployeeTimeChange.presentation(entry),
           rejected_employee_change: entry.rejected_employee_change,
           work_date: entry.work_date.iso8601,
           start_time: entry.start_time&.in_time_zone(tz)&.strftime("%H:%M"),

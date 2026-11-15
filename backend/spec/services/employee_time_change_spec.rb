@@ -31,4 +31,62 @@ RSpec.describe EmployeeTimeChange do
     expect(quantities[:overtime_waiting_hours]).to eq(4.0)
     expect(quantities.values_at(:time_waiting_hours, :overtime_waiting_hours).sum).to eq(entry.hours.to_f)
   end
+  %w[denied approved pending].each do |state|
+    it "restores #{state} without inventing an approval decision" do
+      entry.update!(approval_status: state, approved_by: state == "pending" ? nil : admin,
+                    approved_at: state == "pending" ? nil : Time.current, approval_note: "Prior decision")
+      snapshot = described_class.capture(entry)
+      entry.update!(end_time: start + 7.hours, clock_out_at: start + 7.hours,
+                    approval_status: "pending", original_employee_change: snapshot)
+      described_class.reject!(entry: entry, actor: admin, version: entry.lock_version, note: "Keep punches")
+      expect(entry.reload.approval_status).to eq(state)
+      expect(entry.approval_note).to eq("Prior decision")
+      expect(entry.counts_toward_hours?).to eq(state == "approved")
+      expect(AuditLog.where(action: "time_entry.#{state}").count).to eq(state == "pending" ? 0 : 1)
+    end
+  end
+
+  it "preserves all six fractional digits through JSONB and break restoration" do
+    precise = start + Rational(123455, 1_000_000)
+    entry.update!(clock_in_at: precise)
+    entry.time_entry_breaks.create!(start_time: precise + 2.hours, end_time: precise + 2.hours + 10.minutes, duration_minutes: 10)
+    entry.update!(original_employee_change: described_class.capture(entry), clock_in_at: start + 1.minute, approval_status: "pending")
+    entry.time_entry_breaks.destroy_all
+    described_class.reject!(entry: entry.reload, actor: admin, version: entry.lock_version, note: "Keep exact punches")
+    expect(entry.reload.clock_in_at.usec).to eq(123455)
+    expect(entry.time_entry_breaks.first.start_time.usec).to eq(123455)
+  end
+
+  it "keeps the employee fix when the original needs administrator correction" do
+    entry.update!(clock_out_at: start + 25.hours, end_time: start + 25.hours)
+    snapshot = described_class.capture(entry)
+    entry.update!(clock_out_at: start + 8.hours, end_time: start + 8.hours, original_employee_change: snapshot)
+    expect { described_class.reject!(entry: entry, actor: admin, version: entry.lock_version, note: "Original") }
+      .to raise_error(TimeClockService::ClockError, /original clock-out was missing/)
+    expect(entry.reload.hours.to_f).to eq(8)
+    expect(entry.original_employee_change).to be_present
+    expect(AuditLog.where(action: "time_entry.change_rejected")).to be_empty
+  end
+
+  it "does not capture or reject hand-added shifts, even with an old snapshot" do
+    snapshot = described_class.capture(entry)
+    entry.update!(entry_method: "manual", approval_status: "pending", original_employee_change: snapshot)
+    expect(described_class.capture(entry)).to be_nil
+    expect(described_class.presentation(entry)).to be_nil
+    expect { described_class.reject!(entry: entry, actor: admin, version: entry.lock_version, note: "Original") }
+      .to raise_error(TimeClockService::ClockError, /no pending employee change/)
+  end
+
+  it "presents the original date as well as the Guam clock range" do
+    entry.update!(original_employee_change: described_class.capture(entry), work_date: Date.new(2026, 11, 15))
+    expect(described_class.presentation(entry)["formatted_range"]).to eq("Sat, Nov 14, 7:00 AM–1:00 PM")
+  end
+  it "records settlement approval history when restoring an approved original" do
+    settlement = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid)
+    entry.update!(original_employee_change: described_class.capture(entry), approval_status: "pending")
+    described_class.reject!(entry: entry, actor: admin, version: entry.lock_version, note: "Keep original")
+    event = settlement.payroll_settlement_case_events.find_by!(event_type: "approval_changed")
+    expect(event.actor_id).to eq(admin.id)
+    expect(event.metadata).to include("decision" => "approved", "note" => "Keep original")
+  end
 end

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeCategory, TimeEntry, UserSummary } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
@@ -39,6 +39,8 @@ import {
 export default function MyHours() {
   const { currentUser } = useAuthContext()
   const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const date =
     params.get('period') ?? params.get('date') ?? params.get('start_date')
   const period = isIsoDate(date)
@@ -54,10 +56,14 @@ export default function MyHours() {
   const detailId = params.get('shift')
   const detail = entries.find(entry => String(entry.id) === detailId) ?? null
   const setDetail = (entry: TimeEntry | null) => {
+    if (!entry && detailId && location.state?.shiftSheet) {
+      void navigate(-1)
+      return
+    }
     const next = new URLSearchParams(params)
     if (entry) next.set('shift', String(entry.id))
     else next.delete('shift')
-    setParams(next, { replace: !entry })
+    setParams(next, { replace: !entry, state: entry ? { shiftSheet: true } : null })
   }
   const [form, setForm] = useState<TimeEntry | 'new' | null>(null)
   const [week, setWeek] = useState<TimeEntry[]>([])
@@ -189,8 +195,8 @@ export default function MyHours() {
         onChange={(next) => {
           const query = new URLSearchParams(params)
           query.set('period', next.start)
+          query.delete('shift')
           setParams(query)
-          setDetail(null)
           setForm(null)
         }}
       />

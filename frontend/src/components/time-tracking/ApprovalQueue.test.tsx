@@ -137,7 +137,7 @@ describe('ApprovalQueue review workflow', () => {
   })
 
   it('rejects only a pending employee change with the displayed version and a reason', async () => {
-    const entry = makeEntry({ id: 90, version: 12, original_employee_change: { start_time: null, end_time: null, clock_in_at: '2026-11-14T07:00:00+10:00', clock_out_at: '2026-11-14T13:20:00+10:00', hours: 6.33 } })
+    const entry = makeEntry({ id: 90, version: 12, entry_method: 'clock', original_employee_change: { formatted_range: 'Sat, Nov 14, 7:00 AM–1:20 PM', start_time: null, end_time: null, clock_in_at: '2026-11-14T07:00:00+10:00', clock_out_at: '2026-11-14T13:20:00+10:00', hours: 6.33 } })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1, summary } })
     apiMock.rejectTimeEntryChange.mockResolvedValue({ data: {} })
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime />)

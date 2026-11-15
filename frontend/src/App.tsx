@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { KioskBrowserBoundary } from './components/auth/KioskBrowserBoundary'
 import { createBrowserRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider, useRouteError } from 'react-router-dom'
 
 import { PostHogPageView } from './providers/PostHogProvider'
@@ -71,7 +72,7 @@ function AppShell() {
   return (
     <>
       <PostHogPageView />
-      <Outlet />
+      <KioskBrowserBoundary><Outlet /></KioskBrowserBoundary>
     </>
   )
 }

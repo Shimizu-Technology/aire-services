@@ -121,7 +121,8 @@ module Api
           return render json: { error: cancel_error }, status: :forbidden
         end
 
-        render json: { leave_request: serialize_leave_request(cancel_result) }
+        render json: { leave_request: serialize_leave_request(cancel_result), server_time: Time.current.iso8601(6),
+                       undo_until: (cancel_result.cancelled_at + 1.minute).iso8601(6) }
       end
 
       private

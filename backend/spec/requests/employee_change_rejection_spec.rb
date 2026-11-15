@@ -9,16 +9,17 @@ RSpec.describe "Rejecting an employee change", type: :request do
   let(:headers) { { "Authorization" => "Bearer test_token_#{admin.id}" } }
 
   before do
+    entry.update!(clock_in_at: Time.current.in_time_zone("Pacific/Guam").beginning_of_day + 7.hours, clock_out_at: Time.current.in_time_zone("Pacific/Guam").beginning_of_day + 15.hours)
     original = EmployeeTimeChange.capture(entry)
     entry.update!(end_time: entry.end_time + 40.minutes, original_employee_change: original)
   end
 
-  it "restores original worked time, approves it, and records the reason" do
+  it "restores original worked time without approving it and records the reason" do
     original = entry.original_employee_change
     post "/api/v1/time_entries/#{entry.id}/reject_change", params: { expected_version: entry.lock_version, note: "Original clock time is correct" }, headers: headers
     expect(response).to have_http_status(:ok)
     expect(entry.reload.hours.to_f).to eq(original["hours"].to_f)
-    expect(entry.approval_status).to eq("approved")
+    expect(entry.approval_status).to eq("pending")
     expect(entry.original_employee_change).to be_nil
     expect(entry.rejected_employee_change["manager"]).to eq(admin.full_name)
     expect(AuditLog.where(action: "time_entry.change_rejected").count).to eq(1)
@@ -54,5 +55,46 @@ RSpec.describe "Rejecting an employee change", type: :request do
       post "/api/v1/time_entries/#{entry.id}/reject_change", params: { expected_version: entry.lock_version, note: "Original" }, headers: { "Authorization" => "Bearer #{token}" }
       expect(response.status).to be_in([ 401, 403 ])
     end
+  end
+  it "does not let an employee reopen denied time or erase the denial" do
+    entry.update!(approval_status: "denied", approved_by: admin, approval_note: "You were not here", original_employee_change: nil)
+    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { description: "Please reconsider" } },
+          headers: { "Authorization" => "Bearer test_token_#{employee.id}" }
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload.approval_status).to eq("denied")
+    expect(entry.approval_note).to eq("You were not here")
+    expect(entry.original_employee_change).to be_nil
+  end
+
+  it "keeps the snapshot through a manager description edit" do
+    snapshot = entry.original_employee_change
+    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { description: "Manager context" } }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.original_employee_change).to eq(snapshot)
+    expect(entry.approval_status).to eq("pending")
+  end
+
+  [ ActiveRecord::Deadlocked, ActiveRecord::LockWaitTimeout ].each do |error|
+    it "returns payroll_busy for #{error}" do
+      allow(EmployeeTimeChange).to receive(:reject!).and_raise(error)
+      post "/api/v1/time_entries/#{entry.id}/reject_change", params: { expected_version: entry.lock_version, note: "Original" }, headers: headers
+      expect(response).to have_http_status(:conflict)
+      expect(response.parsed_body["code"]).to eq("payroll_busy")
+    end
+  end
+  it "never saves an original when an employee edits hand-added time" do
+    entry.update!(entry_method: "manual", original_employee_change: nil)
+    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { description: "Employee added this" } },
+          headers: { "Authorization" => "Bearer test_token_#{employee.id}" }
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.original_employee_change).to be_nil
+    expect(response.parsed_body.dig("time_entry", "original_employee_change")).to be_nil
+  end
+
+  it "clears a snapshot when a manager changes payroll inputs" do
+    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { break_minutes: 15 } }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.original_employee_change).to be_nil
+    expect(entry.approval_status).to eq("pending")
   end
 end

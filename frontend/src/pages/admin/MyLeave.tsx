@@ -90,7 +90,8 @@ export default function MyLeave() {
     if (result.data)
       toast.show({
         message: `Cancelled your ${employeeDateRange(request.start_date, request.end_date)} request.`,
-        action: { label: 'Undo', onAction: () => void restore(request) },
+        action: { label: 'Undo', onAction: () => void restore(request),
+          expiresAt: result.data.undoExpiresAt ?? 0 },
       })
     else
       setMessage(
