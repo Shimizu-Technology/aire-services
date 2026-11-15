@@ -46,8 +46,8 @@ export interface PeriodHeaderProps {
 /** "Nov 1–15 pay period", when it locks and pays, and where it stands. */
 export function PeriodHeader({ range, period, loaded, control, paused, connectionPill, now, actions, children }: PeriodHeaderProps) {
   const locked = Boolean(period && isLockedState(period.handoff_state, period.status))
-  const cutoffAt = period && !locked ? control?.cutoff_at ?? period.cutoff_at : null
-  const status = period && !locked && period.handoff_state !== 'before_locking'
+  const cutoffAt = period && !locked && !paused ? control?.cutoff_at ?? period.cutoff_at : null
+  const status = period && !locked && !paused && period.handoff_state !== 'before_locking'
     ? lockStatus({ period: asAttentionPeriod(period), control, cutoffAt, now, paused })
     : null
   const pill = period
@@ -75,6 +75,7 @@ export function PeriodHeader({ range, period, loaded, control, paused, connectio
         {pill && <li><StatusPill tone={pill.tone}>{pill.label}</StatusPill></li>}
         {connectionPill && <li><StatusPill tone={connectionPill.tone}>{connectionPill.label}</StatusPill></li>}
       </ul>
+      {paused && !locked && <p className="mt-2 text-body-sm">Locking is paused. AIRE won't lock these hours until Cornerstone Payroll resumes the connection.</p>}
       {children}
     </PageHeader>
   )

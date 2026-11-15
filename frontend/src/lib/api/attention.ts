@@ -155,7 +155,7 @@ export interface PayrollConnectionStatus {
     period: { start_date: string; end_date: string } | null
   } | null
   latest_locked_period_delivery?: { status: 'pending' | 'failed' | 'delivered' | null; delivered_at: string | null; period: { start_date: string; end_date: string } } | null
-  undelivered: { count: number; failed_count: number; stuck_count: number }
+  undelivered: { count: number; failed_count: number; stuck_count: number; events?: Array<{ event_id: string; period: { start_date: string; end_date: string } }> }
   account_link: { linked_at: string; connected: boolean } | null
 }
 

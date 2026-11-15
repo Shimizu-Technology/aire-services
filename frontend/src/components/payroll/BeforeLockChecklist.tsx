@@ -16,6 +16,7 @@ export interface ChecklistSource {
 
 export interface BeforeLockChecklistProps extends ChecklistInput {
   /** Every source the checklist needs. Readiness is claimed only when all of them just loaded. */
+  paused?: boolean
   sources: ChecklistSource[]
   /** The device clock, matching loadedAt, for the age of each source. */
   now: Date
@@ -27,7 +28,7 @@ export interface BeforeLockChecklistProps extends ChecklistInput {
  * note. While any source is stale or failed the lines stay up but are
  * qualified, and "all clear" is never claimed.
  */
-export function BeforeLockChecklist({ sources, now, onRetry, ...input }: BeforeLockChecklistProps) {
+export function BeforeLockChecklist({ sources, now, onRetry, paused = false, ...input }: BeforeLockChecklistProps) {
   const entries = checklistEntries(input)
   const loading = entries.length === 0 && sources.some(source => source.load === 'loading')
   const failed = entries.length === 0 && sources.some(source => source.load === 'error') && !sources.some(source => source.load === 'loading')
@@ -43,7 +44,7 @@ export function BeforeLockChecklist({ sources, now, onRetry, ...input }: BeforeL
     <section aria-labelledby="before-it-locks" className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <h2 id="before-it-locks" className="text-body font-semibold text-ink">
-          Before it locks
+          {paused ? 'Before locking resumes' : 'Before it locks'}
           {entries.length > 0 && summary && <span className="font-normal text-ink-muted"> · {summary}</span>}
         </h2>
         <p className="text-caption text-ink-muted">Anything still waiting moves to the next pay period.</p>

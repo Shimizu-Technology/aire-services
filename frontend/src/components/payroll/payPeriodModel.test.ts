@@ -34,8 +34,8 @@ describe('Before it locks', () => {
     ['overnight portion within the period', 2, 0, 1],
   ])('uses shared period totals for %s instead of whole-shift pending totals', (_case, time, overtime, count) => {
     const entries = byKey(checklistEntries(input({ period: periodSummary({ time_waiting_hours: time, overtime_waiting_hours: overtime, waiting_count: count }) })))
-    expect(entries.approvals).toMatchObject({ text: 'Time waiting for approval', meta: `${time}h`, status: time ? 'todo' : 'done' })
-    expect(entries.overtime).toMatchObject({ text: 'Overtime waiting for approval', meta: `${overtime}h`, status: overtime ? 'todo' : 'done' })
+    expect(entries.approvals).toMatchObject({ text: 'Time waiting for approval', meta: `${time.toFixed(1)}h`, status: time ? 'todo' : 'done' })
+    expect(entries.overtime).toMatchObject({ text: 'Overtime waiting for approval', meta: `${overtime.toFixed(1)}h`, status: overtime ? 'todo' : 'done' })
   })
 
   it('lists every open item with the exact filtered view it needs', () => {
@@ -43,7 +43,7 @@ describe('Before it locks', () => {
     expect(entries.map(entry => [entry.key, entry.status, entry.text, entry.meta ?? null, entry.action?.to ?? null])).toEqual([
       ['approvals', 'todo', '31 shifts waiting for approval', '276.1h', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['open_clocks', 'todo', '1 person still clocked in from an earlier day', caleb.full_name, '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
-      ['overtime', 'todo', '6h overtime waiting', ethan.full_name, '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
+      ['overtime', 'todo', '6.0h overtime waiting', ethan.full_name, '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
       ['missing_category', 'todo', '3 shifts have no work category', null, '/admin/timecards?entry_id=640'],
       ['late_hours', 'info', '1 shift approved after the Oct 16–31 lock goes into this payroll', '8.9h', null],
     ])
@@ -89,7 +89,7 @@ describe('Before it locks', () => {
       ? { ...item, hours: 10, people: [{ ...item.people[0], hours: 10, entry_count: 2, week_starts: ['2026-10-26', '2026-11-02'] }] }
       : item)
     const entries = byKey(checklistEntries(input({ attention: attention({ items }), waiting: waiting({ overtime: { count: 1, hours: 2, people: ['Ethan Cruz'] } }) })))
-    expect(entries.overtime).toMatchObject({ text: '2h overtime waiting', meta: 'Ethan Cruz' })
+    expect(entries.overtime).toMatchObject({ text: '2.0h overtime waiting', meta: 'Ethan Cruz' })
   })
 
   // Re-check 1: Today's list refreshes every minute; the preview every five.
@@ -125,8 +125,8 @@ describe('Before it locks', () => {
     const other = attention({ period: { ...attentionPeriod, start_date: '2026-11-16', end_date: '2026-11-30' } })
     const quiet = preview({ issues: { ...preview().issues, pending_approval_count: 0 } })
     const entries = byKey(checklistEntries(input({ attention: other, preview: quiet, waiting: waiting({ count: 1, hours: 10, overtime: { count: 1, hours: 2, people: ['Ethan Cruz'] } }) })))
-    expect(entries.approvals).toMatchObject({ status: 'todo', text: '1 shift waiting for approval', meta: '10h' })
-    expect(entries.overtime).toMatchObject({ status: 'todo', text: '2h overtime waiting' })
+    expect(entries.approvals).toMatchObject({ status: 'todo', text: '1 shift waiting for approval', meta: '10.0h' })
+    expect(entries.overtime).toMatchObject({ status: 'todo', text: '2.0h overtime waiting' })
   })
 
   it("uses the preview's earlier-day clocks for a period Today doesn't cover", () => {
@@ -148,6 +148,15 @@ describe('Before it locks', () => {
 })
 
 describe('What goes to payroll', () => {
+  it('separates carried waiting from this period in the table and checklist', () => {
+    const held = { ...preview().exclusions[1], reason: 'pending_approval', original_work_date: '2026-10-30', held_total_hours: 6, waiting_hours_in_period: undefined }
+    const payload = preview({ employees: [], exclusions: [held] })
+    expect(personRows(payload)[0]).toMatchObject({ waiting: 0, carriedWaiting: 6 })
+    const entries = byKey(checklistEntries(input({ preview: payload })))
+    expect(entries.carried_waiting).toMatchObject({ status: 'todo', text: 'Carried in, still waiting', meta: '6.0h' })
+    expect(entries.late_hours).toBeUndefined()
+  })
+
   it('uses payable-date waiting quantities from a live preview while preserving source evidence', () => {
     const base = preview()
     const held = { ...base.exclusions[1], reason: 'pending_approval', held_total_hours: 4, held_regular_hours: 4, held_overtime_hours: 0, waiting_hours_in_period: 2 }
