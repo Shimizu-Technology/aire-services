@@ -38,17 +38,16 @@ export function clockStatusLine(status: ClockStatus) {
 
 /**
  * When someone who forgot to clock out says they stopped at `time` (HH:MM):
- * that time on the clock-in's Guam day, or the next morning if it's not after
- * the clock-in. Null unless it falls between the clock-in and now.
+ * use the clock-in's Guam day. Never guess tomorrow for an earlier time.
+ * Overnight and shifts over twelve hours require a date-aware manager correction.
  */
 export function stoppedAt(clockInAt: string, time: string, now = Date.now()) {
   if (!/^\d{2}:\d{2}$/.test(time)) return null
   const start = Date.parse(clockInAt)
   const day = guamDate(clockInAt)
   // Guam has no daylight saving: always UTC+10.
-  let stop = Date.parse(`${day}T${time}:00+10:00`)
-  if (stop <= start) stop += 86_400_000
-  return stop > start && stop < now ? new Date(stop) : null
+  const stop = Date.parse(`${day}T${time}:00+10:00`)
+  return stop > start && stop < now && stop - start <= 12 * 3_600_000 ? new Date(stop) : null
 }
 
 /** First names of the active managers who share the viewer's departments. */
@@ -118,8 +117,9 @@ export function withOvertimeHours(entries: TimeEntry[]) {
   }
   return entries.map((entry) => ({
     ...entry,
-    pending_overtime_hours:
-      entry.overtime_status === 'pending'
+    pending_overtime_hours: entry.payroll_hours_by_date != null
+      ? entry.payroll_hours_by_date.reduce((sum, part) => sum + part.overtime_waiting_hours, 0)
+      : entry.overtime_status === 'pending'
         ? (entry.pending_overtime_hours ??
           Math.round((overtime.get(entry.id) ?? 0) * 100) / 100)
         : 0,
@@ -130,6 +130,11 @@ export function withOvertimeHours(entries: TimeEntry[]) {
 export function employeeWeekTotals(entries: TimeEntry[], date: string) {
   const start = businessWeekStart(date)
   const end = addDateDays(start, 6)
+  const completed = entries.filter(entry => entry.status === 'completed')
+  if (completed.every(entry => entry.payroll_hours_by_date != null)) {
+    const totals = periodTotals(completed, { start, end })
+    return { hours: totals.total, overtime: totals.overtimeWaiting }
+  }
   return overtimeSegments(entries)
     .filter((segment) => segment.date >= start && segment.date <= end)
     .reduce(

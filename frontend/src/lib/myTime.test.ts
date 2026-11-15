@@ -102,7 +102,7 @@ it('counts only this period’s part of an overnight shift', () => {
 
 it('keeps the weekly overtime capacity across a pay-period boundary', () => {
   const entries = [
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 1,
       work_date: '2026-11-15',
       hours: 38,
@@ -110,7 +110,7 @@ it('keeps the weekly overtime capacity across a pay-period boundary', () => {
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 2,
       work_date: '2026-11-16',
       hours: 8,
@@ -253,7 +253,7 @@ it('loads the preceding full week for a Sunday period carry-in', () => {
 
 it('counts only this week’s portions and overtime of overnight carry-in and carry-out shifts', () => {
   const entries = [
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 1,
       work_date: '2026-11-06',
       hours: 40,
@@ -261,7 +261,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 2,
       work_date: '2026-11-07',
       hours: 4,
@@ -269,7 +269,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: '02:00',
       overtime_status: 'pending',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 3,
       work_date: '2026-11-09',
       hours: 39,
@@ -277,7 +277,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 4,
       work_date: '2026-11-14',
       hours: 4,
@@ -285,7 +285,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: '02:00',
       overtime_status: 'pending',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 5,
       work_date: '2026-11-10',
       hours: 8,
@@ -298,3 +298,12 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
     overtime: 2,
   })
 })
+
+ it('refuses a stop before clock-in, a future stop and shifts over twelve hours', async () => {
+  const { stoppedAt } = await import('./myTime')
+  const now = Date.parse('2026-11-15T16:00:00+10:00')
+  expect(stoppedAt('2026-11-14T15:05:00+10:00', '14:00', now)).toBeNull()
+  expect(stoppedAt('2026-11-15T07:00:00+10:00', '17:00', now)).toBeNull()
+  expect(stoppedAt('2026-11-14T01:00:00+10:00', '14:00', now)).toBeNull()
+  expect(stoppedAt('2026-11-14T13:30:00+10:00', '17:30', now)?.toISOString()).toBe('2026-11-14T07:30:00.000Z')
+ })

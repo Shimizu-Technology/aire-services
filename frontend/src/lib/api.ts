@@ -622,6 +622,8 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  original_employee_change?: { formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
+  rejected_employee_change?: { note: string; manager: string; at: string } | null;
   payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
   payroll_cutoff_missed?: boolean;
   payroll_status?: EmployeePayrollStatus | null;
@@ -2011,6 +2013,9 @@ export const api = {
       body: JSON.stringify({ entry_ids: entryIds, ...(note ? { note } : {}) }),
     }),
 
+  rejectTimeEntryChange: (id: number, expected_version: number, note: string) =>
+    fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/reject_change`, { method: 'POST', body: JSON.stringify({ expected_version, note }) }),
+
   denyTimeEntry: (id: number, note?: string) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny`, {
       method: 'POST',
@@ -2081,6 +2086,15 @@ export const api = {
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/cancel`, {
       method: 'POST',
     }),
+
+  lockKiosk: (kiosk_access_token: string, pin: string) =>
+    fetchApi<void>('/api/v1/aire/kiosk/lock', { method: 'POST', body: JSON.stringify({ kiosk_access_token, pin }) }),
+
+  revokeKioskSession: (kiosk_access_token: string) =>
+    fetchApi<void>('/api/v1/aire/kiosk/revoke', { method: 'POST', body: JSON.stringify({ kiosk_access_token }) }),
+
+  lockAllKiosks: () =>
+    fetchApi<{ revoked_count: number }>('/api/v1/admin/kiosk_session/lock_all', { method: 'POST' }),
 
   createAdminKioskSession: () =>
     fetchApi<KioskSessionResponse>('/api/v1/admin/kiosk_session', {

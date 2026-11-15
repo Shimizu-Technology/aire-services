@@ -13,7 +13,7 @@ class AireKioskService
       raise KioskError, invalid_pin_message unless user
       raise KioskError, invalid_pin_message unless user.is_active?
       raise KioskError, invalid_pin_message unless user.staff?
-      raise KioskError, "Kiosk access is temporarily locked. Please contact a manager." if user.kiosk_locked?
+      raise KioskError, "Your PIN is locked for now. Ask a manager to reset it, or try again after #{user.kiosk_locked_until.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).strftime("%-I:%M %p")}." if user.kiosk_locked?
       raise KioskError, invalid_pin_message unless user.kiosk_enabled?
       raise KioskError, invalid_pin_message unless user.verify_kiosk_pin(pin)
 

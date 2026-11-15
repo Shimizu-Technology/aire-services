@@ -32,12 +32,16 @@ module Payroll
     def self.for_entries(entries)
       context = AffectedOvertimeReview.context_rows_for(entries)
       new(allocations: AffectedOvertimeReview.allocations(context),
-        legacy_allocations: AffectedOvertimeReview.allocations(context, legacy: true))
+        legacy_allocations: AffectedOvertimeReview.allocations(context, legacy: true),
+        projected_allocations: AffectedOvertimeReview.projected_allocations_for(entries))
     end
 
     def expand(entries)
       entries.flat_map do |entry|
         if time_waiting?(entry)
+          allocated = @projected_allocations.dig(entry.id, :segments)
+          next allocated.map { |part| PayableSegmentView.new(entry, part) } if allocated.present? && !@projected_allocations.dig(entry.id, :hold_reason)
+
           segments = PayableIntervals.segments(entry)
           # Unplaceable breaks/intervals still need review on the source date.
           next [ entry ] if segments.size <= 1 || segments.any? { |segment| segment[:hold_reason] }
@@ -47,7 +51,7 @@ module Payroll
           segments.map do |segment|
             elapsed += segment[:seconds]
             cumulative = (elapsed / 3600).round(2)
-            part = { work_date: segment[:work_date], total_hours: (cumulative - previous).to_f, regular_hours: 0.0, overtime_hours: 0.0 }
+            part = segment.merge(work_date: segment[:work_date], total_hours: (cumulative - previous).to_f)
             previous = cumulative
             PayableSegmentView.new(entry, part)
           end
@@ -61,18 +65,22 @@ module Payroll
       expand([ entry ]).map { |segment| { work_date: segment.work_date.iso8601, **self.for(segment) } }
     end
 
-    def initialize(allocations:, legacy_allocations:)
+    def initialize(allocations:, legacy_allocations:, projected_allocations: {})
+      @projected_allocations = projected_allocations
       @allocations = allocations
       @legacy_allocations = legacy_allocations
     end
 
     def for(entry)
       source = entry.respond_to?(:payable_allocation) ? entry.__getobj__ : entry
-      allocation = @allocations.fetch(entry.id, {})
-      part = PayableSegmentView.allocation(entry, @allocations)
+      allocations = time_waiting?(entry) ? @projected_allocations : @allocations
+      allocation = allocations.fetch(entry.id, {})
+      part = PayableSegmentView.allocation(entry, allocations)
       result = KEYS.index_with { 0.0 }
       if allocation[:hold_reason] || time_waiting?(entry)
-        result[:time_waiting_hours] = entry.hours.to_f
+        overtime = allocation[:hold_reason] ? 0.0 : part[:overtime_hours].to_f
+        result[:time_waiting_hours] = [ entry.hours.to_f - overtime, 0.0 ].max.round(2)
+        result[:overtime_waiting_hours] = overtime
       elsif self.class.base_approved?(entry)
         reason = self.class.overtime_reason(source, allocation, legacy_allocation: @legacy_allocations[entry.id])
         result[:approved_regular_hours] = part[:regular_hours].to_f

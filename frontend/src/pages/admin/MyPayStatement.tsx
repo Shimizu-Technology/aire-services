@@ -91,7 +91,7 @@ function EarningsSection({ earnings, gross, grossYtd, contractor }: { earnings: 
       ) : (
         <>
           {showYtd && (
-            <div aria-hidden="true" className={`hidden border-b border-slate-100 px-5 pt-2 pb-1.5 text-xs font-medium text-slate-500 sm:grid ${ytdGrid}`}>
+            <div aria-hidden="true" className={`hidden border-b border-slate-100 px-5 pt-2 pb-1.5 text-sm font-medium text-slate-500 sm:grid ${ytdGrid}`}>
               <span />
               <span className="text-right">This check</span>
               <span className="text-right">Year to date</span>
@@ -154,7 +154,7 @@ function WithholdingSection({ title, description, lines, emptyText }: { title: s
         <p className="px-4 py-4 text-sm text-slate-600 sm:px-5">{emptyText}</p>
       ) : (
         <>
-          <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_8rem_8rem] gap-x-4 border-b border-slate-100 px-5 pt-2 pb-1.5 text-xs font-medium text-slate-500 sm:grid">
+          <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_8rem_8rem] gap-x-4 border-b border-slate-100 px-5 pt-2 pb-1.5 text-sm font-medium text-slate-500 sm:grid">
             <span />
             <span className="text-right">This check</span>
             <span className="text-right">Year to date</span>
@@ -206,7 +206,7 @@ function HoursSection({ lines, statementId, contractor }: { lines: MyPayHoursLin
                     {breakdown && <span className="tabular-nums"> · {breakdown}</span>}
                   </p>
                   {line.prior_period && (
-                    <p className="mt-1.5 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                    <p className="mt-1.5 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-sm font-semibold text-amber-900">
                       {line.work_date ? `Worked ${formatDateOnly(line.work_date, { month: 'short', day: 'numeric' })} · paid on this check` : 'Earlier hours · paid on this check'}
                     </p>
                   )}
@@ -485,7 +485,7 @@ export default function MyPayStatement() {
         </dl>
       </Section>
 
-      <p className="px-1 pb-4 text-xs text-slate-500">
+      <p className="px-1 pb-4 text-sm text-slate-500">
         Your paper stub is the official record of this {contractor ? 'payment' : 'paycheck'}. Questions about your pay? Ask an AIRE administrator.
       </p>
     </div>
