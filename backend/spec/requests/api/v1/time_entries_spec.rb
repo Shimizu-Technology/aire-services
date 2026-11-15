@@ -364,6 +364,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
           end_time: guam.local(2026, 4, 29, 17, 0, 0),
           clock_in_at: guam.local(2026, 4, 29, 9, 0, 0),
           clock_out_at: guam.local(2026, 4, 29, 17, 0, 0),
+          employee_corrected_clock_out: true,
           hours: 8
         )
 
@@ -375,6 +376,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:ok)
         completed_entry.reload
+        expect(completed_entry.employee_corrected_clock_out).to be(false)
         expect(completed_entry.hours.to_f).to eq(8.5)
         expect(completed_entry.start_time.in_time_zone(guam).strftime("%H:%M")).to eq("08:00")
         expect(completed_entry.clock_in_at.in_time_zone(guam).strftime("%H:%M")).to eq("08:00")

@@ -83,8 +83,9 @@ export default function ClerkProtectedContent({ children, requiredRole, required
 
   if (authStatus === 'access_denied') {
     const workArea = workAreaFor(userRole)
+    const Container = userRole ? 'div' : 'main'
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Container className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md mx-auto text-center p-8">
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,14 +115,14 @@ export default function ClerkProtectedContent({ children, requiredRole, required
             </>
           ) : (
             <a
-              href="/"
-              className="mt-6 inline-block px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+              href="/kiosk"
+              className="mt-6 inline-flex min-h-11 items-center px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
             >
-              View public website
+              Use the office kiosk
             </a>
           )}
         </div>
-      </div>
+      </Container>
     )
   }
 

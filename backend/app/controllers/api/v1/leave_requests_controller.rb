@@ -159,7 +159,7 @@ module Api
 
       def change_saved_decision!(undo:)
         LeaveDecisionChange.new(@leave_request, current_user).call!(
-          version: params[:version], status: params[:status], reason: params[:reason], undo: undo
+          version: params[:version], status: params[:status], reason: params[:reason], employee_note: params[:employee_note], undo: undo
         )
         render json: { leave_request: serialize_leave_request(@leave_request) }
       rescue LeaveDecisionChange::Conflict => e
@@ -254,7 +254,7 @@ module Api
           id: request.id,
           version: request.lock_version,
           undo_expires_at: request.initial_decision? && request.reviewed_at && request.status.in?(%w[approved declined]) ? (request.reviewed_at + 15.minutes).iso8601 : nil,
-          decision_history: current_user.can_approve_leave? ? request.decision_events.map { |event| {
+          decision_history: current_user.can_approve_leave? && request.user_id != current_user.id ? request.decision_events.map { |event| {
               action: event.action, at: event.occurred_at.iso8601, actor: event.actor_name,
               from: event.metadata["from"], to: event.metadata["to"], reason: event.metadata["reason"] || event.metadata["review_note"]
             } } : [],

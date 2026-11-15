@@ -197,7 +197,7 @@ export default function MyLeave() {
               )}
               {request.review_note && (
                 <p className="text-body-sm text-ink">
-                  Manager's note: {request.review_note}
+                  {request.review_note.startsWith('Changed by ') ? request.review_note : `Manager's note: ${request.review_note}`}
                 </p>
               )}
               {request.status === 'pending' && (

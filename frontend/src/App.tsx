@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { KioskBrowserBoundary } from './components/auth/KioskBrowserBoundary'
-import { createBrowserRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider, useRouteError } from 'react-router-dom'
+import { createBrowserRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider, useRouteError, useSearchParams } from 'react-router-dom'
 
 import { PostHogPageView } from './providers/PostHogProvider'
 import PublicLayout from './components/layouts/PublicLayout'
@@ -16,6 +16,14 @@ import AireCareers from './pages/aire/AireCareers'
 import AireKiosk from './pages/aire/AireKiosk'
 import { AdminLanding, LegacyTimeRedirect, MovedPage, SupervisorLeaveRedirect } from './pages/admin/AdminRedirects'
 import SchedulesGate from './pages/admin/SchedulesGate'
+
+function ActivityRoute() {
+  const [params] = useSearchParams()
+  const shiftHistory = params.get('subject_type') === 'TimeEntry' && /^\d+$/.test(params.get('subject_id') ?? '')
+  return <ProtectedRoute requiredCapability={shiftHistory ? 'manage_team_time' : 'view_activity'}>
+    <Suspense fallback={<AdminLoadingFallback />}><ActivityHistory /></Suspense>
+  </ProtectedRoute>
+}
 
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
 const EmployeeWorkspace = lazy(() => import('./pages/admin/EmployeeWorkspace'))
@@ -171,9 +179,7 @@ const routes = createRoutesFromElements(
           <Route
             path="activity"
             element={
-              <ProtectedRoute requiredCapability="manage_team_time">
-                <Suspense fallback={<AdminLoadingFallback />}><ActivityHistory /></Suspense>
-              </ProtectedRoute>
+              <ActivityRoute />
             }
           />
           {/* Owners and admins get the full page; everyone else a read-only "What can I do?" view. */}

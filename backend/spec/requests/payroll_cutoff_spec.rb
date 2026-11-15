@@ -316,6 +316,10 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     employee.update!(is_active: false)
     post "/api/v1/aire/kiosk/cutoff/acknowledge", params: payload.merge(kiosk_access_token: access, kiosk_token: token)
     expect(response).to have_http_status(:unauthorized)
+    expect(response.parsed_body["code"]).to eq("kiosk_employee_session_refused")
+    post "/api/v1/aire/kiosk/cutoff/acknowledge", params: payload.merge(kiosk_access_token: "expired", kiosk_token: token)
+    expect(response).to have_http_status(:unauthorized)
+    expect(response.parsed_body["code"]).to eq("kiosk_device_revoked")
     expect(PayrollCutoffAcknowledgement.count).to eq(0)
   end
   it "does not prevent removal of an otherwise unused staff profile" do

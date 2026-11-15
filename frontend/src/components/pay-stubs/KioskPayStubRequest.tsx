@@ -12,6 +12,7 @@ interface Props {
   onActivity: () => void
   onCancel: () => void
   onSent: (message: string) => void
+  onSessionRefused?: (device: boolean) => void
 }
 
 const SCOPES: { value: PayStubScope; label: string; help: string }[] = [
@@ -27,7 +28,7 @@ const optionClass = (selected: boolean) =>
 
 const inputClass = 'mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-base text-white placeholder:text-slate-500 focus:border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-300/40'
 
-export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onActivity, onCancel, onSent }: Props) {
+export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onActivity, onCancel, onSent, onSessionRefused }: Props) {
   const ids = useId()
   const [choices, setChoices] = useState<KioskPayStubChoices | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -41,6 +42,9 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
   const [error, setError] = useState<string | null>(null)
   // The kiosk can reset (idle timer, "Not you?") while a request is in flight;
   // a late answer must not show "sent" to the next person.
+  const refusedRef = useRef(onSessionRefused)
+  useEffect(() => { refusedRef.current = onSessionRefused }, [onSessionRefused])
+  const refused = (error: unknown) => error instanceof PayStubError && ['kiosk_device_revoked', 'kiosk_employee_session_refused'].includes(error.code ?? '')
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -57,6 +61,7 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
         if (!data.on_file_email_hint) setDestination('typed')
       })
       .catch((caught: unknown) => {
+        if (current && refused(caught)) { refusedRef.current?.(caught instanceof PayStubError && caught.code === 'kiosk_device_revoked'); return }
         if (current) setLoadError(caught instanceof PayStubError ? caught.message : 'Pay stub requests are unavailable right now.')
       })
     return () => { current = false }
@@ -90,6 +95,7 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
       if (mounted.current) onSent(result.message)
     } catch (caught) {
       if (!mounted.current) return
+      if (refused(caught)) { refusedRef.current?.(caught instanceof PayStubError && caught.code === 'kiosk_device_revoked'); return }
       setError(caught instanceof PayStubError ? caught.message : 'Your request could not be sent. Please try again.')
       setSubmitting(false)
     }

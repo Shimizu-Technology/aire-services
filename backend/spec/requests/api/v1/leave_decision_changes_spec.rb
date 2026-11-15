@@ -17,10 +17,29 @@ RSpec.describe "Leave decision corrections", type: :request do
   end
   def correct(params = {}, auth = headers)
     post "/api/v1/leave_requests/#{leave.id}/change_decision",
-         params: { version: leave.reload.lock_version, status: "declined", reason: "Coverage changed" }.merge(params), headers: auth
+         params: { version: leave.reload.lock_version, status: "declined", reason: "Coverage changed", employee_note: "Please speak with us about new dates." }.merge(params), headers: auth
   end
   def undo(auth = headers)
     post "/api/v1/leave_requests/#{leave.id}/undo", params: { version: leave.reload.lock_version }, headers: auth
+  end
+
+  it "hides internal decision history on a manager's own leave" do
+    own = create(:leave_request, user: manager, status: "approved", reviewed_by: create(:user, :admin), reviewed_at: Time.current)
+    AuditLog.record!(action: "leave_request.decision_changed", auditable: own, actor: own.reviewed_by,
+                     event_category: "leave", metadata: { reason: "Private internal reason", from: "declined", to: "approved" })
+    get "/api/v1/leave_requests", headers: headers
+    row = data["leave_requests"].find { |item| item["id"] == own.id }
+    expect(row).to be_present
+    expect(row["decision_history"]).to eq([])
+    expect(response.body).not_to include("Private internal reason")
+  end
+
+  it "keeps the employee note and previous review note in the change audit" do
+    post "/api/v1/leave_requests/#{leave.id}/approve", params: { review_note: "Enjoy your time off" }, headers: headers
+    correct(status: "declined", employee_note: "Please choose new dates.")
+    expect(response).to have_http_status(:ok)
+    event = AuditLog.where(auditable: leave, action: "leave_request.decision_changed").sole
+    expect(event.metadata).to include("employee_note" => "Please choose new dates.", "previous_review_note" => "Enjoy your time off")
   end
 
   it "undoes atomically with exactly two domain audit rows" do
@@ -49,15 +68,15 @@ RSpec.describe "Leave decision corrections", type: :request do
       expect(data["leave_request"]["decision_history"].first).to include("reason" => "Coverage changed", "from" => "approved", "to" => "declined")
     end
   end
-  it "refuses Undo after a correction without replacing the employee note" do
+  it "refuses Undo after a correction with the employee-facing change note" do
     post "/api/v1/leave_requests/#{leave.id}/approve", params: { review_note: "Enjoy your time off" }, headers: headers
     correct
     expect(response).to have_http_status(:ok)
     expect(data["leave_request"]["undo_expires_at"]).to be_nil
-    expect(leave.reload.review_note).to eq("Enjoy your time off")
+    expect(leave.reload.review_note).to eq("Changed by #{manager.full_name}: Please speak with us about new dates.")
     undo
     expect(response).to have_http_status(:unprocessable_entity)
-    expect(leave.reload).to have_attributes(status: "declined", review_note: "Enjoy your time off")
+    expect(leave.reload).to have_attributes(status: "declined", review_note: "Changed by #{manager.full_name}: Please speak with us about new dates.")
   end
   it "clears the note written by an undone initial decision" do
     post "/api/v1/leave_requests/#{leave.id}/decline", params: { review_note: "Coverage unavailable" }, headers: headers
@@ -162,5 +181,21 @@ RSpec.describe "Leave decision corrections", type: :request do
     expect(response).to have_http_status(:ok)
     expect(data["pagination"]["total_count"]).to eq(2)
     expect(data["leave_requests"].map { |row| row["id"] }).to eq([ latest.id ])
+  end
+  it "requires a separate employee note for decline and withdrawal, without saving a decision or recording a decision-change event" do
+    approve
+    %w[declined pending].each do |status|
+      [ nil, " ", "x" * 501 ].each do |note|
+        expect { correct(status: status, employee_note: note) }.not_to change { AuditLog.where(action: "leave_request.decision_changed").count }
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(leave.reload.status).to eq("approved")
+      end
+    end
+    correct(status: "pending", employee_note: "The aircraft is unavailable. Let's find another date.")
+    expect(response).to have_http_status(:ok)
+    get "/api/v1/leave_requests", headers: { "Authorization" => "Bearer test_token_#{employee.id}" }
+    expect(data["leave_requests"].first["review_note"]).to eq("Changed by #{manager.full_name}: The aircraft is unavailable. Let's find another date.")
+    expect(data["leave_requests"].first["decision_history"]).to eq([])
+    expect(response.body).not_to include("Coverage changed")
   end
 end

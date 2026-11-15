@@ -113,10 +113,10 @@ describe('ClerkProtectedContent', () => {
     expect(screen.getByRole('link', { name: 'Back to Today' })).toHaveAttribute('href', '/admin')
   })
 
-  it('offers only the public website when the account has no role at all', () => {
+  it('offers the office kiosk when personal sign-in is disabled', () => {
     authMock.app.userRole = null
     render(<ClerkProtectedContent><div>Admin</div></ClerkProtectedContent>)
-    expect(screen.getByRole('link', { name: 'View public website' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Use the office kiosk' })).toHaveAttribute('href', '/kiosk')
     expect(screen.queryByRole('link', { name: /Back to|Open My Time/ })).not.toBeInTheDocument()
   })
 })

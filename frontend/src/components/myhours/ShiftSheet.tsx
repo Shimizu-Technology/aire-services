@@ -32,6 +32,7 @@ export function ShiftSheet({
           : entry.clock_source === 'mobile'
             ? 'Phone'
             : 'Clock'
+  const correctedClockOut = entry.employee_corrected_clock_out
   const week = employeeWeekTotals(weekEntries, entry.work_date)
   return (
     <Sheet
@@ -69,13 +70,9 @@ export function ShiftSheet({
           </dd>
         </div>
         <div>
-          <dt className="text-ink-muted">Clock out · {source}</dt>
+          <dt className="text-ink-muted">Clock-out · {correctedClockOut ? `fixed by ${entry.user.full_name}` : source}</dt>
           <dd>
-            {entry.clock_out_at
-              ? clockTime(entry.clock_out_at)
-              : (entry.formatted_end_time ??
-                entry.end_time ??
-                'Still on the clock')}
+            {entry.formatted_end_time ?? entry.end_time ?? (entry.clock_out_at ? clockTime(entry.clock_out_at) : 'Still on the clock')}
           </dd>
         </div>
         <div>

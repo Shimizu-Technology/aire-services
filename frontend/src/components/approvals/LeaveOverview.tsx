@@ -74,6 +74,7 @@ export default function LeaveOverview({
   const [loadError, setLoadError] = useState(false)
   const [editing, setEditing] = useState<LeaveRequest | null>(null)
   const [reason, setReason] = useState('')
+  const [employeeNote, setEmployeeNote] = useState('')
   const [status, setStatus] = useState<LeaveRequest['status']>('pending')
   const [busy, setBusy] = useState(false)
   const [now, setNow] = useState(Date.now())
@@ -177,6 +178,7 @@ export default function LeaveOverview({
             row.version,
             status,
             reason.trim(),
+            employeeNote.trim(),
           )
       if (!result.data) {
         if (result.status === 409) {
@@ -263,6 +265,7 @@ export default function LeaveOverview({
               onClick={() => {
                 setEditing(row)
                 setReason('')
+                setEmployeeNote('')
                 setStatus('pending')
                 setError('')
               }}
@@ -416,7 +419,7 @@ export default function LeaveOverview({
         footer={
           <Button
             loading={busy}
-            disabled={!online || !reason.trim()}
+            disabled={!online || !reason.trim() || (editing?.status === 'approved' && !employeeNote.trim())}
             onClick={() => {
               if (editing) void decide(editing, false)
             }}
@@ -447,7 +450,10 @@ export default function LeaveOverview({
                 ))}
             </Select>
           </Field>
-          <Field label="Reason (required)">
+          {editing?.status === 'approved' && <Field label="Note for the employee (required)">
+            <Textarea maxLength={500} value={employeeNote} onChange={event => setEmployeeNote(event.target.value)} />
+          </Field>}
+          <Field label="Internal reason (managers only)">
             <Textarea
               maxLength={500}
               value={reason}

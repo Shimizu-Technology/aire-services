@@ -520,8 +520,8 @@ describe('Timecards on a desktop', () => {
   it('starts Everyone inside the selected period on its final Sunday', async () => {
     vi.setSystemTime(new Date('2026-11-15T12:00:00+10:00'))
     openAt('/admin/timecards?view=everyone&period=2026-11-01')
-    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-08' })))
-    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Nov 8 – Nov 14, 2026')
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-15' })))
+    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Nov 15 – Nov 21, 2026')
   })
 
   it('shows the people beside the timecard, and Everyone shows the week grid', async () => {
@@ -583,7 +583,7 @@ describe('Timecards on a desktop', () => {
 
     it('reopens Edit shift on a person\'s timecard and clears the request', async () => {
       openAt('/admin/timecards?user_id=7&period=2026-11-01&entry_id=42&return=edit')
-      const editor = await screen.findByRole('dialog', { name: 'Edit Time Entry' })
+      const editor = await screen.findByRole('dialog', { name: 'Edit shift' })
       expect(within(editor).getByText('Caleb Perez')).toBeInTheDocument()
       await waitFor(() => expect(screen.getByTestId('url').textContent).not.toContain('return=edit'))
       expect(search().get('user_id')).toBe('7')
@@ -593,7 +593,7 @@ describe('Timecards on a desktop', () => {
 
     it('reopens it from the Everyone week, keeping the Everyone view', async () => {
       openAt('/admin/timecards?view=everyone&period=2026-11-01&date=2026-11-02&entry_id=42&return=edit')
-      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
       expect(search().get('view')).toBe('everyone')
       await waitFor(() => expect(screen.getByTestId('url').textContent).not.toContain('return=edit'))
       expect(search().get('date')).toBe('2026-11-09')
@@ -601,7 +601,7 @@ describe('Timecards on a desktop', () => {
 
     it('follows a shift that moved to another pay period', async () => {
       openAt('/admin/timecards?user_id=7&period=2026-10-16&entry_id=42&return=edit')
-      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
       expect(search().get('period')).toBe('2026-11-01')
       expect((await screen.findAllByText(/^Nov 1–15/)).length).toBeGreaterThan(0)
     })

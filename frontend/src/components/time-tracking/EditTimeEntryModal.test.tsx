@@ -315,10 +315,10 @@ describe('EditTimeEntryModal', () => {
     render(<EditTimeEntryModal isOpen canManageTeamTime entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
       end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
       categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText('End Time *'), { target: { value: '18:00' } })
+    fireEvent.change(screen.getByLabelText('End time *'), { target: { value: '18:00' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
-    expect(screen.getByLabelText('End Time *')).toHaveValue('12:00')
-    expect(screen.getByLabelText('End Time *')).toBeDisabled()
+    expect(screen.getByLabelText('End time *')).toHaveValue('12:00')
+    expect(screen.getByLabelText('End time *')).toBeDisabled()
     fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(6,
@@ -333,7 +333,7 @@ describe('EditTimeEntryModal', () => {
     document.body.append(host)
     render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete canManageTeamTime
       onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />, { container: host })
-    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
     expect(dialog).toBeVisible()
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(host).not.toContainElement(dialog)
@@ -438,7 +438,7 @@ describe('precise clock editor payloads', () => {
   })
   it('sends an intentional endpoint change without the nominal end or breaks', async () => {
     show()
-    fireEvent.change(screen.getByLabelText(/Start Time/), { target: { value: '08:05' } })
+    fireEvent.change(screen.getByLabelText(/Start time/), { target: { value: '08:05' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { start_time: '08:05', expected_version: 1 }, undefined))
   })

@@ -212,7 +212,11 @@ module Api
         if !supervisor_edit && @time_entry.clock_entry? && @time_entry.status == "completed"
           update_params[:original_employee_change] = original_change["approval_status"] == "pending" ? (@time_entry.original_employee_change.presence || original_change) : original_change
           update_params[:rejected_employee_change] = nil
+          if @time_entry.will_save_change_to_end_time? || @time_entry.will_save_change_to_clock_out_at?
+            update_params[:employee_corrected_clock_out] = true
+          end
         elsif supervisor_edit && pay_changed
+          update_params[:employee_corrected_clock_out] = false if @time_entry.will_save_change_to_end_time? || @time_entry.will_save_change_to_clock_out_at?
           update_params[:original_employee_change] = nil
           update_params[:rejected_employee_change] = nil
         end
@@ -1226,6 +1230,7 @@ module Api
           } : nil,
           approved_at: entry.approved_at&.iso8601,
           approval_note: entry.approval_note,
+          employee_corrected_clock_out: entry.employee_corrected_clock_out,
           overtime_approved_by: entry.overtime_approved_by ? {
             id: entry.overtime_approved_by.id,
             full_name: entry.overtime_approved_by.full_name

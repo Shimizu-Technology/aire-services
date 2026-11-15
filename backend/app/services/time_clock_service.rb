@@ -85,27 +85,24 @@ class TimeClockService
       entry = active_entry_for(user)
       raise ClockError, "Not currently clocked in" unless entry
 
+      now = Time.current
+      parsed = corrected_end_time.present? ? parse_corrected_stop!(entry, corrected_end_time, now) : nil
+      reject_short_segment!(entry, attempted_at: parsed || now)
       clock_write_transaction do
-        if entry.status == "on_break"
-          active_break = entry.active_break
-          active_break&.close!
-        end
-
-        now = Time.current
         guam_now = now.in_time_zone(business_timezone)
+        effective_end = parsed || now
+        # A correction can precede a recorded break, or fall inside one.
+        entry.time_entry_breaks.each do |pause|
+          if pause.start_time >= effective_end
+            pause.destroy!
+          elsif pause.end_time.nil? || pause.end_time > effective_end
+            pause.close!(effective_end)
+          end
+        end
+        entry.time_entry_breaks.reset
 
-        if corrected_end_time.present?
-          begin
-            parsed = ActiveSupport::TimeZone[business_timezone].parse(corrected_end_time)
-          rescue ArgumentError
-            raise ClockError, "Invalid corrected time format"
-          end
-          if parsed <= entry.start_time.in_time_zone(business_timezone)
-            raise ClockError, "Corrected time (#{parsed.strftime('%I:%M %p')}) must be after your clock-in time (#{entry.start_time.in_time_zone(business_timezone).strftime('%I:%M %p')})"
-          end
-          if parsed > guam_now
-            raise ClockError, "Corrected time (#{parsed.strftime('%I:%M %p')}) cannot be in the future"
-          end
+        if parsed
+          entry.employee_corrected_clock_out = true unless admin_override_by
           entry.end_time = parsed
           entry.clock_out_at = now
           entry.approval_status = "pending"
@@ -204,6 +201,7 @@ class TimeClockService
         raise ClockError, "Already tracking time under #{new_category.name}"
       end
 
+      reject_short_segment!(entry)
       now = Time.current
       guam_now = now.in_time_zone(business_timezone)
       today = guam_now.to_date
@@ -263,6 +261,27 @@ class TimeClockService
 
       broadcast_time_clock_update("switch_category", user)
       new_entry
+    end
+
+    def parse_corrected_stop!(entry, value, now)
+      parsed = ActiveSupport::TimeZone[business_timezone].parse(value.to_s)
+      start = entry.clock_in_at || entry.start_time
+      unless parsed && parsed > start && parsed <= now && parsed - start <= 12.hours &&
+             parsed.to_date == start.in_time_zone(business_timezone).to_date
+        raise ClockError, "Pick a time after clock-in on the clock-in day and before now, within 12 hours of clock-in. Ask a manager to fix an overnight or longer shift."
+      end
+      parsed
+    rescue ArgumentError, TypeError
+      raise ClockError, "Invalid corrected time format"
+    end
+
+    def reject_short_segment!(entry, attempted_at: Time.current)
+      original_start = shift_segments(entry).first.clock_in_at
+      return unless original_start && attempted_at - original_start < 60
+
+      record_time_event!("time_entry.clock_out_refused", entry, user: entry.user, actor: nil, source: entry.clock_source,
+                         metadata: { attempted_at: attempted_at.iso8601, reason: "shift_under_one_minute" })
+      raise ClockError, "That was less than a minute, so no shift was saved. You are still clocked in; wait a minute before clocking out or switching work."
     end
 
     # ── Current Status ──

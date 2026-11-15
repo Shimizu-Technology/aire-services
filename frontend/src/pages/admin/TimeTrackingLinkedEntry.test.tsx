@@ -61,7 +61,7 @@ function setSavedEntry(entry: TimeEntry) {
 }
 async function endClock() {
   fireEvent.click(await screen.findByTitle('Edit entry'))
-  const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+  const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
   fireEvent.click(within(dialog).getByRole('checkbox', { name: 'End this clock' }))
   fireEvent.change(within(dialog).getByLabelText('Clock-out time (Guam) *'), { target: { value: '12:00' } })
   fireEvent.change(within(dialog).getByLabelText('Correction reason *'), { target: { value: 'Actual historical stop confirmed' } })

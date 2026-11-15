@@ -85,6 +85,7 @@ export async function fetchApi<T>(
       if (response.status === 401) {
         return {
           error: data.error || 'Authentication required',
+          code: data.code,
           errors: data.errors || ['Please sign in to continue'],
           status: response.status,
         };
@@ -92,6 +93,7 @@ export async function fetchApi<T>(
       if (response.status === 403) {
         return {
           error: data.error || 'Access denied',
+          code: data.code,
           errors: data.errors || ['You do not have permission to perform this action'],
           status: response.status,
         };
@@ -622,6 +624,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  employee_corrected_clock_out?: boolean;
   original_employee_change?: { restorable?: boolean; restoration_reason?: string | null; formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
   rejected_employee_change?: { note: string; manager: string; at: string } | null;
   payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
@@ -1724,10 +1727,10 @@ export const api = {
       }),
     }),
 
-  aireKioskClockOut: (kioskAccessToken: string, kioskToken: string) =>
+  aireKioskClockOut: (kioskAccessToken: string, kioskToken: string, correctedEndTime?: string) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/clock_out', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken }),
+      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken, corrected_end_time: correctedEndTime }),
     }),
 
   aireKioskStartBreak: (kioskAccessToken: string, kioskToken: string) =>
@@ -2094,9 +2097,9 @@ export const api = {
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/undo`, {
       method: 'POST', body: JSON.stringify({ version }),
     }),
-  changeLeaveDecision: (id: number, version: number, status: LeaveRequest['status'], reason: string) =>
+  changeLeaveDecision: (id: number, version: number, status: LeaveRequest['status'], reason: string, employeeNote?: string) =>
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/change_decision`, {
-      method: 'POST', body: JSON.stringify({ version, status, reason }),
+      method: 'POST', body: JSON.stringify({ version, status, reason, employee_note: employeeNote }),
     }),
 
   cancelLeaveRequest: (id: number) =>
