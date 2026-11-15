@@ -93,7 +93,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const connectionPill: { label: string; tone: StatusTone } | null = paused
     ? { label: 'Payroll connection paused', tone: 'needs-fix' }
     : connectionCopy
-      ? { label: connectionCopy.title, tone: connectionCopy.connected ? 'approved' : 'waiting' }
+      ? { label: connectionCopy.title, tone: connectionCopy.problem ? 'needs-fix' : connectionCopy.connected ? 'approved' : 'waiting' }
       : null
   const control = cutoff.data?.lock_control && period && cutoff.data.lock_control.period.start_date === period.start_date
     ? cutoff.data.lock_control
@@ -121,7 +121,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
       if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
         const confirmed = await confirm({
           title: 'Download a clearly marked draft anyway?',
-          description: 'This report includes approved entries without work categories.',
+          description: 'Time or overtime is still waiting, a clock is open, or a work category needs review. Waiting hours are not included in payroll totals.',
           confirmLabel: 'Download draft',
         })
         if (confirmed) await exportReport(kind, true)
@@ -214,7 +214,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
         </div>
       )}
 
-      {isCurrent && published && !locked && connectionEnabled && capabilities.manage_payroll && <PayrollLockControl />}
+      {isCurrent && published && !locked && connectionEnabled && capabilities.manage_payroll && <PayrollLockControl refreshKey={`${control?.cutoff_at}:${cutoff.data?.cutoff?.stage}:${control?.can_lock_now}`} />}
 
       {show.error && !show.data && (
         <ErrorState title="Couldn't load this pay period." description={show.error} onRetry={() => void refresh()} />
@@ -244,9 +244,11 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
               attention={attention.data}
               preview={preview.data}
               waiting={waiting.data}
+              period={period}
               previousStart={show.data.previous_start_date}
               sources={[
-                { load: blockLoad(waiting), loadedAt: waiting.loadedAt, maxAgeMs: STALE_AFTER_MS },
+                { load: blockLoad(show), loadedAt: show.loadedAt },
+                ...(!period ? [{ load: blockLoad(waiting), loadedAt: waiting.loadedAt, maxAgeMs: STALE_AFTER_MS }] : []),
                 { load: blockLoad(preview), loadedAt: preview.loadedAt, maxAgeMs: STALE_AFTER_MS },
                 ...(isCurrent ? [{ load: blockLoad(attention), loadedAt: attention.loadedAt }] : []),
               ]}

@@ -446,7 +446,7 @@ describe('PayrollRuns', () => {
     } })
     renderPayrollRuns()
     expect(await screen.findByText('Scheduled for supplemental payroll')).toBeInTheDocument()
-    expect(screen.getByText(/Complete that run and record its payment/)).toBeInTheDocument()
+    expect(screen.getByText(/Finish that payroll and record its payment/)).toBeInTheDocument()
     expect(screen.queryByText('Late hours (added to the next payroll)')).not.toBeInTheDocument()
     expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
   })

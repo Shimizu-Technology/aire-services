@@ -17,7 +17,7 @@ export function periodSummary(overrides: Partial<PayrollPeriodSummary> = {}): Pa
     cutoff_at: '2026-11-18T17:00:00+10:00', lock_mode: 'scheduled', status: 'scheduled', cutoff_state: 'upcoming',
     cutoff_source: 'policy', override: null, lock_change: null, handoff_state: state, label: 'Open', label_provisional: true,
     steps: steps(state), locked_at: null, payroll_batch_id: null, delivery: null, payroll_status: null,
-    people: 30, hours_source: 'live', approved_hours: 1005, waiting_hours: 276.06, waiting_count: 31,
+    people: 30, hours_source: 'live', approved_hours: 1005, approved_regular_hours: 999, approved_overtime_hours: 6, time_waiting_hours: 270.06, overtime_waiting_hours: 6, waiting_hours: 276.06, waiting_count: 31,
     ...overrides,
   }
 }
@@ -58,7 +58,7 @@ export function preview(overrides: Partial<PayrollBatchPayload> = {}): PayrollBa
     ],
     exclusions: [
       { source_time_entry_id: '812', source_user_id: '7', source_user_uuid: null, display_name: 'Caleb Perez', email: null, category: null, reason: 'open_clock', original_work_date: '2026-11-10', held_total_hours: 9.1, held_regular_hours: 9.1, held_overtime_hours: 0, first_excluded_batch_id: 'PREVIEW' },
-      { source_time_entry_id: '905', source_user_id: '9', source_user_uuid: null, display_name: 'Ethan Cruz', email: null, category: null, reason: 'pending_overtime', original_work_date: '2026-11-09', held_total_hours: 10, held_regular_hours: 4, held_overtime_hours: 6, first_excluded_batch_id: 'PREVIEW' },
+      { source_time_entry_id: '905', source_user_id: '9', source_user_uuid: null, display_name: 'Ethan Cruz', email: null, category: null, reason: 'pending_overtime', original_work_date: '2026-11-09', held_total_hours: 6, held_regular_hours: 0, held_overtime_hours: 6, first_excluded_batch_id: 'PREVIEW' },
     ],
     issues: { missing_category_count: 0, negative_adjustment_count: 0, pending_approval_count: 0, denied_approval_count: 0, open_clock_count: 1, pending_overtime_count: 1, denied_overtime_count: 0 },
     summary: { employee_count: 3, adjustment_count: 4, total_hours: 92.1, regular_hours: 92.1, overtime_hours: 0, current_count: 3, carryover_count: 1, correction_count: 0, exclusion_count: 2 },

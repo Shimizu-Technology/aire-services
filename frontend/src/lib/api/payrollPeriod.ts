@@ -45,6 +45,10 @@ export interface PayrollPeriodSummary {
   people: number
   hours_source: 'live' | 'locked'
   /** Live (open) periods. */
+  approved_regular_hours?: number
+  approved_overtime_hours?: number
+  time_waiting_hours?: number
+  overtime_waiting_hours?: number
   approved_hours?: number
   waiting_hours?: number
   waiting_count?: number

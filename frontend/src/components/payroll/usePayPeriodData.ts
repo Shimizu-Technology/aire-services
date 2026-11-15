@@ -21,8 +21,8 @@ export const SLOW_REFRESH_MS = 5 * 60_000
 const OVERTIME_PAGE = 500
 
 /**
- * Shifts and overtime waiting on the period's dates, with the Approvals
- * badge's scope. Overtime hours are each shift's own projected overtime.
+ * Unpublished-period fallback only. The queue counts whole shifts by start
+ * date; published periods use the show response's shared approval quantities.
  */
 async function fetchWaiting(range: PayPeriod): Promise<Result<PeriodWaiting>> {
   const dates = { start_date: range.start, end_date: range.end }
@@ -174,7 +174,7 @@ export function usePayPeriodData(requestedStart: string | null): PayPeriodData {
       [range?.start, range?.end]),
   )
   const waiting = useBlock(
-    wantsPreview && range ? `waiting:${range.start}:${range.end}` : null,
+    wantsPreview && !period && range ? `waiting:${range.start}:${range.end}` : null,
     useCallback(() => (range ? fetchWaiting(range) : Promise.resolve({ error: 'No pay period' })),
       // eslint-disable-next-line react-hooks/exhaustive-deps -- the dates name the request
       [range?.start, range?.end]),

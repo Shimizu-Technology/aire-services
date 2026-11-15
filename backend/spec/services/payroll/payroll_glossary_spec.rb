@@ -3,8 +3,8 @@
 require "rails_helper"
 
 # The plain payroll words live twice: here for the API and in
-# frontend/src/lib/payrollTerms.ts for the pages. Chels hasn't confirmed the
-# glossary (DESIGN.md §5), so a word will change; this keeps both sides in step.
+# frontend/src/lib/payrollTerms.ts for the pages. Keep the agreed glossary
+# consistent across the API and pages.
 RSpec.describe "Payroll glossary" do
   terms_file = Rails.root.join("../frontend/src/lib/payrollTerms.ts")
 

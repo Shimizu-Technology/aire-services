@@ -48,6 +48,8 @@ export function BeforeLockChecklist({ sources, now, onRetry, ...input }: BeforeL
         </h2>
         <p className="text-caption text-ink-muted">Anything still waiting moves to the next pay period.</p>
       </div>
+      {!input.period && input.waiting && <p className="text-caption text-ink-muted">This period is not published. Waiting totals below count whole shifts by their start date; overtime can also be included in the shift total.</p>}
+      {input.period?.hours_source === 'live' && input.period.waiting_count !== undefined && <p className="text-caption text-ink-muted">{plural(input.period.waiting_count, 'shift')} with time or overtime waiting for approval.</p>}
       {loading && <Skeleton className="h-40 w-full" />}
       {failed && <ErrorState title="Couldn't load the checklist." onRetry={onRetry} />}
       {entries.length > 0 && stale.length > 0 && (

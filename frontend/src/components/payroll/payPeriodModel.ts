@@ -114,6 +114,7 @@ function lateHoursItem(preview: PayrollBatchPayload, previousStart: string | nul
 
 export interface ChecklistInput {
   range: PayPeriod
+  period?: PayrollPeriodSummary | null
   /** Today in Guam (YYYY-MM-DD): an open clock from before today is a likely missed clock-out. */
   today: string
   /** Today's attention list. Used only when it describes this period. */
@@ -133,17 +134,24 @@ const timecardHref = (entryId: string, query: Record<string, string> = {}) =>
  * The Before it locks lines, in the spec's order. Each line comes from the
  * source that scopes it to this period; a line whose source hasn't loaded is
  * left out rather than shown as done.
- * - Waiting shifts and overtime: pending approvals for the period's dates.
+ * - Published waiting: shared live quantities from the period show response.
+ * - Unpublished waiting: qualified whole-shift pending-queue fallback.
  * - Earlier-day clocks: Today's attention list for the current period, else
  *   the preview's open clocks from before today.
  * - Work categories: the larger of the preview's blocking count (what stops
  *   the lock, carried-in work included) and Today's (refreshed every minute).
  */
-export function checklistEntries({ range, today, attention, preview, waiting, previousStart }: ChecklistInput): ChecklistEntry[] {
+export function checklistEntries({ range, today, attention, preview, waiting, previousStart, period }: ChecklistInput): ChecklistEntry[] {
   const forThisPeriod = attention?.period?.start_date === range.start ? attention : null
   const items: ChecklistEntry[] = []
 
-  if (waiting) items.push(approvalsItem(range, waiting.count, waiting.hours))
+  const live = period?.hours_source === 'live' && typeof period.time_waiting_hours === 'number' && typeof period.overtime_waiting_hours === 'number'
+  if (live) items.push({
+    key: 'approvals', status: period.time_waiting_hours! > 0 ? 'todo' : 'done',
+    text: 'Time waiting for approval', meta: hoursLabel(period.time_waiting_hours!),
+    ...(period.time_waiting_hours! > 0 ? { action: { label: 'Review', to: approvalsForPeriodHref(range) } } : {}),
+  })
+  else if (!period && waiting) items.push(approvalsItem(range, waiting.count, waiting.hours))
 
   if (forThisPeriod) {
     const clocks = forThisPeriod.items
@@ -157,7 +165,12 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
     items.push(openClocksItem(clocks))
   }
 
-  if (waiting) items.push(overtimeItem(range, waiting.overtime.count, waiting.overtime.hours, waiting.overtime.people))
+  if (live) items.push({
+    key: 'overtime', status: period.overtime_waiting_hours! > 0 ? 'todo' : 'done',
+    text: 'Overtime waiting for approval', meta: hoursLabel(period.overtime_waiting_hours!),
+    ...(period.overtime_waiting_hours! > 0 ? { action: { label: 'Review', to: approvalsForPeriodHref(range, { approval_type: 'overtime' }) } } : {}),
+  })
+  else if (!period && waiting) items.push(overtimeItem(range, waiting.overtime.count, waiting.overtime.hours, waiting.overtime.people))
 
   // The preview counts approved work going to payroll (carried-in included);
   // Today's list counts this period's finished shifts and refreshes every
@@ -213,11 +226,11 @@ export function personRows(payload: PayrollBatchPayload): PersonRow[] {
   for (const item of payload.exclusions) {
     const current = row(item.source_user_id, item.display_name)
     current.held.push(item)
-    if (WAITING_REASONS.has(item.reason)) current.waiting += item.held_total_hours
+    if (WAITING_REASONS.has(item.reason)) current.waiting += item.waiting_hours_in_period ?? item.held_total_hours
     if (item.reason === 'open_clock') current.stillClockedIn = true
     if (item.reason === 'pending_overtime') {
-      current.overtimeWaiting += item.held_overtime_hours
-      if (item.original_work_date < payload.start_date) current.overtimeWaitingEarlier += item.held_overtime_hours
+      current.overtimeWaiting += item.waiting_hours_in_period ?? item.held_overtime_hours
+      if (item.waiting_hours_in_period === undefined && item.original_work_date < payload.start_date) current.overtimeWaitingEarlier += item.held_overtime_hours
     }
   }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name))

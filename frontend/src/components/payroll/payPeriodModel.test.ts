@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NOW, attention, caleb, ethan, period as attentionPeriod } from '../../test/fixtures/today'
-import { carried, lockedBatch, paidPeriod, preview } from '../../test/fixtures/payPeriod'
+import { carried, lockedBatch, paidPeriod, periodSummary, preview } from '../../test/fixtures/payPeriod'
 import { carriedDestination, carriedHours, checklistEntries, periodFacts, personRows, type ChecklistInput, type PeriodWaiting } from './payPeriodModel'
 
 const range = { start: '2026-11-01', end: '2026-11-15' }
@@ -28,6 +28,16 @@ const uncategorizedCarryIn = () => {
 }
 
 describe('Before it locks', () => {
+  it.each([
+    ['approved time with pending overtime', 0, 2, 1],
+    ['time and overtime both pending', 10, 0, 1],
+    ['overnight portion within the period', 2, 0, 1],
+  ])('uses shared period totals for %s instead of whole-shift pending totals', (_case, time, overtime, count) => {
+    const entries = byKey(checklistEntries(input({ period: periodSummary({ time_waiting_hours: time, overtime_waiting_hours: overtime, waiting_count: count }) })))
+    expect(entries.approvals).toMatchObject({ text: 'Time waiting for approval', meta: `${time}h`, status: time ? 'todo' : 'done' })
+    expect(entries.overtime).toMatchObject({ text: 'Overtime waiting for approval', meta: `${overtime}h`, status: overtime ? 'todo' : 'done' })
+  })
+
   it('lists every open item with the exact filtered view it needs', () => {
     const entries = checklistEntries(input({ preview: uncategorizedCarryIn() }))
     expect(entries.map(entry => [entry.key, entry.status, entry.text, entry.meta ?? null, entry.action?.to ?? null])).toEqual([
@@ -123,12 +133,21 @@ describe('Before it locks', () => {
 })
 
 describe('What goes to payroll', () => {
+  it('uses payable-date waiting quantities from a live preview while preserving source evidence', () => {
+    const base = preview()
+    const held = { ...base.exclusions[1], reason: 'pending_approval', held_total_hours: 4, held_regular_hours: 4, held_overtime_hours: 0, waiting_hours_in_period: 2 }
+    const row = personRows(preview({ employees: [], exclusions: [held] }))[0]
+    expect(row.waiting).toBe(2)
+    expect(row.held[0].held_total_hours).toBe(4)
+    expect(row.overtimeWaiting).toBe(0)
+  })
+
   it('groups approved and waiting hours by person, including people with only waiting time', () => {
     const rows = personRows(preview({ exclusions: [...preview().exclusions, { ...preview().exclusions[0], source_time_entry_id: '990', source_user_id: '30', display_name: 'Ana Waiting', reason: 'pending_approval', held_total_hours: 4 }] }))
     expect(rows.map(row => [row.name, row.regular, row.overtime, row.waiting, row.stillClockedIn, row.overtimeWaiting])).toEqual([
       ['Ana Waiting', 0, 0, 4, false, 0],
       ['Caleb Perez', 43.2, 0, 9.1, true, 0],
-      ['Ethan Cruz', 40, 0, 10, false, 6],
+      ['Ethan Cruz', 40, 0, 6, false, 6],
       ['Jun Santos', 8.9, 0, 0, false, 0],
     ])
   })

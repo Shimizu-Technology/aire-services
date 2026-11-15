@@ -134,8 +134,7 @@ describe('pay period page: open period', () => {
     expect(screen.getByRole('button', { name: 'Change lock time' })).toBeInTheDocument()
     expect(mocks.period).toHaveBeenCalledWith('2026-11-01')
     expect(mocks.previewPayrollBatch).toHaveBeenCalledWith('2026-11-01', '2026-11-15')
-    expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-11-01', end_date: '2026-11-15', per_page: 1 })
-    expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-11-01', end_date: '2026-11-15', approval_type: 'overtime', per_page: 500 })
+    expect(mocks.getPendingApprovals).not.toHaveBeenCalled()
   })
 
   it('links each open checklist item to its filtered view', async () => {
@@ -148,18 +147,27 @@ describe('pay period page: open period', () => {
     await open()
     const links = checklist().getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])
     expect(links).toEqual([
-      ['Review: 31 shifts waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
+      ['Review: Time waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['Fix: 1 person still clocked in from an earlier day', '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
-      ['Review: 6h overtime waiting', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
+      ['Review: Overtime waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
       ['Fix: 2 shifts have no work category', '/admin/timecards?entry_id=640'],
     ])
     expect(checklist().getByText('Note:').closest('li')).toHaveTextContent('1 shift approved after an earlier lock goes into this payroll')
     expect(screen.getByRole('heading', { name: /Before it locks · 4 things to do/ })).toBeInTheDocument()
   })
 
+  it('uses period totals even when the pending queue includes approved time and double-counted overtime', async () => {
+    mocks.period.mockResolvedValue({ data: { period: periodSummary({ time_waiting_hours: 12, overtime_waiting_hours: 2, waiting_count: 3 }), previous_start_date: null, next_start_date: null } })
+    await open()
+    expect(checklist().getByText('Time waiting for approval').closest('li')).toHaveTextContent('12h')
+    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('2h')
+    expect(checklist().getByText('3 shifts with time or overtime waiting for approval.')).toBeInTheDocument()
+    expect(checklist().queryByText('276.1h')).not.toBeInTheDocument()
+  })
+
   it('opens the filtered view when a checklist action is followed', async () => {
     await open()
-    fireEvent.click(checklist().getByRole('link', { name: /Review.*31 shifts/ }))
+    fireEvent.click(checklist().getByRole('link', { name: /Review.*Time waiting for approval/ }))
     expect(screen.getByTestId('location')).toHaveTextContent('/admin/approvals?start_date=2026-11-01&end_date=2026-11-15')
   })
 
@@ -177,7 +185,7 @@ describe('pay period page: open period', () => {
     const caleb = within(table).getByRole('rowheader', { name: /Caleb Perez/ }).closest('tr')!
     expect(caleb).toHaveTextContent('Caleb PerezStill clocked in43.2h0h9.1h')
     expect(within(table).getByRole('rowheader', { name: /Ethan Cruz/ })).toHaveTextContent('6h OT waiting')
-    expect(within(table).getByRole('rowheader', { name: 'Total' }).closest('tr')).toHaveTextContent('Total92.1h0h19.1h')
+    expect(within(table).getByRole('rowheader', { name: 'Total' }).closest('tr')).toHaveTextContent('Total92.1h0h15.1h')
     expect(within(table).queryByText(/Mon, Nov 3/)).not.toBeInTheDocument()
     fireEvent.click(within(table).getByRole('button', { name: "Show Caleb Perez's days" }))
     expect(within(table).getByText(/Tue, Nov 3 · Ground Operations/)).toBeInTheDocument()
@@ -186,6 +194,7 @@ describe('pay period page: open period', () => {
 
   // Codex finding 4: a failed refresh never leaves an earlier "all clear" standing unqualified.
   it('qualifies an all-clear checklist and the table when a refresh fails', async () => {
+    mocks.period.mockResolvedValue({ data: { period: periodSummary({ time_waiting_hours: 0, overtime_waiting_hours: 0, waiting_count: 0 }), previous_start_date: null, next_start_date: null } })
     mocks.attention.mockResolvedValue({ data: attention({ items: [] }) })
     mocks.getPendingApprovals.mockResolvedValue({ data: { count: 0, pending_entries: [], summary: { entry_count: 0, total_hours: 0 } } })
     mocks.previewPayrollBatch.mockResolvedValue({ data: preview({ employees: preview().employees.slice(0, 1), exclusions: [] }) })
@@ -209,7 +218,7 @@ describe('pay period page: open period', () => {
     await open()
     const table = screen.getByRole('table', { name: 'What goes to payroll if it locked now' })
     expect(within(table).getByText('14h OT waiting · 8h from earlier periods')).toBeInTheDocument()
-    expect(checklist().getByText('6h overtime waiting')).toBeInTheDocument()
+    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('6h')
     // Only Ethan's flag has an earlier part.
     expect(within(table).getAllByText(/from earlier periods/)).toHaveLength(1)
   })
@@ -228,7 +237,7 @@ describe('pay period page: open period', () => {
   })
 
   // Re-check 9: the preview and the overtime projection are heavy, so they refresh every 5 minutes.
-  it('refreshes the preview and waiting overtime every 5 minutes, not every minute', async () => {
+  it('refreshes the preview every 5 minutes and avoids the whole-shift queue for published periods', async () => {
     await open()
     const previews = mocks.previewPayrollBatch.mock.calls.length
     const waiting = mocks.getPendingApprovals.mock.calls.length
@@ -237,7 +246,7 @@ describe('pay period page: open period', () => {
     expect(mocks.getPendingApprovals.mock.calls.length).toBe(waiting)
     await settle(4 * 60_000)
     expect(mocks.previewPayrollBatch.mock.calls.length).toBe(previews + 1)
-    expect(mocks.getPendingApprovals.mock.calls.length).toBe(waiting + 2)
+    expect(mocks.getPendingApprovals.mock.calls.length).toBe(waiting)
   })
 
   it('says when the preview missed its refresh', async () => {
@@ -252,11 +261,12 @@ describe('pay period page: open period', () => {
 
   // Re-check 5: a pending overtime flag with no projected overtime holds nothing back.
   it('does not list overtime with no projected hours as waiting', async () => {
+    mocks.period.mockResolvedValue({ data: { period: periodSummary({ overtime_waiting_hours: 0 }), previous_start_date: null, next_start_date: null } })
     mocks.getPendingApprovals.mockImplementation(async (params: { approval_type?: string }) => params.approval_type === 'overtime'
       ? { data: { count: 1, pending_entries: [{ id: 905, user: { full_name: 'Ethan Cruz', display_name: 'Ethan' }, pending_overtime_hours: 0 }], summary: { entry_count: 1, total_hours: 8 } } }
       : pendingApprovals(params))
     await open()
-    expect(checklist().getByText('No overtime waiting')).toBeInTheDocument()
+    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('0h')
     expect(checklist().queryByText(/0h overtime/)).not.toBeInTheDocument()
   })
 

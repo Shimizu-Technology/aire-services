@@ -67,7 +67,7 @@ function Days({ row, highlight }: { row: PersonRow; highlight: string | null }) 
       {row.held.map(item => (
         <li key={`${item.source_time_entry_id}-${item.reason}`} className="flex flex-wrap items-baseline justify-between gap-x-3 px-2 py-1 text-ink-muted">
           <span className="min-w-0">{dayLabel(item.original_work_date)} · {HELD_LABELS[item.reason] ?? 'Held back'}</span>
-          <span className="tabular-nums">{hoursLabel(item.held_total_hours)}</span>
+          <span className="tabular-nums">{hoursLabel(item.waiting_hours_in_period ?? item.held_total_hours)}{item.waiting_hours_in_period !== undefined && item.waiting_hours_in_period !== item.held_total_hours ? ' in this period' : ''}</span>
         </li>
       ))}
     </ul>
