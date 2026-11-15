@@ -191,14 +191,17 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
 }) {
   // The server's earliest time ages while the page is open; never offer less than 15 minutes ahead.
   const serverMin = toGuamInput(control.earliest_cutoff_at)
+  const periodMin = toGuamInput(control.lock_now_available_at)
   const leadMin = toGuamInput(earliestLockChange(now).toISOString())
-  const min = leadMin > serverMin ? leadMin : serverMin
+  const min = [leadMin, serverMin, periodMin].sort().at(-1)!
   const max = toGuamInput(control.latest_cutoff_at)
   const current = toGuamInput(control.cutoff_at)
   const [cutoffInput, setCutoffInput] = useState(() => (current < min ? min : current > max ? max : current))
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [invalidTime, setInvalidTime] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const [requestId] = useState(() => crypto.randomUUID())
   const dialogRef = useRef<HTMLDivElement>(null)
   const ids = useId()
@@ -206,8 +209,7 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
 
   const period = periodLabel(control)
   const chosen = action === 'change' ? fromGuamInput(cutoffInput) : null
-  const outOfRange = action === 'change' && (!chosen || cutoffInput < min || cutoffInput > max)
-  const minLabel = formatLockTime(fromGuamInput(min)!)
+  const rangeCopy = (minimum: string) => `Choose a time from ${formatLockTime(fromGuamInput(minimum)!)} to ${formatLockTime(control.latest_cutoff_at)} (Guam time).`
   // Saving the time AIRE already has would be refused, unless it replaces a change AIRE didn't apply.
   const replacing = control.pending_change != null && control.pending_change.state !== 'pending'
   const unchanged = action === 'change' && cutoffInput === current && !replacing
@@ -216,13 +218,14 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
     event.preventDefault()
     if (!reason.trim()) { setError('Enter a reason for the change.'); return }
     // The minimum moves on while the dialog is open; Cornerstone would refuse a time that slipped under it.
-    const freshMin = toGuamInput(earliestLockChange(currentTime()).toISOString())
-    if (action === 'change' && chosen && cutoffInput < freshMin && freshMin <= max) {
-      setCutoffInput(freshMin)
-      setError(`The lock time must be at least 15 minutes from now, so the earliest is now ${formatLockTime(fromGuamInput(freshMin)!)}. Check the new time and save again.`)
+    const freshMin = [periodMin, serverMin, toGuamInput(earliestLockChange(currentTime()).toISOString())].sort().at(-1)!
+    if (action === 'change' && (!chosen || cutoffInput < freshMin || cutoffInput > max)) {
+      setInvalidTime(true)
+      setError(rangeCopy(freshMin))
+      inputRef.current?.focus()
       return
     }
-    if (outOfRange) { setError(`Choose a time between ${minLabel} and ${formatLockTime(control.latest_cutoff_at)}.`); return }
+    setInvalidTime(false)
     setSubmitting(true)
     setError(null)
     const result = await api.changePayrollLockTime({
@@ -257,9 +260,9 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
 
           {action === 'change' && (
             <Field className="mt-4" label="New lock time (Guam)" required
-              help={<>{unchanged ? 'Choose a new time to save. ' : ''}Between {minLabel} (at least 15 minutes from now) and {formatLockTime(control.latest_cutoff_at)} (two days before payday).</>}>
-              <Input type="datetime-local" value={cutoffInput} min={min} max={max} step={60}
-                onChange={event => setCutoffInput(event.target.value)} />
+              help={<>{unchanged ? 'Choose a new time to save. ' : ''}{rangeCopy(min)}</>}>
+              <Input ref={inputRef} aria-invalid={invalidTime || undefined} aria-describedby={invalidTime ? `${ids}-error` : undefined} type="datetime-local" value={cutoffInput} min={min} max={max} step={60}
+                onChange={event => { setCutoffInput(event.target.value); setInvalidTime(false) }} />
             </Field>
           )}
 
@@ -268,7 +271,7 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
               placeholder="For example: payday moved for the holiday" />
           </Field>
 
-          {error && <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+          {error && <p id={`${ids}-error`} role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>

@@ -127,12 +127,12 @@ describe('PayrollLockControl', () => {
     // Starts at the current lock, which can't be saved unchanged.
     expect(input.value).toBe('2026-11-22T17:00')
     expect(screen.getByRole('button', { name: 'Save lock time' })).toBeDisabled()
-    expect(screen.getByText(/Choose a new time to save\. Between Thu, Nov 19 at 9:15 AM \(at least 15 minutes from now\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Choose a new time to save\. Choose a time from Thu, Nov 19 at 9:15 AM/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Payday moved' } })
 
     fireEvent.change(input, { target: { value: '2026-11-29T09:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save lock time' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a time between Thu, Nov 19 at 9:15 AM and Sat, Nov 28 at 11:59 PM.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a time from Thu, Nov 19 at 9:15 AM to Sat, Nov 28 at 11:59 PM (Guam time).')
 
     fireEvent.change(input, { target: { value: '2026-11-25T17:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save lock time' }))
@@ -214,7 +214,7 @@ describe('PayrollLockControl', () => {
     expect(screen.queryByText(/AIRE couldn’t apply/)).not.toBeInTheDocument()
   })
 
-  it('moves a time that slipped under the 15-minute minimum before sending it', async () => {
+  it('preserves a draft that slipped under the 15-minute minimum', async () => {
     respondWith(control())
     render(<PayrollLockControl />)
     fireEvent.click(await screen.findByRole('button', { name: /Change lock time/ }))
@@ -225,8 +225,26 @@ describe('PayrollLockControl', () => {
     // A minute and a half later the earliest allowed minute is 9:17.
     vi.setSystemTime(new Date('2026-11-19T09:01:30+10:00'))
     fireEvent.click(screen.getByRole('button', { name: 'Save lock time' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('The lock time must be at least 15 minutes from now, so the earliest is now Thu, Nov 19 at 9:17 AM. Check the new time and save again.')
-    expect(input.value).toBe('2026-11-19T09:17')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a time from Thu, Nov 19 at 9:17 AM to Sat, Nov 28 at 11:59 PM (Guam time).')
+    expect(input.value).toBe('2026-11-19T09:15')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveFocus()
+    expect(mocks.changePayrollLockTime).not.toHaveBeenCalled()
+  })
+
+  it.each(['2026-11-14T09:00', '2026-11-24T00:00'])('preserves refused draft %s and shows the complete period range', async (draft) => {
+    vi.setSystemTime(new Date('2026-11-14T09:00:00+10:00'))
+    respondWith(control({ earliest_cutoff_at: '2026-11-16T00:00:00+10:00', latest_cutoff_at: '2026-11-23T23:59:00+10:00', can_lock_now: false }), '2026-11-14T09:00:00+10:00')
+    render(<PayrollLockControl />)
+    fireEvent.click(await screen.findByRole('button', { name: /Change lock time/ }))
+    const input = screen.getByLabelText(/New lock time/) as HTMLInputElement
+    fireEvent.change(input, { target: { value: draft } })
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Review schedule' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save lock time' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a time from Mon, Nov 16 at 12:00 AM to Mon, Nov 23 at 11:59 PM (Guam time).')
+    expect(input.value).toBe(draft)
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveFocus()
     expect(mocks.changePayrollLockTime).not.toHaveBeenCalled()
   })
 
