@@ -59,13 +59,13 @@ module Api
 
       def authenticate_kiosk!
         unless AireKioskAccessToken.admin_from_token(params[:kiosk_access_token].to_s)
-          return render json: { error: "Kiosk access session required" }, status: :unauthorized
+          return render json: { error: "Kiosk access session required", code: "kiosk_device_revoked" }, status: :unauthorized
         end
         return if params[:kiosk_token].blank?
 
         @kiosk_user = AireKioskToken.user_from_token(params[:kiosk_token].to_s)
         unless @kiosk_user&.kiosk_access_enabled?
-          render json: { error: "Employee kiosk session expired" }, status: :unauthorized
+          render json: { error: "Employee kiosk session expired", code: "kiosk_employee_session_refused" }, status: :unauthorized
         end
       end
 

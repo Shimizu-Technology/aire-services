@@ -91,7 +91,7 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
         </p>
       )}
       {!loaded ? (
-        <div aria-busy="true" aria-label="Loading the week" className="grid grid-cols-7 gap-2 rounded-card border border-line bg-surface p-3">
+        <div role="status" aria-busy="true" aria-label="Loading the week" className="grid grid-cols-7 gap-2 rounded-card border border-line bg-surface p-3">
           {Array.from({ length: 7 }, (_, index) => <Skeleton key={index} height={120} className="w-full" />)}
         </div>
       ) : state.error ? (

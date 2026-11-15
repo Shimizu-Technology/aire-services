@@ -5,7 +5,7 @@
 class ReviewBatchItem < ApplicationRecord
   # The fields an approval changes and an undo puts back.
   REVIEW_FIELDS = %w[
-    approval_status approved_by_id approved_at approval_note
+    approval_status approved_by_id approved_at approval_note original_employee_change
     overtime_status overtime_approved_by_id overtime_approved_at overtime_note
   ].freeze
 

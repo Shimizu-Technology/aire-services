@@ -113,6 +113,7 @@ export function PayPeriodCard({
             {!cutoffAt && !payDate && 'No lock time is set yet.'}
           </p>
         )}
+        {paused && !isLocked(period) && <p>Locking is paused. AIRE won't lock these hours until Cornerstone Payroll resumes the connection.</p>}
         {lockLoad === 'stale' && <StaleNote what="the lock time" loadedAt={lockUpdatedAt} onRetry={onRetryLock} />}
         {lockShown && !sameLock && (
           <p className="text-caption">Lock details are for another pay period and are updating.</p>

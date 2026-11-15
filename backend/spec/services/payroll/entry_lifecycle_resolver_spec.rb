@@ -56,7 +56,7 @@ RSpec.describe Payroll::EntryLifecycleResolver do
     lifecycle = described_class.new(entries: [ entry ]).call.fetch(entry.id)
     settlement = lifecycle.fetch(:settlements).first
 
-    expect(lifecycle).to include(status: "partially_paid", label: "Partially paid")
+    expect(lifecycle).to include(status: "partially_paid", label: "Partly paid")
     expect(settlement).to include(
       status: "partially_paid",
       total_hours: 8.0,

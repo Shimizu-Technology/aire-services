@@ -32,6 +32,7 @@ function startsWith(text: string) {
 function makeEntry(overrides: Partial<TimeEntry>): TimeEntry {
   return {
     id: 1,
+    version: 23,
     work_date: '2026-06-05',
     start_time: '08:00',
     end_time: '10:00',
@@ -181,8 +182,8 @@ describe('ApprovalQueue review workflow', () => {
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [denied], count: 1, summary } })
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime={canManageTeamTime} canDeleteEntry={() => true} />)
     fireEvent.click(await screen.findByTitle('Edit entry'))
-    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
-    expect(within(dialog).getByLabelText('End Time *')).toHaveValue('10:00')
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
+    expect(within(dialog).getByLabelText('End time *')).toHaveValue('10:00')
     const resubmit = within(dialog).queryByRole('checkbox', { name: 'Submit denied time for review' })
     if (canManageTeamTime) expect(resubmit).toBeVisible()
     else expect(resubmit).not.toBeInTheDocument()
@@ -213,7 +214,7 @@ describe('ApprovalQueue review workflow', () => {
     expect(employeeSelect.selectedOptions[0]).toHaveTextContent('Aika Kanekatsu')
     expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 }))
     expect(apiMock.approveTimeEntry).toHaveBeenCalledTimes(1)
-    expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(1, undefined)
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(1, undefined, { expectedVersion: 23 })
     expect(screen.queryByText('Zion Quintanilla')).not.toBeInTheDocument()
     expect(screen.getByText('Clear filters')).toBeVisible()
 
@@ -232,7 +233,7 @@ describe('ApprovalQueue review workflow', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Approve time + 1.14 OT' }))
 
-    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(71, undefined, { includeOvertime: true }))
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(71, undefined, { includeOvertime: true, expectedVersion: 23 }))
     expect(apiMock.approveOvertime).not.toHaveBeenCalled()
   })
 
@@ -252,7 +253,7 @@ describe('ApprovalQueue review workflow', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
 
-    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(75, undefined))
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(75, undefined, { expectedVersion: 23 }))
   })
 
   it('names the overtime when only the overtime is waiting', async () => {
@@ -263,7 +264,7 @@ describe('ApprovalQueue review workflow', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Approve 4.77 OT' }))
 
-    await waitFor(() => expect(apiMock.approveOvertime).toHaveBeenCalledWith(73, undefined))
+    await waitFor(() => expect(apiMock.approveOvertime).toHaveBeenCalledWith(73, undefined, 23))
     expect(screen.queryByRole('button', { name: 'Deny OT' })).not.toBeInTheDocument()
   })
 
@@ -280,7 +281,7 @@ describe('ApprovalQueue review workflow', () => {
     fireEvent.change(screen.getByLabelText('Reason for denying'), { target: { value: 'Hours were not worked' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny OT' }))
 
-    await waitFor(() => expect(apiMock.denyOvertime).toHaveBeenCalledWith(74, 'Hours were not worked'))
+    await waitFor(() => expect(apiMock.denyOvertime).toHaveBeenCalledWith(74, 'Hours were not worked', 23))
     expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
   })
 
@@ -305,7 +306,7 @@ describe('ApprovalQueue review workflow', () => {
     fireEvent.change(reason, { target: { value: 'Duplicate paper timesheet' } })
     expect(reason).not.toHaveAttribute('aria-invalid')
     fireEvent.click(screen.getByRole('button', { name: 'Deny whole shift' }))
-    await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalledWith(75, 'Duplicate paper timesheet'))
+    await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalledWith(75, 'Duplicate paper timesheet', 23))
   })
 
   it('puts a server "reason is required" refusal beside the note box too', async () => {
@@ -367,7 +368,7 @@ describe('ApprovalQueue review workflow', () => {
     }))
     fireEvent.click(approve)
     await screen.findByText(/No pending entries match these filters/)
-    expect(apiMock.approveTimeEntry).toHaveBeenCalledExactlyOnceWith(48, undefined)
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledExactlyOnceWith(48, undefined, { expectedVersion: 23 })
     expect(screen.getByDisplayValue('Aika Kanekatsu')).toHaveValue('10')
     expect(start).toHaveValue('2026-09-23')
     expect(end).toHaveValue('2026-09-23')
@@ -546,7 +547,7 @@ describe('ApprovalQueue review workflow', () => {
     expect(screen.getByRole('checkbox', { name: /select roke manager/i })).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
-    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(83, undefined))
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(83, undefined, { expectedVersion: 23 }))
   })
 
   it('identifies card hours as total entry hours rather than the held overtime portion', async () => {
@@ -611,7 +612,7 @@ describe('Late approval guidance', () => {
       render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
       expect(await screen.findByText(`This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
-      await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(late.id, undefined))
+      await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(late.id, undefined, { expectedVersion: 23 }))
       expect(await screen.findByRole('status')).toHaveTextContent(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
       await waitFor(() => expect(updated).toHaveBeenCalledOnce())
       expect(event).toHaveBeenCalledOnce()
@@ -788,5 +789,18 @@ it('keeps note entry and approval usable with a long entry', async () => {
   expect(screen.getByRole('button', { name: 'Deny whole shift' })).toBeEnabled()
   expect(screen.getByRole('button', { name: 'Edit entry' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
-  await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(source.id, 'Synthetic review note'))
+  await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(source.id, 'Synthetic review note', { expectedVersion: source.version }))
+})
+
+it('refreshes a stale classic approval and sends the displayed version', async () => {
+  apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [] } })
+  const source = makeEntry({ id: 881, version: 23 })
+  apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [source], approval_groups: [], summary } })
+  apiMock.approveTimeEntry.mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+  await screen.findByText('SIDA Badge appointment')
+  fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+  await screen.findByText(/Nothing was saved. The list has been refreshed/)
+  expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(881, undefined, { expectedVersion: 23 })
+  expect(apiMock.getPendingApprovals.mock.calls.length).toBeGreaterThan(1)
 })

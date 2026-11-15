@@ -600,7 +600,8 @@ CREATE TABLE public.leave_requests (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     cancelled_by_id bigint,
-    cancelled_at timestamp(6) without time zone
+    cancelled_at timestamp(6) without time zone,
+    lock_version integer DEFAULT 0 NOT NULL
 );
 
 
@@ -644,6 +645,7 @@ CREATE TABLE public.pay_document_deliveries (
     emailed_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    former_staff_access boolean DEFAULT false NOT NULL,
     CONSTRAINT pay_document_deliveries_download_cap CHECK ((max_downloads_per_document > 0)),
     CONSTRAINT pay_document_deliveries_email_status CHECK (((email_status)::text = ANY ((ARRAY['pending'::character varying, 'sent'::character varying, 'captured'::character varying, 'failed'::character varying])::text[]))),
     CONSTRAINT pay_document_deliveries_origin CHECK (((origin)::text = ANY ((ARRAY['sender'::character varying, 'self'::character varying])::text[]))),
@@ -2578,7 +2580,8 @@ CREATE TABLE public.time_entries (
     overtime_allocation_signature jsonb,
     allocation_contract_version character varying,
     original_employee_change jsonb,
-    rejected_employee_change jsonb
+    rejected_employee_change jsonb,
+    employee_corrected_clock_out boolean DEFAULT false NOT NULL
 );
 
 
@@ -4272,6 +4275,13 @@ CREATE UNIQUE INDEX index_pay_document_items_identity ON public.pay_document_ite
 --
 
 CREATE INDEX index_pay_document_items_on_pay_document_delivery_id ON public.pay_document_items USING btree (pay_document_delivery_id);
+
+
+--
+-- Name: index_pay_document_items_on_period_start_and_period_end; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_items_on_period_start_and_period_end ON public.pay_document_items USING btree (period_start, period_end);
 
 
 --
@@ -6197,7 +6207,12 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261115050100'),
 ('20261115040000'),
+('20261115020100'),
+('20261115020000'),
+('20261115010000'),
+('20261114140000'),
 ('20261114010000'),
 ('20261111120000'),
 ('20261111000000'),

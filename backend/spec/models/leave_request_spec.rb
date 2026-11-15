@@ -24,7 +24,7 @@ RSpec.describe LeaveRequest, type: :model do
       expect(employee).to receive(:with_lock).and_call_original
 
       expect(request).not_to be_valid
-      expect(request.errors[:base]).to include("overlaps with another pending or approved leave request")
+      expect(request.errors[:base]).to include("#{request.user.full_name} already has other time off waiting or approved on these dates.")
     end
 
     it "serializes approval with the employee lock used by save-time scheduling decisions" do

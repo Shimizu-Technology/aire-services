@@ -66,6 +66,46 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(PayrollBatch.count).to eq(0)
   end
 
+  it "scopes overnight waiting in the live preview without changing held source evidence" do
+    zone = ActiveSupport::TimeZone["Pacific/Guam"]
+    entry = create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 8, 15),
+      start_time: zone.local(2026, 8, 15, 22), end_time: zone.local(2026, 8, 16, 2),
+      clock_in_at: zone.local(2026, 8, 15, 22), clock_out_at: zone.local(2026, 8, 16, 2),
+      hours: 4, status: "completed", entry_method: "clock", approval_status: "pending", overtime_status: "pending")
+
+    [ [ "2026-08-01", "2026-08-15" ], [ "2026-08-16", "2026-08-31" ] ].each do |start_date, end_date|
+      post "/api/v1/admin/payroll_batches/preview", params: { start_date: start_date, end_date: end_date }, headers: admin_headers
+      expect(response).to have_http_status(:ok)
+      held = json.fetch(:exclusions).find { |row| row[:source_time_entry_id] == entry.id.to_s }
+      expect(held).to include(held_total_hours: 4.0, waiting_hours_in_period: 2.0, reason: "pending_approval")
+    end
+    expect(PayrollBatch.count).to eq(0)
+  end
+
+  it "keeps all pending time waiting when the week projects overtime" do
+    zone = ActiveSupport::TimeZone["Pacific/Guam"]
+    entries = (10..15).map do |day|
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 8, day),
+        start_time: zone.local(2026, 8, day, 8), end_time: zone.local(2026, 8, day, 16),
+        hours: 8, status: "completed", entry_method: "clock", approval_status: "pending", overtime_status: "pending")
+    end
+    # A shift whose time is pending waits in full as time, even when the week
+    # projects overtime; overtime waiting is only for approved time.
+    approval = Payroll::ApprovalHours.for_entries(entries)
+    totals = entries.map { |entry| Payroll::ApprovalHours.sum(approval.segments_for(entry)) }
+    expect(totals.sum { |row| row[:time_waiting_hours] }).to eq(48.0)
+    expect(totals.sum { |row| row[:overtime_waiting_hours] }).to eq(0)
+
+    post "/api/v1/admin/payroll_batches/preview",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" }, headers: admin_headers
+
+    expect(response).to have_http_status(:ok)
+    waiting = json.fetch(:exclusions).select { |row| row[:reason] == "pending_approval" }
+    expect(waiting.size).to eq(6)
+    expect(waiting.map { |row| row[:waiting_hours_in_period] }).to all(eq(8.0))
+    expect(waiting.sum { |row| row[:waiting_hours_in_period] }).to eq(48.0)
+  end
+
   it "guides previews to the published calendar and rejects both direct manual paths without side effects" do
     create_entry
     period = create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),

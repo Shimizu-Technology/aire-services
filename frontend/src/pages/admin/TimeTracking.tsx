@@ -1,5 +1,6 @@
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
+import { lifecycleLabel } from '../../lib/payrollTerms'
 import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
@@ -320,7 +321,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
   const accounting = lifecycle.accounting_only && lifecycle.status === 'committed'
   const details = accounting ? ACCOUNTING_CORRECTION_NOTE : [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
     lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
-  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycle.label}</span>
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycleLabel(lifecycle)}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
@@ -2020,7 +2021,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     const period = reportPresetRange(preset)
                     setReportFilters((current) => ({ ...current, start_date: period.start, end_date: period.end }))
                   }}
-                  className="rounded-full border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary-dark transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="pointer-coarse:min-h-11 rounded-full border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary-dark transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {label}
                 </button>
@@ -2031,22 +2032,22 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Start Date</label>
-                <input aria-label="Start date" type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <input aria-label="Start date" type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">End Date</label>
-                <input aria-label="End date" type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <input aria-label="End date" type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Employee</label>
-                <select aria-label="Employee" value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Employee" value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All employees</option>
                   {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>)}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Department</label>
-                <select aria-label="Department" value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Department" value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All departments</option>
                   <option value="unassigned">Unassigned</option>
                   {approvalGroups.map(group => <option key={group.key} value={group.key}>{group.label}</option>)}
@@ -2054,7 +2055,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Employee Status</label>
-                <select aria-label="Employee Status" value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Employee Status" value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All statuses</option>
                   <option value="current">Current users</option>
                   <option value="active">Active only</option>
@@ -2065,14 +2066,14 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Role</label>
-                <select aria-label="Role" value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Role" value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All roles</option>
                   {USER_ROLES.map((role) => <option key={role} value={role}>{ROLE_DETAILS[role].plural}</option>)}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Category</label>
-                <select aria-label="Category" value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Category" value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All categories</option>
                   <option value="uncategorized">Missing category (needs correction)</option>
                   {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
@@ -2080,7 +2081,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Source</label>
-                <select aria-label="Source" value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Source" value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All sources</option>
                   <option value="kiosk">Kiosk</option>
                   <option value="mobile">Mobile</option>
@@ -2090,7 +2091,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Entry Method</label>
-                <select aria-label="Entry Method" value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Entry Method" value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Clock + manual</option>
                   <option value="clock">Clock only</option>
                   <option value="manual">Manual only</option>
@@ -2098,7 +2099,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Approval Status</label>
-                <select aria-label="Approval Status" value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Approval Status" value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="approved_or_standard">Approved / standard</option>
                   <option value="">All statuses</option>
                   <option value="pending">Pending</option>
@@ -2108,7 +2109,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Overtime Status</label>
-                <select aria-label="Overtime Status" value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Overtime Status" value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All OT statuses</option>
                   <option value="none">No OT flag</option>
                   <option value="pending">Pending OT review</option>

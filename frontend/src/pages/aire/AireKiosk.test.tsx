@@ -47,7 +47,7 @@ it('does not wait for warning reads to finish clocking and ignores reads superse
   expect(screen.getByTestId('warning')).toHaveTextContent('none')
   await waitFor(() => expect(screen.getByRole('button', { name: 'Clock out' })).toBeEnabled(), { timeout: 2500 })
   fireEvent.click(screen.getByRole('button', { name: 'Clock out' }))
-  await screen.findByText('Avery clocked out successfully.')
+  await screen.findByText(/Avery clocked out — .* (today|this shift)/)
   expect(mocks.aireKioskClockIn).toHaveBeenCalledOnce()
   expect(mocks.aireKioskClockOut).toHaveBeenCalledOnce()
   fireEvent.click(screen.getByRole('button', { name: 'Not you? Reset' }))
@@ -271,7 +271,7 @@ it('removes the supervisor unlock when reconciliation says the kiosk is locked',
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   await verifyEmployee()
   mocks.aireKioskClockIn.mockResolvedValue({ error: 'Lost', status: 500 })
-  mocks.aireKioskVerify.mockResolvedValue({ error: 'Kiosk is locked. Ask an admin to unlock it before use.' })
+  mocks.aireKioskVerify.mockResolvedValue({ code: 'kiosk_device_revoked', error: 'Kiosk is locked. Ask an admin to unlock it before use.' })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
   await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
   expect(screen.getByText('Kiosk locked')).toBeInTheDocument()
@@ -301,7 +301,7 @@ it.each(['lock', 'expiry'])('ignores verification finishing after %s', async rea
     await verifyEmployee()
     if (reason === 'lock') {
       fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' })) })
+      await act(async () => { fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } }); fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' })) })
     }
     else vi.setSystemTime(new Date('2100-01-01T00:00:00Z'))
     await act(async () => { resolve({ data: { employee, kiosk_token: 'token', current_status: idle, available_categories: [category] } }) })
@@ -425,7 +425,7 @@ it('requires confirmation to lock and provides a 44px supervisor target', async 
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(sessionStorage.getItem('aire_kiosk_access_session')).not.toBeNull()
   fireEvent.click(supervisor)
-  fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } }); fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
   await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
 })
 
@@ -546,7 +546,7 @@ it('disables Switch work confirmation and controls while switching, then cools a
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
   fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } }); fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
   await waitFor(() => expect(mocks.lockKiosk).toHaveBeenCalledWith('access', '864200'))
   await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
  })
@@ -554,12 +554,12 @@ it('disables Switch work confirmation and controls while switching, then cools a
  it('clears a remotely revoked device when Lock returns 401', async () => {
   authMock.isSignedIn = false
   authMock.userRole = null
-  mocks.lockKiosk.mockResolvedValue({ error: 'Kiosk session expired', status: 401 })
+  mocks.lockKiosk.mockResolvedValue({ code: 'kiosk_device_revoked', error: 'Kiosk session expired', status: 401 })
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
   fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } }); fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
   await screen.findByRole('button', { name: 'Manager or admin sign in' })
   expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull()
   expect(localStorage.getItem('aire_kiosk_access_session')).toBeNull()
@@ -574,3 +574,53 @@ it('disables Switch work confirmation and controls while switching, then cools a
   await waitFor(() => expect(mocks.revokeKioskSession).toHaveBeenCalledWith('orphan'))
   expect(localStorage.getItem('aire_kiosk_access_session')).toBeNull()
  })
+
+it('keeps a wrong manager PIN inside the lock dialog and refuses an empty PIN locally', async () => {
+  mocks.lockKiosk.mockResolvedValue({ error: 'Invalid PIN', status: 422 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
+  const dialog = screen.getByRole('alertdialog')
+  expect(within(dialog).getByRole('button', { name: 'Lock kiosk' })).toBeDisabled()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Lock kiosk' }))
+  expect(mocks.lockKiosk).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '0000' } })
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Lock kiosk' })) })
+  expect(within(dialog).getByRole('alert')).toHaveTextContent("That isn't a manager PIN")
+  expect(screen.getByRole('button', { name: 'Supervisor' })).toBeInTheDocument()
+})
+
+it('clears revoked device access and explains that a refused clock-in was not saved', async () => {
+  authMock.isSignedIn = false
+  authMock.userRole = null
+  mocks.aireKioskClockIn.mockResolvedValue({ code: 'kiosk_device_revoked', error: 'Kiosk is locked. Ask an admin to unlock it before use.', status: 422 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
+  expect(screen.getByRole('alert')).toHaveTextContent("This kiosk was locked by an admin. Your clock-in wasn't saved.")
+  expect(screen.queryByRole('button', { name: 'Supervisor' })).not.toBeInTheDocument()
+  expect(localStorage.getItem('aire_kiosk_access_session')).toBeNull()
+})
+
+it.each([
+  { status: 422, code: 'kiosk_employee_session_refused', error: 'Kiosk session expired. Please enter your PIN again.' },
+  { status: 401, code: 'kiosk_employee_session_refused', error: 'Kiosk access is unavailable for this employee.' },
+])('ends only the employee session on $error', async result => {
+  mocks.aireKioskClockIn.mockResolvedValue(result)
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
+  expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('Please enter your PIN again.')
+  expect(screen.getByRole('button', { name: 'Supervisor' })).toBeInTheDocument()
+  expect(sessionStorage.getItem('aire_kiosk_access_session')).not.toBeNull()
+})
+
+it('shows the manager PIN lockout message', async () => {
+  const error = 'Your PIN is locked for now. Ask a manager to reset it, or try again after 4:00 PM.'
+  mocks.lockKiosk.mockResolvedValue({ error, status: 422 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' })) })
+  expect(within(screen.getByRole('alertdialog')).getByRole('alert')).toHaveTextContent(error)
+})

@@ -15,6 +15,29 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
     JSON.parse(response.body, symbolize_names: true)
   end
 
+  describe "GET /api/v1/leave_requests?scope=mine" do
+    it "scopes supervisor leave before pagination even when another user is requested" do
+      manager = create(:user, :manager)
+      own = create(:leave_request, user: manager)
+      create(:leave_request, user: other_employee)
+
+      get "/api/v1/leave_requests", params: { scope: "mine", user_id: other_employee.id, per_page: 1 }, headers: auth_headers_for[manager]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:leave_requests].pluck(:id)).to eq([ own.id ])
+      expect(json[:pagination]).to include(total_count: 1, total_pages: 1)
+    end
+
+    it "keeps employee reads scoped to themselves even without the mine flag" do
+      own = create(:leave_request, user: employee)
+      create(:leave_request, user: other_employee)
+
+      get "/api/v1/leave_requests", params: { user_id: other_employee.id }, headers: auth_headers_for[employee]
+
+      expect(json[:leave_requests].pluck(:id)).to eq([ own.id ])
+    end
+  end
+
   describe "POST /api/v1/leave_requests" do
     it "allows staff to submit a leave request" do
       post "/api/v1/leave_requests",
@@ -59,7 +82,44 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
            headers: auth_headers_for[employee]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/overlaps with another pending or approved leave request/i)
+      expect(json[:error]).to match(/already has other time off waiting or approved on these dates/i)
+    end
+  end
+
+  describe "optional overlap filters" do
+    let!(:left) { create(:leave_request, user: employee, start_date: "2026-08-01", end_date: "2026-08-05") }
+    let!(:right) { create(:leave_request, user: employee, start_date: "2026-08-10", end_date: "2026-08-12") }
+    let!(:outside) { create(:leave_request, user: other_employee, start_date: "2026-08-13", end_date: "2026-08-15") }
+
+    it "includes both touching edges and still paginates" do
+      get "/api/v1/leave_requests", params: { start_date: "2026-08-05", end_date: "2026-08-10", per_page: 1 }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(json[:pagination]).to include(total_count: 2, total_pages: 2)
+      expect(json[:leave_requests].length).to eq(1)
+      expect([ left.id, right.id ]).to include(json[:leave_requests].first[:id])
+    end
+
+    it "leaves the unfiltered response byte-for-byte unchanged for absent or blank filters" do
+      get "/api/v1/leave_requests", headers: auth_headers_for[admin]
+      unfiltered = response.body
+      expect(json[:leave_requests].map { |row| row[:id] }).to contain_exactly(left.id, right.id, outside.id)
+      get "/api/v1/leave_requests", params: { start_date: "", end_date: "" }, headers: auth_headers_for[admin]
+      expect(response.body).to eq(unfiltered)
+    end
+
+    it "supports either optional edge and preserves employee scoping" do
+      get "/api/v1/leave_requests", params: { start_date: "2026-08-10" }, headers: auth_headers_for[employee]
+      expect(json[:leave_requests].map { |row| row[:id] }).to eq([ right.id ])
+      get "/api/v1/leave_requests", params: { end_date: "2026-08-05" }, headers: auth_headers_for[employee]
+      expect(json[:leave_requests].map { |row| row[:id] }).to eq([ left.id ])
+    end
+
+    [ { start_date: "not-a-date" }, { end_date: "2026-02-30" }, { start_date: "2026-08-10", end_date: "2026-08-01" } ].each do |filters|
+      it "rejects invalid dates or reversed ranges: #{filters}" do
+        get "/api/v1/leave_requests", params: filters, headers: auth_headers_for[admin]
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json[:error]).to be_a(String)
+      end
     end
   end
 
@@ -224,6 +284,30 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       request_record.reload
       expect(request_record.status).to eq("approved")
       expect(request_record.review_note).to eq("Approved first")
+    end
+  end
+  describe "decline reason" do
+    [ nil, "", "  \n " ].each do |note|
+      it "refuses a blank reason #{note.inspect} without changing leave or writing a decision audit" do
+        request_record = create(:leave_request, user: employee)
+        expect do
+          post "/api/v1/leave_requests/#{request_record.id}/decline",
+               params: { review_note: note }, headers: auth_headers_for[admin]
+        end.not_to change { AuditLog.where(action: "leave_request.declined").count }
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json[:error]).to eq("Write a short reason to decline this leave request.")
+        expect(request_record.reload.status).to eq("pending")
+      end
+    end
+
+    it "saves the trimmed reason for the employee" do
+      request_record = create(:leave_request, user: employee)
+      post "/api/v1/leave_requests/#{request_record.id}/decline",
+           params: { review_note: "  Coverage needed  " }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(request_record.reload).to have_attributes(status: "declined", review_note: "Coverage needed")
+      get "/api/v1/leave_requests", headers: auth_headers_for[employee]
+      expect(json[:leave_requests].find { |row| row[:id] == request_record.id }[:review_note]).to eq("Coverage needed")
     end
   end
 end

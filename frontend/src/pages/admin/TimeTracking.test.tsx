@@ -121,7 +121,7 @@ function prepareLinkedReport(employeeChanges: Partial<HoursReportEmployee> = {})
 
 async function saveLinkedReportEdit() {
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-  const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+  const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
   fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: 'Saved change' } })
   fireEvent.click(within(dialog).getByRole('button', { name: 'Update' }))
   await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1))
@@ -405,10 +405,10 @@ describe('TimeTracking routed report periods', () => {
     apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } })
     render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }))
-    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Submit denied time for review' }))
-    expect(within(dialog).getByLabelText('End Time *')).toHaveValue('12:00')
-    expect(within(dialog).getByLabelText('End Time *')).toBeDisabled()
+    expect(within(dialog).getByLabelText('End time *')).toHaveValue('12:00')
+    expect(within(dialog).getByLabelText('End time *')).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Submit for review' }))
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(90,
@@ -528,7 +528,7 @@ describe('TimeTracking routed report periods', () => {
 
     it('opens Edit shift in the classic week view, on the week the shift is in now', async () => {
       render(<MemoryRouter initialEntries={['/admin/time?date=2026-08-02&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
-      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
       await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('return=edit'))
       expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
       expect(screen.getByTestId('location-search')).toHaveTextContent('entry_id=90')
@@ -536,7 +536,7 @@ describe('TimeTracking routed report periods', () => {
 
     it('opens Edit shift over the classic approvals queue', async () => {
       render(<MemoryRouter initialEntries={['/admin/approvals?start_date=2026-08-01&end_date=2026-08-15&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
-      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
       await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('return=edit'))
       expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-08-01')
     })
@@ -545,7 +545,7 @@ describe('TimeTracking routed report periods', () => {
       apiMock.getTimeEntry.mockResolvedValue({ error: 'Not found', status: 404 })
       render(<MemoryRouter initialEntries={['/admin/time?date=2026-08-02&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
       expect(await screen.findByText(/deleted or can't be edited any more/)).toBeInTheDocument()
-      expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Edit shift' })).not.toBeInTheDocument()
     })
   })
 
@@ -791,19 +791,19 @@ describe('TimeTracking routed report periods', () => {
     expect(group).toHaveTextContent('admin · manual')
     expect(group).toHaveTextContent('Pending additional work')
     expect(group).toHaveTextContent('OT pending')
-    expect(group).toHaveTextContent('Awaiting approval')
+    expect(group).toHaveTextContent('Waiting for approval')
     expect(group).toHaveTextContent('Break 10:00–10:15 · 15m')
     const edit = within(group).getByRole('button', { name: 'Edit time entry 90 for Casey Employee' })
     await interaction.click(edit)
-    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
-    expect(within(dialog).getByLabelText('Start Time *')).toHaveValue('08:00')
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
+    expect(within(dialog).getByLabelText('Start time *')).toHaveValue('08:00')
     const description = within(dialog).getByLabelText('Description')
     await interaction.clear(description)
     await interaction.type(description, 'Unsaved review note')
     await interaction.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     // Unsaved edits now ask before they are thrown away.
     await interaction.click(within(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).getByRole('button', { name: 'Discard changes' }))
-    expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Edit shift' })).not.toBeInTheDocument()
     expect(edit).toHaveFocus()
     expect(expand).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-08-01')
@@ -900,7 +900,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Approved for payroll.*6\.10h.*Complete/i })
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partly paid.*Regular.*6\.10h.*Approved for payroll.*6\.10h.*Complete/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
     fireEvent.click(employeeCard)
@@ -978,7 +978,7 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getAllByTitle('Missing category').length).toBeGreaterThan(0)
     expect(await screen.findByRole('row', { name: /Sun, Aug 16 Legacy Entry.*Uncategorized.*3.00.*Edit/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(await screen.findByRole('heading', { name: 'Edit Time Entry' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Edit shift' })).toBeInTheDocument()
   })
   it.each([0, 2])('shows every readiness cause with %i missing categories and an interval hold', async (missing) => {
     const report = makeHoursReport('2026-08-01', '2026-08-15', 4)

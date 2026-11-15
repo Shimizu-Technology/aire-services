@@ -85,6 +85,7 @@ export async function fetchApi<T>(
       if (response.status === 401) {
         return {
           error: data.error || 'Authentication required',
+          code: data.code,
           errors: data.errors || ['Please sign in to continue'],
           status: response.status,
         };
@@ -92,6 +93,7 @@ export async function fetchApi<T>(
       if (response.status === 403) {
         return {
           error: data.error || 'Access denied',
+          code: data.code,
           errors: data.errors || ['You do not have permission to perform this action'],
           status: response.status,
         };
@@ -622,6 +624,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  employee_corrected_clock_out?: boolean;
   original_employee_change?: { restorable?: boolean; restoration_reason?: string | null; formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
   rejected_employee_change?: { note: string; manager: string; at: string } | null;
   payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
@@ -845,6 +848,9 @@ export interface WorkerStatus {
 export type LeaveRequestQueryStatus = LeaveRequest['status'] | 'reviewed';
 
 export interface LeaveRequest {
+  version?: number;
+  undo_expires_at?: string | null;
+  decision_history?: { action: string; at: string; actor: string | null; from: string | null; to: string | null; reason: string | null }[];
   id: number;
   leave_type: 'paid_time_off' | 'sick' | 'unpaid' | 'bereavement' | 'other';
   start_date: string;
@@ -860,6 +866,8 @@ export interface LeaveRequest {
   user: {
     id: number;
     email: string;
+    department?: string;
+    approval_group_keys?: string[];
     display_name?: string;
     full_name?: string;
   };
@@ -1351,6 +1359,8 @@ export interface PayrollBatchExclusion {
   category: { id: number; key: string | null; name: string } | null;
   reason: string;
   original_work_date: string;
+  /** Live preview only: waiting on payable dates within this period. */
+  waiting_hours_in_period?: number;
   held_total_hours: number;
   held_regular_hours: number;
   held_overtime_hours: number;
@@ -1396,6 +1406,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  pay_period_start?: string | null;
   purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;
@@ -1716,10 +1727,10 @@ export const api = {
       }),
     }),
 
-  aireKioskClockOut: (kioskAccessToken: string, kioskToken: string) =>
+  aireKioskClockOut: (kioskAccessToken: string, kioskToken: string, correctedEndTime?: string) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/clock_out', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken }),
+      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken, corrected_end_time: correctedEndTime }),
     }),
 
   aireKioskStartBreak: (kioskAccessToken: string, kioskToken: string) =>
@@ -1999,10 +2010,10 @@ export const api = {
   getWhosWorking: () =>
     fetchApi<{ workers: WorkerStatus[] }>('/api/v1/time_entries/whos_working'),
 
-  approveTimeEntry: (id: number, note?: string, options?: { includeOvertime: boolean }) =>
+  approveTimeEntry: (id: number, note?: string, options?: { includeOvertime?: boolean; expectedVersion?: number }) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/approve`, {
       method: 'POST',
-      body: JSON.stringify(options?.includeOvertime ? { note, include_overtime: true } : { note }),
+      body: JSON.stringify({ note, ...(options?.includeOvertime ? { include_overtime: true } : {}), expected_version: options?.expectedVersion }),
     }),
 
   bulkApproveTimeEntries: (entryIds: number[], note?: string) =>
@@ -2014,22 +2025,22 @@ export const api = {
   rejectTimeEntryChange: (id: number, expected_version: number, note: string) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/reject_change`, { method: 'POST', body: JSON.stringify({ expected_version, note }) }),
 
-  denyTimeEntry: (id: number, note?: string) =>
+  denyTimeEntry: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
-  approveOvertime: (id: number, note?: string) =>
+  approveOvertime: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/approve_overtime`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
-  denyOvertime: (id: number, note?: string) =>
+  denyOvertime: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny_overtime`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
   getHoursReport: (params: HoursReportParams) => {
@@ -2053,9 +2064,12 @@ export const api = {
     return fetchDownload(`/api/v1/admin/hours_report/${type}?${searchParams.toString()}`);
   },
 
-  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25) => {
+  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25, view?: 'decisions', startDate?: string, scope?: 'mine') => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
+    if (view) params.set('view', view);
+    if (scope) params.set('scope', scope);
+    if (startDate) params.set('start_date', startDate);
     params.set('page', String(page));
     params.set('per_page', String(perPage));
     const query = params.toString();
@@ -2068,16 +2082,25 @@ export const api = {
       body: JSON.stringify({ leave_request: payload }),
     }),
 
-  approveLeaveRequest: (id: number, reviewNote?: string) =>
+  approveLeaveRequest: (id: number, reviewNote?: string, version?: number) =>
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ review_note: reviewNote }),
+      body: JSON.stringify({ review_note: reviewNote, version }),
     }),
 
-  declineLeaveRequest: (id: number, reviewNote?: string) =>
+  declineLeaveRequest: (id: number, reviewNote?: string, version?: number) =>
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/decline`, {
       method: 'POST',
-      body: JSON.stringify({ review_note: reviewNote }),
+      body: JSON.stringify({ review_note: reviewNote, version }),
+    }),
+
+  undoLeaveDecision: (id: number, version: number) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/undo`, {
+      method: 'POST', body: JSON.stringify({ version }),
+    }),
+  changeLeaveDecision: (id: number, version: number, status: LeaveRequest['status'], reason: string, employeeNote?: string) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/change_decision`, {
+      method: 'POST', body: JSON.stringify({ version, status, reason, employee_note: employeeNote }),
     }),
 
   cancelLeaveRequest: (id: number) =>
@@ -2314,3 +2337,6 @@ export interface AdminUser {
 export interface PublicTeamMember {
   bio?: string | null;
 }
+
+/** Department memberships returned for the signed-in viewer. */
+export interface CurrentUser { approval_group_keys?: ApprovalGroup[] }

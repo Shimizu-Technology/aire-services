@@ -13,6 +13,7 @@ module Api
           batches = PayrollBatch
             .includes(
               :finalized_by,
+              :payroll_calendar_period,
               :payroll_batch_processing_events,
               :payroll_batch_entries,
               :payroll_entry_processing_events
@@ -41,6 +42,7 @@ module Api
             cutoff_at: cutoff_at || Time.current,
             manual_processing: ActiveModel::Type::Boolean.new.cast(params[:manual_processing])
           ).call
+          add_period_waiting_hours(result) unless cutoff_at || ActiveModel::Type::Boolean.new.cast(params[:manual_processing])
           periods = PayrollCalendarPeriod.overlapping(result.fetch(:start_date), result.fetch(:end_date))
             .includes(:payroll_batch).order(:start_date, :id).to_a
           rollout = PayrollLockRollout.find_by(id: 1) if periods.any?
@@ -106,6 +108,29 @@ module Api
 
         private
 
+        # Preview display follows Today's payable dates; held source evidence stays intact.
+        def add_period_waiting_hours(result)
+          waiting = result.fetch(:payload).fetch(:exclusions).select { |row| row[:reason].in?(%w[pending_approval pending_overtime]) }
+          entries = TimeEntry.where(id: waiting.map { |row| row[:source_time_entry_id] }).includes(:time_entry_breaks).to_a
+          approval = ::Payroll::ApprovalHours.for_entries(entries)
+          hours = entries.to_h do |entry|
+            segments = approval.segments_for(entry).select do |segment|
+              Date.iso8601(segment[:work_date]).between?(result.fetch(:start_date), result.fetch(:end_date))
+            end
+            [ entry.id.to_s, segments.empty? ? nil : ::Payroll::ApprovalHours.sum(segments) ]
+          end
+          waiting.each do |row|
+            quantities = hours[row[:source_time_entry_id].to_s]
+            next unless quantities
+
+            row[:waiting_hours_in_period] = if row[:reason] == "pending_overtime"
+              quantities.fetch(:overtime_waiting_hours)
+            else
+              (quantities.fetch(:time_waiting_hours).to_d + quantities.fetch(:overtime_waiting_hours).to_d).round(2).to_f
+            end
+          end
+        end
+
         def require_connected_payroll!
           return if ConnectedPayrollMode.enabled?
 
@@ -136,6 +161,7 @@ module Api
         def serialize_summary(batch)
           {
             id: batch.public_id,
+            pay_period_start: batch.payroll_calendar_period&.start_date&.iso8601,
             purpose: batch.payload["purpose"] || "regular",
             start_date: batch.start_date.iso8601,
             end_date: batch.end_date.iso8601,

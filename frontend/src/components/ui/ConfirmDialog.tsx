@@ -15,12 +15,14 @@ export interface ConfirmDialogProps {
   details?: ReactNode
   /** A verb for the action, e.g. "Delete shift" or "Approve 12 entries". */
   confirmLabel: string
-  confirmDisabled?: boolean
   cancelLabel?: string
   /** `danger` uses a red action and focuses Cancel first. */
   tone?: 'default' | 'danger'
   /** Shows a spinner on the action and blocks closing while work runs. */
   busy?: boolean
+  /** Disable just the save action, e.g. offline, while Cancel stays usable. */
+  confirmDisabled?: boolean
+  confirmDisabledReason?: string
   /** When set, the action stays disabled until this exact text is typed. */
   requireText?: string
   /** A third choice between Cancel and the action, e.g. "Discard changes". */
@@ -40,9 +42,10 @@ function OpenConfirmDialog({
   details,
   confirmLabel,
   cancelLabel = 'Cancel',
-  confirmDisabled = false,
   tone = 'default',
   busy = false,
+  confirmDisabled = false,
+  confirmDisabledReason,
   requireText,
   alternate,
   onConfirm,
@@ -126,6 +129,7 @@ function OpenConfirmDialog({
             onClick={onConfirm}
             loading={busy}
             disabled={blocked || confirmDisabled}
+            title={confirmDisabled ? confirmDisabledReason : undefined}
             className={buttonWidth}
           >
             {confirmLabel}

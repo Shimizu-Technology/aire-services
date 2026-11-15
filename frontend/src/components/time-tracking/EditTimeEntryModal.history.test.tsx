@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
 
-const apiMock = vi.hoisted(() => ({ updateTimeEntry: vi.fn(), deleteTimeEntry: vi.fn() }))
+const apiMock = vi.hoisted(() => ({ updateTimeEntry: vi.fn(), deleteTimeEntry: vi.fn(), getTimeEntry: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
 
 const entry = {
@@ -129,14 +129,14 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
 
   it('asks before leaving, and Keep editing keeps every edit', () => {
     show()
-    fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
     expect(fireEvent.click(historyLink())).toBe(false)
     const dialog = screen.getByRole('alertdialog', { name: 'Save your changes before viewing history?' })
     expect(within(dialog).getByRole('button', { name: 'Save and view history' })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Discard changes' })).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Keep editing' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
+    expect(screen.getByLabelText(/End time/)).toHaveValue('15:00')
     expect(assign).not.toHaveBeenCalled()
   })
 
@@ -151,11 +151,11 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
 
   it('saves first, then opens history', async () => {
     const { onSaved } = show()
-    fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
     fireEvent.click(historyLink())
     fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
     await waitFor(() => expect(assign).toHaveBeenCalledOnce())
-    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(44, { end_time: '15:00' }, undefined)
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(44, { end_time: '15:00', expected_version: 2 }, undefined)
     expect(onSaved).toHaveBeenCalled()
     expect(assign.mock.calls[0][0]).toContain('/admin/activity?subject_type=TimeEntry&subject_id=44')
   })
@@ -163,19 +163,19 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
   it('stays on the sheet with the error when the save fails', async () => {
     apiMock.updateTimeEntry.mockResolvedValue({ error: 'The pay period is locked' })
     show()
-    fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
     fireEvent.click(historyLink())
     fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('The pay period is locked')
     expect(screen.getByRole('alertdialog')).toHaveTextContent('The pay period is locked')
     expect(assign).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
-    expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
+    expect(screen.getByLabelText(/End time/)).toHaveValue('15:00')
   })
 
   it('discards only when asked', () => {
     show()
-    fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
     fireEvent.click(historyLink())
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
@@ -184,7 +184,7 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
 
   it('lets a new-tab click through without a prompt', () => {
     show()
-    fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
     expect(fireEvent.click(historyLink(), { ctrlKey: true })).toBe(true)
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
@@ -192,7 +192,7 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
 
 describe('Edit shift: every way out asks first while edits are unsaved (M2)', () => {
   afterEach(cleanup)
-  const edit = () => fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+  const edit = () => fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
   const backdrop = () => screen.getByRole('dialog').parentElement as HTMLElement
 
   it.each([
@@ -219,7 +219,7 @@ describe('Edit shift: every way out asks first while edits are unsaved (M2)', ()
     fireEvent.click(within(prompt).getByRole('button', { name: 'Keep editing' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
-    expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
+    expect(screen.getByLabelText(/End time/)).toHaveValue('15:00')
   })
 
   it('closes only after Discard changes', () => {
@@ -315,7 +315,7 @@ describe('Edit shift: every way out asks first while edits are unsaved (M2)', ()
     expect(router.state.location.search).toBe('?user_id=7')
     fireEvent.click(within(prompt).getByRole('button', { name: 'Keep editing' }))
     expect(router.state.location.search).toBe('?user_id=7')
-    expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
+    expect(screen.getByLabelText(/End time/)).toHaveValue('15:00')
     // A changed query (selecting someone else) asks too.
     fireEvent.click(screen.getByText('Other person'))
     expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument()
@@ -353,7 +353,7 @@ describe('Edit shift: a refused save is shown where it can be fixed (item 5)', (
     cleanup()
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
   })
-  const edit = () => fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+  const edit = () => fireEvent.change(screen.getByLabelText(/End time/), { target: { value: '15:00' } })
   const reason = () => document.getElementById('time-entry-correction-reason') as HTMLTextAreaElement
 
   it('scrolls to the reason, focuses it and puts the error beside it', async () => {
@@ -400,7 +400,7 @@ describe('Edit shift: a refused save is shown where it can be fixed (item 5)', (
     expect(reason()).not.toHaveAttribute('aria-invalid')
     fireEvent.click(screen.getByRole('button', { name: 'Update' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
-    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(44, { end_time: '15:00' }, 'Paper timesheet shows 3:00 PM')
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(44, { end_time: '15:00', expected_version: 2 }, 'Paper timesheet shows 3:00 PM')
   })
 
   it('shows an overlapping-shift refusal beside the start and end times and focuses them', async () => {
@@ -408,11 +408,11 @@ describe('Edit shift: a refused save is shown where it can be fixed (item 5)', (
     show()
     edit()
     fireEvent.click(screen.getByRole('button', { name: 'Update' }))
-    const start = screen.getByLabelText(/Start Time/)
+    const start = screen.getByLabelText(/Start time/)
     await waitFor(() => expect(start).toHaveFocus())
     expect(start).toHaveAttribute('aria-invalid', 'true')
     expect(start).toHaveAccessibleDescription(/Start and end time: This overlaps Daniel Cruz's 7:00 AM shift\./)
-    expect(screen.getByLabelText(/End Time/)).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByLabelText(/End time/)).toHaveAttribute('aria-invalid', 'true')
     fireEvent.change(start, { target: { value: '08:00' } })
     expect(start).not.toHaveAttribute('aria-invalid')
   })
@@ -435,4 +435,26 @@ describe('Edit shift: a refused save is shown where it can be fixed (item 5)', (
     expect(alert).toHaveTextContent('The pay period is locked')
     expect(scrollIntoView.mock.contexts).toContain(alert)
   })
+})
+
+it('exposes conflict recovery after Save and view history and keeps the reason on reload', async () => {
+  apiMock.updateTimeEntry.mockReset().mockResolvedValueOnce({ status: 422, code: 'correction_reason_required', error: 'Add a reason' }).mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { ...entry, version: 3, description: 'Latest shift' } } })
+  const config = show()
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Typed edit' } })
+  fireEvent.click(historyLink())
+  fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
+  fireEvent.change(await screen.findByLabelText('Add a short reason, then save and view history'), { target: { value: 'Keep my explanation' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Nothing was saved')
+  expect(screen.queryByRole('button', { name: 'Save and view history' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+  await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue('Latest shift'))
+  expect(screen.getByLabelText('Correction reason *')).toHaveValue('Keep my explanation')
+  expect(config.onSaved).not.toHaveBeenCalled()
+  expect(config.onClose).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'New correction' } })
+  apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: entry } })
+  fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(44, expect.objectContaining({ expected_version: 3 }), 'Keep my explanation'))
 })

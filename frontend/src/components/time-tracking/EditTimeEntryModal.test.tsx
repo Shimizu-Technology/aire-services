@@ -6,6 +6,7 @@ import EditTimeEntryModal from './EditTimeEntryModal'
 const apiMock = vi.hoisted(() => ({
   updateTimeEntry: vi.fn(),
   deleteTimeEntry: vi.fn(),
+  getTimeEntry: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -314,10 +315,10 @@ describe('EditTimeEntryModal', () => {
     render(<EditTimeEntryModal isOpen canManageTeamTime entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
       end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
       categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText('End Time *'), { target: { value: '18:00' } })
+    fireEvent.change(screen.getByLabelText('End time *'), { target: { value: '18:00' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
-    expect(screen.getByLabelText('End Time *')).toHaveValue('12:00')
-    expect(screen.getByLabelText('End Time *')).toBeDisabled()
+    expect(screen.getByLabelText('End time *')).toHaveValue('12:00')
+    expect(screen.getByLabelText('End time *')).toBeDisabled()
     fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(6,
@@ -332,7 +333,7 @@ describe('EditTimeEntryModal', () => {
     document.body.append(host)
     render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete canManageTeamTime
       onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />, { container: host })
-    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
     expect(dialog).toBeVisible()
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(host).not.toContainElement(dialog)
@@ -417,13 +418,13 @@ describe('precise clock editor payloads', () => {
     expect(screen.getByText('7.48h')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: description } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
-    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description }, undefined))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description, expected_version: 1 }, undefined))
   })
   it('omits precise punches and live breaks for active saves', async () => {
     show({ ...precise, status: 'on_break', end_time: null, clock_out_at: null } as unknown as typeof precise)
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Live note' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
-    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description: 'Live note' }, undefined))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description: 'Live note', expected_version: 1 }, undefined))
   })
   it('requires detailed breaks to be edited rather than overriding their aggregate', () => {
     show()
@@ -437,16 +438,46 @@ describe('precise clock editor payloads', () => {
   })
   it('sends an intentional endpoint change without the nominal end or breaks', async () => {
     show()
-    fireEvent.change(screen.getByLabelText(/Start Time/), { target: { value: '08:05' } })
+    fireEvent.change(screen.getByLabelText(/Start time/), { target: { value: '08:05' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
-    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { start_time: '08:05' }, undefined))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { start_time: '08:05', expected_version: 1 }, undefined))
   })
   it('keeps unedited break endpoint precision when editing another break endpoint', async () => {
     show()
     fireEvent.change(screen.getByLabelText('End', { exact: true }), { target: { value: '12:40' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
-    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { breaks: [{
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { expected_version: 1, breaks: [{
       id: 55, start_time: precise.breaks[0].start_time, end_time: '12:40',
     }] }, undefined))
   })
+})
+
+
+it('blocks repeat edits after a server stale conflict and reloads the shift', async () => {
+  const onSaved = vi.fn()
+  const onClose = vi.fn()
+  apiMock.updateTimeEntry.mockReset().mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  render(<EditTimeEntryModal isOpen entry={{
+    id: 99, version: 4, work_date: '2026-11-10', start_time: '08:00', end_time: '16:00',
+    break_minutes: 0, description: 'Original', user: { id: 2, email: 'worker@aire.test' },
+    time_category: { id: 1, name: 'Ground' },
+  }} categories={[{ id: 1, name: 'Ground' }]} canDelete onClose={onClose} onSaved={onSaved} onDeleted={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Stale change' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('This shift changed since you opened it. Nothing was saved.')
+  expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description: 'Stale change', expected_version: 4 }, undefined)
+  expect(screen.getByRole('button', { name: 'Update' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+  expect(onSaved).not.toHaveBeenCalled()
+  apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: {
+    id: 99, version: 5, work_date: '2026-11-10', start_time: '08:00', end_time: '16:00',
+    break_minutes: 0, description: 'Winning edit', user: { id: 2, email: 'worker@aire.test' },
+    time_category: { id: 1, name: 'Ground' },
+  } } })
+  fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+  await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue('Winning edit'))
+  expect(onSaved).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(apiMock.updateTimeEntry).toHaveBeenCalledOnce()
 })

@@ -21,6 +21,19 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: false } })
     vi.mocked(api.acknowledgePayrollCutoff).mockResolvedValue({ data: { acknowledged: true } })
   })
+  it.each(['kiosk_device_revoked', 'kiosk_employee_session_refused'])('distinguishes cutoff refusal %s', async code => {
+    const onSessionRefused = vi.fn()
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ error: 'Session ended', status: 401, code })
+    render(<MemoryRouter><PayrollCutoffNotice kiosk={{ accessToken: 'access', employeeToken: 'employee', sessionKey: 'a', notice: null, onSessionRefused }} /></MemoryRouter>)
+    await waitFor(() => expect(onSessionRefused).toHaveBeenCalledWith(code === 'kiosk_device_revoked'))
+  })
+  it('does not lock a device on a cutoff network error', async () => {
+    const onSessionRefused = vi.fn()
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ error: 'Network error', status: 0 })
+    render(<MemoryRouter><PayrollCutoffNotice kiosk={{ accessToken: 'access', employeeToken: 'employee', sessionKey: 'a', notice: null, onSessionRefused }} /></MemoryRouter>)
+    await waitFor(() => expect(api.getPayrollCutoff).toHaveBeenCalled())
+    expect(onSessionRefused).not.toHaveBeenCalled()
+  })
   it('shows paused guidance and read-only attention without calendar setup, reminders or acknowledgement', async () => {
     auth.role = 'admin'
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, attention: { period: cutoff.period, lock_mode: 'scheduled', cutoff_state: 'attention_required' }, connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' } } })

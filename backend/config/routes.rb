@@ -38,8 +38,10 @@ Rails.application.routes.draw do
 
       # Senders' pay stub tools (send_pay_statements: owners, admins, managers)
       namespace :pay_stubs do
+        resources :periods, only: [ :show ], param: :start_date
         resources :workers, only: [ :index, :show ] do
           get :statements, on: :member
+          get "statements/:statement_id/pdf", action: :pdf, on: :member
         end
         resources :requests, only: [ :index ] do
           post :dismiss, on: :member
@@ -146,6 +148,8 @@ Rails.application.routes.draw do
           post :decline
           post :undo_cancel
           post :cancel
+          post :undo
+          post :change_decision
         end
       end
       resources :time_entries, only: [ :index, :show, :create, :update, :destroy ] do
@@ -169,6 +173,7 @@ Rails.application.routes.draw do
           post :approve_overtime
           post :deny_overtime
           post :undo_approval
+          get :review_history
         end
       end
       resources :time_categories, only: [ :index ]

@@ -255,3 +255,8 @@ input[type="button"],
 .animate-fadeInUp {
   animation: fadeInUp 0.4s ease-out forwards;
 }
+
+@media (pointer: coarse) {
+  .pay-period-page :is(button, a) { min-height: 44px; }
+  .pay-period-page a { display: inline-flex; align-items: center; }
+}
