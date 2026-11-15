@@ -36,7 +36,7 @@ function titleFor(section: TimePayrollSection, canManageTeamTime: boolean) {
 function descriptionFor(section: TimePayrollSection, canManageTeamTime: boolean) {
   if (section === 'approvals') return 'Approve, correct or deny the team’s time and overtime before each cutoff.'
   if (section === 'reports') return 'Live hours by person, category and source, with PDF and CSV exports.'
-  if (section === 'payroll') return 'What each cutoff sends to payroll, and the cutoffs already finalized.'
+  if (section === 'payroll') return 'What each lock sends to payroll, and the hours already locked.'
   if (section === 'leave') return canManageTeamTime ? 'Review time-off requests, or request your own.' : 'Request time off and see the status of your requests.'
   return canManageTeamTime
     ? 'Find and fix anyone’s recorded time, or log missed time.'

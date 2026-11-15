@@ -46,7 +46,7 @@ describe('StepList', () => {
     { id: 'open', label: 'Open' },
     { id: 'locked', label: 'Locked' },
     { id: 'received', label: 'Received by Payroll' },
-    { id: 'run', label: 'In a payroll run' },
+    { id: 'run', label: 'In payroll' },
     { id: 'paid', label: 'Paid' },
   ]
 
@@ -57,7 +57,7 @@ describe('StepList', () => {
     const items = within(list).getAllByRole('listitem')
     expect(items).toHaveLength(5)
     expect(items[2]).toHaveAttribute('aria-current', 'step')
-    expect(items.map(item => item.textContent)).toEqual(['Done: Open', 'Done: Locked', 'Now: Received by Payroll', 'Not yet: In a payroll run', 'Not yet: Paid'])
+    expect(items.map(item => item.textContent)).toEqual(['Done: Open', 'Done: Locked', 'Now: Received by Payroll', 'Not yet: In payroll', 'Not yet: Paid'])
   })
 
   it('reads every step as done once complete', () => {

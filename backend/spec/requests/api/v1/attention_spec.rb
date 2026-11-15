@@ -271,7 +271,7 @@ RSpec.describe "Attention", type: :request do
       period = attention(admin).fetch("period")
 
       expect(period).to include("published" => true, "start_date" => "2026-11-01", "end_date" => "2026-11-15",
-                                "handoff_state" => "open", "label" => "Open", "label_provisional" => true)
+                                "handoff_state" => "open", "label" => "Open", "label_provisional" => false)
       report = Payroll::HoursReportBuilder.new(start_date: "2026-11-01", end_date: "2026-11-15").call
       hours = report[:summary][:payroll_hours]
       expect(period.fetch("waiting_count")).to eq(report[:summary][:approval_waiting_count])

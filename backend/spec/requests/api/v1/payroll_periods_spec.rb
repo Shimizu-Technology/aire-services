@@ -63,19 +63,19 @@ RSpec.describe "Payroll periods", type: :request do
       period(Date.new(2026, 11, 1))
     end
 
-    it "gives each period its step, the glossary label, and marks the labels provisional" do
+    it "gives each period its step, the glossary label, and marks the decided labels non-provisional" do
       body = periods
 
       expect(body.fetch("periods").map { |row| [ row["start_date"], row["handoff_state"], row["label"] ] }).to eq([
         [ "2026-11-01", "open", "Open" ],
         [ "2026-10-01", "locked", "Locked for payroll" ],
         [ "2026-09-16", "received", "Received by Payroll" ],
-        [ "2026-09-01", "in_run", "In a payroll run" ],
+        [ "2026-09-01", "in_run", "In payroll" ],
         [ "2026-08-16", "paid", "Paid" ],
         [ "2026-08-01", "before_locking", "Before locking" ]
       ])
-      expect(body.fetch("periods")).to all(include("label_provisional" => true))
-      expect(body.fetch("labels")).to include("provisional" => true, "note" => a_string_including("Chels"))
+      expect(body.fetch("periods")).to all(include("label_provisional" => false))
+      expect(body.fetch("labels")).to include("provisional" => false, "note" => a_string_including("Leon"))
       expect(body.fetch("current_start_date")).to eq("2026-11-01")
     end
 

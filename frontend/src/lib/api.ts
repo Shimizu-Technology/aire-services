@@ -1351,6 +1351,8 @@ export interface PayrollBatchExclusion {
   category: { id: number; key: string | null; name: string } | null;
   reason: string;
   original_work_date: string;
+  /** Live preview only: waiting on payable dates within this period. */
+  waiting_hours_in_period?: number;
   held_total_hours: number;
   held_regular_hours: number;
   held_overtime_hours: number;
@@ -1396,6 +1398,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  pay_period_start?: string | null;
   purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;
