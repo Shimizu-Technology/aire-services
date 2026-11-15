@@ -9,6 +9,8 @@ import { Button, Field, HelpTip, Input, Textarea } from '../ui'
 interface Props {
   /** Compact fits inside the dashboard payroll readiness card. */
   variant?: 'full' | 'compact'
+  /** Reload eligibility when the parent cutoff or stage changes, preserving dialog drafts. */
+  refreshKey?: string
 }
 
 const shortDate = (date: string) => new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' }).format(new Date(`${date}T12:00:00+10:00`))
@@ -21,7 +23,7 @@ function periodLabel(control: LockControlState) {
 }
 
 /** Self-contained: fetches its own state so it can move to a future pay-period page. */
-export default function PayrollLockControl({ variant = 'full' }: Props) {
+export default function PayrollLockControl({ variant = 'full', refreshKey }: Props) {
   const capabilities = useCapabilities()
   const [control, setControl] = useState<LockControlState | null | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
@@ -50,11 +52,14 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
 
   useEffect(() => {
     if (!capabilities.manage_payroll) return
-    const run = () => load()
-    void run()
+    void load()
+  }, [capabilities.manage_payroll, load, refreshKey])
+
+  useEffect(() => {
+    if (!capabilities.manage_payroll) return
     const tick = window.setInterval(() => setNow(new Date(Date.now() + serverOffset.current)), 60_000)
     return () => { window.clearInterval(tick); if (pollTimer.current) window.clearTimeout(pollTimer.current) }
-  }, [capabilities.manage_payroll, load])
+  }, [capabilities.manage_payroll])
 
   // Cornerstone republishes the period a few seconds after accepting a change.
   const waitForPublication = useCallback(async (previous: LockControlState) => {
@@ -191,14 +196,17 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
 }) {
   // The server's earliest time ages while the page is open; never offer less than 15 minutes ahead.
   const serverMin = toGuamInput(control.earliest_cutoff_at)
+  const periodMin = toGuamInput(control.lock_now_available_at)
   const leadMin = toGuamInput(earliestLockChange(now).toISOString())
-  const min = leadMin > serverMin ? leadMin : serverMin
+  const min = [leadMin, serverMin, periodMin].sort().at(-1)!
   const max = toGuamInput(control.latest_cutoff_at)
   const current = toGuamInput(control.cutoff_at)
   const [cutoffInput, setCutoffInput] = useState(() => (current < min ? min : current > max ? max : current))
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [invalidTime, setInvalidTime] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const [requestId] = useState(() => crypto.randomUUID())
   const dialogRef = useRef<HTMLDivElement>(null)
   const ids = useId()
@@ -206,23 +214,23 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
 
   const period = periodLabel(control)
   const chosen = action === 'change' ? fromGuamInput(cutoffInput) : null
-  const outOfRange = action === 'change' && (!chosen || cutoffInput < min || cutoffInput > max)
-  const minLabel = formatLockTime(fromGuamInput(min)!)
+  const rangeCopy = (minimum: string) => `Choose a time from ${formatLockTime(fromGuamInput(minimum)!)} to ${formatLockTime(control.latest_cutoff_at)} (Guam time).`
   // Saving the time AIRE already has would be refused, unless it replaces a change AIRE didn't apply.
   const replacing = control.pending_change != null && control.pending_change.state !== 'pending'
   const unchanged = action === 'change' && cutoffInput === current && !replacing
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!reason.trim()) { setError('Enter a reason for the change.'); return }
     // The minimum moves on while the dialog is open; Cornerstone would refuse a time that slipped under it.
-    const freshMin = toGuamInput(earliestLockChange(currentTime()).toISOString())
-    if (action === 'change' && chosen && cutoffInput < freshMin && freshMin <= max) {
-      setCutoffInput(freshMin)
-      setError(`The lock time must be at least 15 minutes from now, so the earliest is now ${formatLockTime(fromGuamInput(freshMin)!)}. Check the new time and save again.`)
+    const freshMin = [periodMin, serverMin, toGuamInput(earliestLockChange(currentTime()).toISOString())].sort().at(-1)!
+    if (action === 'change' && (!chosen || cutoffInput < freshMin || cutoffInput > max)) {
+      setInvalidTime(true)
+      setError(rangeCopy(freshMin))
+      inputRef.current?.focus()
       return
     }
-    if (outOfRange) { setError(`Choose a time between ${minLabel} and ${formatLockTime(control.latest_cutoff_at)}.`); return }
+    setInvalidTime(false)
+    if (!reason.trim()) { setError('Enter a reason for the change.'); return }
     setSubmitting(true)
     setError(null)
     const result = await api.changePayrollLockTime({
@@ -234,7 +242,14 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
       ...(chosen ? { cutoff_at: chosen } : {}),
     })
     setSubmitting(false)
-    if (result.error || !result.data) { setError(result.error || 'The lock time could not be changed. Nothing changed.'); return }
+    if (result.error || !result.data) {
+      setError(result.error || 'The lock time could not be changed. Nothing changed.')
+      if (action === 'change' && result.error && /choose (a |a new |a valid )?time|choose (a new |a valid )?lock time|time at least|time after the period|time.*before payday/i.test(result.error)) {
+        setInvalidTime(true)
+        inputRef.current?.focus()
+      }
+      return
+    }
     const at = result.data.cutoff_change.cutoff_at
     onDone(action === 'lock_now'
       ? 'Cornerstone Payroll accepted Lock now. Updating AIRE…'
@@ -257,9 +272,16 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
 
           {action === 'change' && (
             <Field className="mt-4" label="New lock time (Guam)" required
-              help={<>{unchanged ? 'Choose a new time to save. ' : ''}Between {minLabel} (at least 15 minutes from now) and {formatLockTime(control.latest_cutoff_at)} (two days before payday).</>}>
-              <Input type="datetime-local" value={cutoffInput} min={min} max={max} step={60}
-                onChange={event => setCutoffInput(event.target.value)} />
+              help={<>{unchanged ? 'Choose a new time to save. ' : ''}{rangeCopy(min)}</>}>
+              <Input ref={inputRef} aria-invalid={invalidTime || undefined} aria-describedby={invalidTime ? `${ids}-error` : undefined} type="datetime-local" value={cutoffInput} min={min} max={max} step={60}
+                onChange={event => {
+                  const value = event.target.value
+                  setCutoffInput(value)
+                  if (fromGuamInput(value) && value >= min && value <= max && invalidTime) {
+                    setInvalidTime(false)
+                    setError(null)
+                  }
+                }} />
             </Field>
           )}
 
@@ -268,7 +290,7 @@ function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: 
               placeholder="For example: payday moved for the holiday" />
           </Field>
 
-          {error && <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+          {error && <p id={`${ids}-error`} role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>

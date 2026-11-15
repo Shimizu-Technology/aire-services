@@ -43,7 +43,7 @@ RSpec.describe Payroll::PaymentAttestationRecorder do
 
     lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
     expect(lifecycle.fetch(:status)).to eq("payment_attested_pending_evidence")
-    expect(lifecycle.fetch(:label)).to eq("Payment reported; check evidence pending")
+    expect(lifecycle.fetch(:label)).to eq("Paid outside payroll, details pending")
     expect(lifecycle.fetch(:payment_attested_hours)).to eq(8.0)
     expect(lifecycle.fetch(:manually_paid_hours)).to eq(0.0)
     expect(lifecycle[:payment_reference]).to be_nil

@@ -4,7 +4,7 @@ import { cx } from '../../lib/cx'
 import type { PayrollConnectionStatus } from '../../lib/api/attention'
 import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui'
-import { plural } from './format'
+import { periodLabel, plural } from './format'
 import { payrollConnectionCopy } from '../../lib/payrollConnection'
 import { PAYROLL_CONNECTION_HREF } from './links'
 import { StaleNote } from './StaleNote'
@@ -50,7 +50,7 @@ function Details({ connection }: { connection: PayrollConnectionStatus }) {
       </p>
       {problem && (
         <p className="mt-1 text-amber-900">
-          {plural(connection.undelivered.count, 'update')} for Payroll {connection.undelivered.count === 1 ? "hasn't" : "haven't"} arrived.
+          {connection.undelivered.events?.length ? connection.undelivered.events.map(event => <span className="block" key={event.event_id}>An update for {periodLabel(event.period)} hasn't reached Cornerstone Payroll.</span>) : <>{plural(connection.undelivered.count, 'update')} for Payroll {connection.undelivered.count === 1 ? "hasn't" : "haven't"} arrived.</>}
         </p>
       )}
       <p className="mt-1 text-ink-muted">{copy.detail}</p>

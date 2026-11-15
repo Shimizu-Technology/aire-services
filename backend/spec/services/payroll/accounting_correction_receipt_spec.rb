@@ -109,7 +109,7 @@ RSpec.describe Payroll::AccountingCorrectionReceipt do
     lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
     expect(lifecycle[:status]).to eq("payment_attested_pending_evidence")
     expect(lifecycle[:accounting_only]).to be_nil
-    expect(lifecycle[:label]).to eq("Payment reported; check evidence pending")
+    expect(lifecycle[:label]).to eq("Paid outside payroll, details pending")
   end
 
   [ [], "legacy snapshot", 42, false, true ].each do |snapshot|
