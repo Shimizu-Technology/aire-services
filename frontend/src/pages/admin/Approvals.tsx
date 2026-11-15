@@ -56,7 +56,7 @@ import RecentApprovals from '../../components/approvals/RecentApprovals'
 import ReviewSheet from '../../components/approvals/ReviewSheet'
 import ApproveAllDialog from '../../components/approvals/ApproveAllDialog'
 import FiltersSheet from '../../components/approvals/FiltersSheet'
-import LeaveRequestsList from '../../components/approvals/LeaveRequestsList'
+import LeaveOverview from '../../components/approvals/LeaveOverview'
 import StubRequestsList from '../../components/approvals/StubRequestsList'
 
 const Classic = lazy(() => import('./TimeTracking'))
@@ -222,8 +222,8 @@ function ApprovalsInbox() {
     onDiscard: discardChanges,
   })
 
-  const loadExtras = useCallback(async () => {
-    setExtrasLoading(true)
+  const loadExtras = useCallback(async (quiet = false) => {
+    if (!quiet) setExtrasLoading(true)
     const [leaveResult, stubResult, workerResult] = await Promise.allSettled([
       loadPendingLeave(),
       capabilities.send_pay_statements
@@ -569,10 +569,12 @@ function ApprovalsInbox() {
           ) : extrasLoading ? (
             <p>Loading leave requests…</p>
           ) : (
-            <LeaveRequestsList
+            <LeaveOverview
+              matchesPerson={matchesPerson}
+              matchesDates={(request) => leaveMatchesDates(request, query)}
               requests={visibleLeave}
               viewerId={currentUser?.id}
-              onChanged={loadExtras}
+              onChanged={() => loadExtras(true)}
             />
           ))}
         {kind === 'stubs' &&

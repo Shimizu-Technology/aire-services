@@ -842,6 +842,9 @@ export interface WorkerStatus {
 export type LeaveRequestQueryStatus = LeaveRequest['status'] | 'reviewed';
 
 export interface LeaveRequest {
+  version?: number;
+  undo_expires_at?: string | null;
+  decision_history?: { action: string; at: string; actor: string | null; from: string | null; to: string | null; reason: string | null }[];
   id: number;
   leave_type: 'paid_time_off' | 'sick' | 'unpaid' | 'bereavement' | 'other';
   start_date: string;
@@ -857,6 +860,8 @@ export interface LeaveRequest {
   user: {
     id: number;
     email: string;
+    department?: string;
+    approval_group_keys?: string[];
     display_name?: string;
     full_name?: string;
   };
@@ -2030,9 +2035,10 @@ export const api = {
     return fetchDownload(`/api/v1/admin/hours_report/${type}?${searchParams.toString()}`);
   },
 
-  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25) => {
+  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25, view?: 'decisions') => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
+    if (view) params.set('view', view);
     params.set('page', String(page));
     params.set('per_page', String(perPage));
     const query = params.toString();
@@ -2045,16 +2051,25 @@ export const api = {
       body: JSON.stringify({ leave_request: payload }),
     }),
 
-  approveLeaveRequest: (id: number, reviewNote?: string) =>
+  approveLeaveRequest: (id: number, reviewNote?: string, version?: number) =>
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ review_note: reviewNote }),
+      body: JSON.stringify({ review_note: reviewNote, version }),
     }),
 
-  declineLeaveRequest: (id: number, reviewNote?: string) =>
+  declineLeaveRequest: (id: number, reviewNote?: string, version?: number) =>
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/decline`, {
       method: 'POST',
-      body: JSON.stringify({ review_note: reviewNote }),
+      body: JSON.stringify({ review_note: reviewNote, version }),
+    }),
+
+  undoLeaveDecision: (id: number, version: number) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/undo`, {
+      method: 'POST', body: JSON.stringify({ version }),
+    }),
+  changeLeaveDecision: (id: number, version: number, status: LeaveRequest['status'], reason: string) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/change_decision`, {
+      method: 'POST', body: JSON.stringify({ version, status, reason }),
     }),
 
   cancelLeaveRequest: (id: number) =>

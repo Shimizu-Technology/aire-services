@@ -20,9 +20,11 @@ export default function LeaveRequestsList({
   requests,
   viewerId,
   onChanged,
+  onSaved,
 }: {
   requests: LeaveRequest[]
   viewerId?: number
+  onSaved?: (request: LeaveRequest) => void
   onChanged: () => Promise<void>
 }) {
   const online = useOnlineStatus()
@@ -80,13 +82,14 @@ export default function LeaveRequestsList({
     setError('')
     try {
       const response = decline
-        ? await api.declineLeaveRequest(request.id, note.trim())
-        : await api.approveLeaveRequest(request.id)
+        ? await api.declineLeaveRequest(request.id, note.trim(), request.version)
+        : await api.approveLeaveRequest(request.id, undefined, request.version)
       if (!response.data) {
         setError(response.error || "Couldn't save this leave decision.")
         return
       }
-      toast.show({
+      onSaved?.(response.data.leave_request)
+      if (!onSaved) toast.show({
         message: `${decline ? 'Declined' : 'Approved'} ${name(request)}'s time off, ${leaveDateRange(request.start_date, request.end_date)}`,
       })
       setDeclining(null)
