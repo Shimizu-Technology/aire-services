@@ -136,7 +136,7 @@ describe('TimeTracking current linked entry refresh', () => {
     expect(await screen.findByRole('region', { name: 'Linked time entry' })).toHaveTextContent('4.00h · Operations · approved')
     expect(dayCard().getByText('4h')).toBeInTheDocument()
     expect(dayCard().queryByText('Pending')).not.toBeInTheDocument()
-    expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(90, undefined)
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(90, undefined, { expectedVersion: 1 })
   })
 
   it.each([404, 500])('removes a successfully deleted linked entry even when its following read returns%s', async (status) => {
