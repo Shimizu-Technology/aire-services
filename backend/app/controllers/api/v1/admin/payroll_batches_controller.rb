@@ -13,6 +13,7 @@ module Api
           batches = PayrollBatch
             .includes(
               :finalized_by,
+              :payroll_calendar_period,
               :payroll_batch_processing_events,
               :payroll_batch_entries,
               :payroll_entry_processing_events
@@ -121,8 +122,11 @@ module Api
             quantities = hours[row[:source_time_entry_id].to_s]
             next unless quantities
 
-            key = row[:reason] == "pending_overtime" ? :overtime_waiting_hours : :time_waiting_hours
-            row[:waiting_hours_in_period] = quantities.fetch(key)
+            row[:waiting_hours_in_period] = if row[:reason] == "pending_overtime"
+              quantities.fetch(:overtime_waiting_hours)
+            else
+              (quantities.fetch(:time_waiting_hours).to_d + quantities.fetch(:overtime_waiting_hours).to_d).round(2).to_f
+            end
           end
         end
 
@@ -156,6 +160,7 @@ module Api
         def serialize_summary(batch)
           {
             id: batch.public_id,
+            pay_period_start: batch.payroll_calendar_period&.start_date&.iso8601,
             purpose: batch.payload["purpose"] || "regular",
             start_date: batch.start_date.iso8601,
             end_date: batch.end_date.iso8601,

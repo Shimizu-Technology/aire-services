@@ -1398,6 +1398,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  pay_period_start?: string | null;
   purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;

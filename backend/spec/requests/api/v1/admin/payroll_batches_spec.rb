@@ -76,6 +76,26 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(PayrollBatch.count).to eq(0)
   end
 
+  it "keeps all pending time waiting when the week projects overtime" do
+    zone = ActiveSupport::TimeZone["Pacific/Guam"]
+    entries = (10..15).map do |day|
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 8, day),
+        start_time: zone.local(2026, 8, day, 8), end_time: zone.local(2026, 8, day, 16),
+        hours: 8, status: "completed", entry_method: "clock", approval_status: "pending", overtime_status: "pending")
+    end
+    approval = Payroll::ApprovalHours.for_entries(entries)
+    expect(entries.sum { |entry| Payroll::ApprovalHours.sum(approval.segments_for(entry))[:overtime_waiting_hours] }).to be > 0
+
+    post "/api/v1/admin/payroll_batches/preview",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" }, headers: admin_headers
+
+    expect(response).to have_http_status(:ok)
+    waiting = json.fetch(:exclusions).select { |row| row[:reason] == "pending_approval" }
+    expect(waiting.size).to eq(6)
+    expect(waiting.map { |row| row[:waiting_hours_in_period] }).to all(eq(8.0))
+    expect(waiting.sum { |row| row[:waiting_hours_in_period] }).to eq(48.0)
+  end
+
   it "guides previews to the published calendar and rejects both direct manual paths without side effects" do
     create_entry
     period = create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),

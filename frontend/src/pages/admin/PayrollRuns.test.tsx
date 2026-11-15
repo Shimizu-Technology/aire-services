@@ -115,6 +115,7 @@ describe('pay period page: open period', () => {
     await open('/admin/payroll?start_date=2026-11-05')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Nov 1–15 pay period')
     expect(mocks.period).toHaveBeenCalledWith('2026-11-01')
+    expect(screen.getByText('Nov 5 is in the Nov 1–15 pay period.')).toBeInTheDocument()
   })
   it('explains an invalid date and opens the current period', async () => {
     await open('/admin/payroll?start_date=banana')
@@ -497,10 +498,10 @@ describe('pay period page: past periods and other states', () => {
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Not published')).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Status' })).queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
-    expect(screen.getByRole('menuitem', { name: 'Finalize without a published period…' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: 'Lock without a published period…' })).toBeEnabled()
     expect(screen.getByRole('menuitem', { name: 'Record manual payroll…' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Finalize without a published period…' }))
-    expect(screen.getByRole('dialog', { name: 'Finalize this payroll lock?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Lock without a published period…' }))
+    expect(screen.getByRole('dialog', { name: 'Lock these payroll hours?' })).toBeInTheDocument()
   })
 
   it('says the connection is not set up yet when Cornerstone Payroll has never answered', async () => {
@@ -520,7 +521,7 @@ describe('pay period page: past periods and other states', () => {
   it('only offers to finalize without a published period when none is published', async () => {
     await open()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
-    expect(screen.queryByRole('menuitem', { name: /Finalize without/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Lock without/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Record manual payroll…' }))
     expect(screen.getByRole('dialog', { name: 'Record manual payroll' })).toBeInTheDocument()
   })
@@ -548,7 +549,7 @@ describe('pay period page: past periods and other states', () => {
     expect(screen.queryByRole('button', { name: 'Change lock time' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.queryByRole('menuitem', { name: /Record manual payroll/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: /Finalize without/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Lock without/ })).not.toBeInTheDocument()
   })
 
   it('shows initial carried-hours loading and retries a failure', async () => {
@@ -580,10 +581,10 @@ describe('pay period page: past periods and other states', () => {
     expect(mocks.previewPayrollBatch).not.toHaveBeenCalled()
   })
 
-  it('refuses a start date that is not the 1st or the 16th', async () => {
+  it('redirects a mid-period route with an explanation', async () => {
     await open('/admin/payroll/periods/2026-11-03')
-    expect(screen.getByRole('alert')).toHaveTextContent("That isn't a pay period.")
-    expect(mocks.period).not.toHaveBeenCalled()
+    expect(screen.getByText('Nov 3 is in the Nov 1–15 pay period.')).toBeInTheDocument()
+    expect(mocks.period).toHaveBeenCalledWith('2026-11-01')
   })
 
   it('says when a past period was never published', async () => {
