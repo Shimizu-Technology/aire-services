@@ -507,7 +507,7 @@ describe('managers', () => {
         </MemoryRouter>
       </ToastProvider>,
     )
-    expect(await screen.findByText('Access Denied')).toBeInTheDocument()
+    expect(await screen.findByText('Access denied')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Casey Cruz' })).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
     // App mounts the person page and Team behind the same capability.

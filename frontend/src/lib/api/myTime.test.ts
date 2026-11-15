@@ -116,3 +116,17 @@ it('omits unchanged detailed breaks', async () => {
   )
   expect(update).toHaveBeenCalledWith(entry.id, {}, 'Please review this shift.')
 })
+
+it('uses the server Undo window despite a tablet clock skew and response delay', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2040-01-01T00:00:00Z'))
+  setAuthTokenGetter(async () => null)
+  let reply!: (value: Response) => void
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { reply = resolve })))
+  const pending = myTimeApi.cancelLeave(9)
+  await vi.advanceTimersByTimeAsync(5_000)
+  reply(new Response(JSON.stringify({ leave_request: { id: 9 }, server_time: '2026-11-15T00:00:00Z', undo_until: '2026-11-15T00:01:00Z' }), { status: 200 }))
+  const result = await pending
+  expect(result.data?.undoExpiresAt).toBe(Date.parse('2040-01-01T00:01:00Z'))
+  expect(result.data!.undoExpiresAt! - Date.now()).toBe(55_000)
+})

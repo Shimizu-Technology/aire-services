@@ -22,7 +22,7 @@ export function ShiftSheet({
   /** Only for time the viewer added that is still waiting. */
   onRemove?: () => void
 }) {
-  const source =
+  const source = entry.original_employee_change ? 'Requested fix' :
     entry.entry_method === 'manual'
       ? 'Added manually'
       : entry.clock_source === 'kiosk'
@@ -43,7 +43,9 @@ export function ShiftSheet({
         day: 'numeric',
       })}
       footer={
-        entry.status === 'completed' ? (
+        entry.status === 'completed' && entry.approval_status === 'denied' ? (
+          <p className="text-body-sm text-ink-muted">This shift was denied. Ask a manager to review it before making changes.</p>
+        ) : entry.status === 'completed' ? (
           <div className="space-y-2">
             <Button fullWidth variant="secondary" onClick={onFix}>
               Ask for a fix
@@ -116,7 +118,11 @@ export function ShiftSheet({
               : `${week.hours.toFixed(1)}h worked · ${week.overtime.toFixed(1)}h overtime waiting`}
           </dd>
         </div>
-        {entry.approval_note && (
+        {entry.rejected_employee_change && <div role="status">
+          Your change wasn't approved. Your shift was kept at {entry.formatted_start_time}–{entry.formatted_end_time}.
+          {' '}Note from {entry.rejected_employee_change.manager}: {entry.rejected_employee_change.note}
+        </div>}
+        {entry.approval_note && entry.approved_by && !entry.rejected_employee_change && (
           <div>
             <dt className="text-ink-muted">Manager's note</dt>
             <dd>{entry.approval_note}</dd>
@@ -129,7 +135,7 @@ export function ShiftSheet({
           </div>
         )}
       </dl>
-      {entry.status === 'completed' && (
+      {entry.status === 'completed' && entry.approval_status !== 'denied' && (
         <p className="mt-5 text-body-sm text-ink-muted">
           Something wrong? Ask for a fix and say what happened. Your manager
           approves the change.

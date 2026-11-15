@@ -12,7 +12,7 @@ class Rack::Attack
 
   # Kiosk PIN verification is public — keep it tight
   throttle("aire_kiosk_verify/ip", limit: 20, period: 5.minutes) do |req|
-    if req.path == "/api/v1/aire/kiosk/verify" && req.post?
+    if %w[/api/v1/aire/kiosk/verify /api/v1/aire/kiosk/lock].include?(req.path) && req.post?
       req.ip
     end
   end
