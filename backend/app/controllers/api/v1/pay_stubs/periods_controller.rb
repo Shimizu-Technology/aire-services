@@ -40,6 +40,9 @@ module Api
             statements: entries.map { |entry| entry.as_json.except(:run_purpose) },
             open_requests: requests.map { |request| period_request_json(request, catalog.latest&.id) },
             links: links.map { |delivery| delivery_json(delivery) } }
+        rescue ::Payroll::WorkerStatementsClient::NotLinked
+          # Not connected to payroll: no checks to find, and retrying won't change that.
+          nil
         rescue ::Payroll::WorkerStatementsClient::Error
           { worker: worker_json(worker), inactive: !worker.is_active?, lookup_failed: true,
             statements: [], open_requests: requests.map { |request| period_request_json(request) },

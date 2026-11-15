@@ -137,6 +137,22 @@ RSpec.describe "Period pay stubs", type: :request do
     expect(rows.fetch(other.id).fetch("lookup_failed")).to be(true)
   end
 
+  it "leaves out a paid person who isn't connected to payroll instead of offering a retry" do
+    other = create(:user, :employee)
+    batch = period.reload.payroll_batch
+    batch.payroll_batch_entries.create!(source_time_entry_id: 2, source_user_id: other.id, work_date: period.start_date,
+      week_start: period.start_date.beginning_of_week, source_kind: "current", line_key: "base")
+    allow(Payroll::WorkerStatementsClient).to receive(:new).and_wrap_original do |original, **|
+      client = original.call(env: cornerstone_env, http: method(:fake_cornerstone))
+      allow(client).to receive(:statements).and_call_original
+      allow(client).to receive(:statements).with(other.payroll_integration_uuid).and_raise(Payroll::WorkerStatementsClient::NotLinked)
+      client
+    end
+    read_period(admin)
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.fetch("workers").map { |row| row.dig("worker", "id") }).to eq([ worker.id ])
+  end
+
   context "when payroll is unavailable" do
     let(:cornerstone_down) { true }
 
