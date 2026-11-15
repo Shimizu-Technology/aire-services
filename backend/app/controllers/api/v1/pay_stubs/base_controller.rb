@@ -4,7 +4,8 @@ module Api
   module V1
     module PayStubs
       # Senders' pay stub tools: owners, admins and managers with the
-      # send_pay_statements capability. Nothing here returns pay amounts.
+      # send_pay_statements capability. Only the separately guarded admin PDF
+      # action returns pay amounts.
       class BaseController < Api::V1::BaseController
         before_action :prevent_caching
         before_action -> { require_capability!(:send_pay_statements) }
@@ -21,8 +22,9 @@ module Api
           render json: { error: error.message, code: error.code }, status: error.status
         end
 
-        def find_worker!(id)
-          worker = ::PayDocuments.sendable_workers.find_by(id: id) if id.to_s.match?(/\A[1-9]\d{0,17}\z/)
+        def find_worker!(id, include_former: false)
+          scope = include_former && current_user.can_manage_payroll? ? User.staff : ::PayDocuments.sendable_workers
+          worker = scope.find_by(id: id) if id.to_s.match?(/\A[1-9]\d{0,17}\z/)
           return worker if worker
 
           raise ::PayDocuments::Error.new("We couldn't find that person.", code: "worker_not_found", status: :not_found)

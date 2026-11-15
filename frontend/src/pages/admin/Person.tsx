@@ -246,6 +246,7 @@ export default function Person() {
       {sending && (
         <SendPayStubDialog
           workerId={user.id}
+          lockWorker
           canChooseRecipient={capabilities.preview_pay}
           onClose={() => setSending(false)}
           onSent={() => undefined}
