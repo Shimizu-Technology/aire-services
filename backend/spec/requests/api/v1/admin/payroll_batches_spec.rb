@@ -89,8 +89,12 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
         start_time: zone.local(2026, 8, day, 8), end_time: zone.local(2026, 8, day, 16),
         hours: 8, status: "completed", entry_method: "clock", approval_status: "pending", overtime_status: "pending")
     end
+    # A shift whose time is pending waits in full as time, even when the week
+    # projects overtime; overtime waiting is only for approved time.
     approval = Payroll::ApprovalHours.for_entries(entries)
-    expect(entries.sum { |entry| Payroll::ApprovalHours.sum(approval.segments_for(entry))[:overtime_waiting_hours] }).to be > 0
+    totals = entries.map { |entry| Payroll::ApprovalHours.sum(approval.segments_for(entry)) }
+    expect(totals.sum { |row| row[:time_waiting_hours] }).to eq(48.0)
+    expect(totals.sum { |row| row[:overtime_waiting_hours] }).to eq(0)
 
     post "/api/v1/admin/payroll_batches/preview",
          params: { start_date: "2026-08-01", end_date: "2026-08-15" }, headers: admin_headers
