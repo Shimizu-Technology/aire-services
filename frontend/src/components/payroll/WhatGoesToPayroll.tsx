@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
 import type { PayrollBatchAdjustment, PayrollBatchPayload } from '../../lib/api'
@@ -7,9 +7,11 @@ import { employeeWorkspaceHref } from '../../lib/employeeWorkspace'
 import { LIFECYCLE_LABELS } from '../../lib/payrollTerms'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { Button, StatusPill } from '../ui'
-import { dayLabel, hoursLabel, plural } from '../today/format'
+import { dayLabel, plural } from '../today/format'
 import { StaleNote } from '../today/StaleNote'
 import { personRows, type PersonRow } from './payPeriodModel'
+
+const hoursLabel = (hours: number) => `${hours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
 
 const HELD_LABELS: Record<string, string> = {
   pending_approval: LIFECYCLE_LABELS.awaiting_approval,
@@ -99,7 +101,12 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
   // A locked period lists only people whose hours went; shifts held back at the lock show under carried hours.
   const rows = personRows(payload).filter(row => !locked || row.lines.length > 0)
   const wide = useMediaQuery('(min-width: 1280px)')
-  const [open, setOpen] = useState<Set<string>>(() => new Set(initialOpen ? [initialOpen] : []))
+  const storageKey = `pay-period-rows:${returnTo}`
+  const [open, setOpen] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') ?? (initialOpen ? [initialOpen] : [])) }
+    catch { return new Set(initialOpen ? [initialOpen] : []) }
+  })
+  useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify([...open])) }, [open, storageKey])
   const toggle = (id: string) => setOpen(current => {
     const next = new Set(current)
     if (next.has(id)) next.delete(id)
@@ -107,6 +114,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
     return next
   })
   const totals = rows.reduce((sum, row) => ({ regular: sum.regular + row.regular, overtime: sum.overtime + row.overtime, waiting: sum.waiting + row.waiting }), { regular: 0, overtime: 0, waiting: 0 })
+  const carriedWaiting = rows.reduce((sum, row) => sum + row.carriedWaiting, 0)
   const paid = rows.filter(row => row.regular + row.overtime > 0).length
   const title = !locked ? 'What goes to payroll' : received ? 'What went to payroll' : 'What AIRE locked for payroll'
   const caption = !locked ? 'What goes to payroll if it locked now' : received ? 'What AIRE sent to payroll at the lock' : 'What AIRE froze at the lock'
@@ -124,6 +132,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
       </div>
       {staleSince !== undefined && onRetry && <StaleNote what={locked ? 'what went to payroll' : 'what goes to payroll'} loadedAt={staleSince} onRetry={onRetry} />}
 
+      {!locked && carriedWaiting > 0 && <p className="text-body-sm text-amber-900">Carried in, still waiting · {hoursLabel(carriedWaiting)}. Shown separately from this period’s Still waiting total.</p>}
       {rows.length === 0 ? (
         <p className="rounded-card border border-line bg-surface px-4 py-6 text-center text-body-sm text-ink-muted">No hours in this pay period yet.</p>
       ) : wide ? (
@@ -148,12 +157,13 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                       <th scope="row" className="px-3.5 py-2 text-left font-normal">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <Link to={personHref(row)} className="break-normal font-semibold text-ink hover:underline">{row.name}</Link>
-                          <Flags row={row} locked={locked} />
+                          {row.carriedWaiting > 0 && <span>Carried in, still waiting · {hoursLabel(row.carriedWaiting)}</span>}
+                      <Flags row={row} locked={locked} />
                         </span>
                       </th>
                       <td className="px-3 py-2 text-right tabular-nums">{hoursLabel(row.regular)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{hoursLabel(row.overtime)}</td>
-                      {!locked && <td className={cx('px-3 py-2 text-right tabular-nums', row.waiting > 0 ? 'text-amber-900' : 'text-ink-subtle')}>{hoursLabel(row.waiting)}</td>}
+                      {!locked && <td className={cx('px-3 py-2 text-right tabular-nums', row.waiting > 0 ? 'text-amber-900' : 'text-ink-subtle')}>{hoursLabel(row.waiting)}{row.carriedWaiting > 0 && <span className="block text-caption">Carried in, still waiting · {hoursLabel(row.carriedWaiting)}</span>}</td>}
                       <td className="px-2 py-1 text-right">
                         <button
                           type="button"
@@ -203,6 +213,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                     <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-muted">
                       <span className="tabular-nums">{hoursLabel(row.regular + row.overtime)} approved</span>
                       {!locked && row.waiting > 0 && <span className="tabular-nums text-amber-900">{hoursLabel(row.waiting)} waiting</span>}
+                      {row.carriedWaiting > 0 && <span>Carried in, still waiting · {hoursLabel(row.carriedWaiting)}</span>}
                       <Flags row={row} locked={locked} />
                     </span>
                   </span>

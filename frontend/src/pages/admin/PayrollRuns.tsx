@@ -1,11 +1,10 @@
-import { payrollConnectionCopy } from '../../lib/payrollConnection'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, type HoursReportDownloadType, type PayrollBatchDetail } from '../../lib/api'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { downloadBlob } from '../../lib/download'
-import { parsePayPeriodStart, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
-import { withPayrollPeriod } from '../../lib/payrollPeriods'
+import { payPeriodContaining, parsePayPeriodStart, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
+import { isIsoDate, withPayrollPeriod } from '../../lib/payrollPeriods'
 import { isLockedState, PAYROLL_WORDS } from '../../lib/payrollTerms'
 import { useCapabilities } from '../../lib/useCapabilities'
 import PayrollLockControl from '../../components/payroll/PayrollLockControl'
@@ -36,7 +35,8 @@ function linkedPeriodStart(params: URLSearchParams): string | null | 'records' {
   const start = params.get('start_date')
   const end = params.get('end_date')
   if (!start && !end) return null
-  const period = parsePayPeriodStart(start)
+  if (!end && start && !isIsoDate(start)) return null
+  const period = end ? parsePayPeriodStart(start) : isIsoDate(start) ? payPeriodContaining(start) : null
   return period && (!end || end === period.end) ? period.start : 'records'
 }
 
@@ -89,18 +89,25 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const paused = periods.data?.connected_payroll.enabled === false || connection.data?.state === 'paused'
     || cutoff.data?.connected_payroll?.enabled === false
   const connectionEnabled = periods.data?.connected_payroll.enabled === true && !paused
-  const connectionCopy = connection.data ? payrollConnectionCopy(connection.data) : null
-  const connectionPill: { label: string; tone: StatusTone } | null = paused
-    ? { label: 'Payroll connection paused', tone: 'needs-fix' }
-    : connectionCopy
-      ? { label: connectionCopy.title, tone: connectionCopy.problem ? 'needs-fix' : connectionCopy.connected ? 'approved' : 'waiting' }
-      : null
+  const connectionPill: { label: string; tone: StatusTone } | null = period?.handoff_state === 'locked' && period.delivery && (period.delivery.status === 'failed' || period.delivery.stuck)
+    ? { label: "These hours haven't reached Cornerstone Payroll yet", tone: 'needs-fix' }
+    : null
   const control = cutoff.data?.lock_control && period && cutoff.data.lock_control.period.start_date === period.start_date
     ? cutoff.data.lock_control
     : null
   const currentStart = periods.data?.current_start_date ?? null
   const returnTo = `${location.pathname}${location.search}`
   const payload = locked ? batch.data?.payload ?? null : preview.data
+  const hasPayload = Boolean(payload)
+  useEffect(() => {
+    if (!hasPayload) return
+    const key = `pay-period-scroll:${returnTo}`
+    const saved = sessionStorage.getItem(key)
+    const frame = requestAnimationFrame(() => { if (saved) window.scrollTo(0, Number(saved)) })
+    const save = () => sessionStorage.setItem(key, String(window.scrollY))
+    window.addEventListener('scroll', save, { passive: true })
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', save) }
+  }, [returnTo, hasPayload])
   const payloadLoad = beforeLocking ? null : locked ? (period?.payroll_batch_id ? blockLoad(batch) : null) : blockLoad(preview)
 
   const exportReport = async (kind: 'pdf' | 'csv' | 'locked_csv', acknowledgeDraft = false) => {
@@ -178,7 +185,8 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="pay-period-page space-y-4">
+      {params.has('start_date') && !isIsoDate(params.get('start_date')) && <p role="status">That date wasn't valid, so here's the current pay period.</p>}
       {!isCurrent && range && (
         <Link to={ADMIN_PATHS.payroll} className="inline-flex min-h-11 items-center text-body-sm font-semibold text-primary pointer-fine:min-h-0">
           Back to the current pay period
@@ -239,6 +247,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
 
           {range && show.data && !locked && !beforeLocking && (published || isCurrent) && (
             <BeforeLockChecklist
+              paused={paused}
               range={range}
               today={todayInGuam(now)}
               attention={attention.data}

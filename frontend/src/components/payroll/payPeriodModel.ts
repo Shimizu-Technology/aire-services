@@ -7,14 +7,16 @@ import { payPeriodContaining, payPeriodIncludes, type PayPeriod } from '../../li
 import { withPayrollPeriod } from '../../lib/payrollPeriods'
 import { LIFECYCLE_LABELS, PAYROLL_WORDS, PERSON_TOTAL_LABELS, type LifecycleStatus } from '../../lib/payrollTerms'
 import type { ChecklistStatus } from '../ui'
-import { hoursLabel, monthDay, periodLabel, plural } from '../today/format'
+import { monthDay, periodLabel, plural } from '../today/format'
 import { missingCategoryHref, openClockHref } from '../today/links'
+
+const hoursLabel = (hours: number) => `${hours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
 
 // What the pay period page shows, worked out from the API answers. Kept apart
 // from the components so each rule can be tested on its own.
 
 export interface ChecklistEntry {
-  key: 'approvals' | 'open_clocks' | 'overtime' | 'missing_category' | 'late_hours'
+  key: 'approvals' | 'open_clocks' | 'overtime' | 'missing_category' | 'late_hours' | 'carried_waiting'
   status: ChecklistStatus
   text: string
   meta?: string
@@ -195,7 +197,12 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
     }
   }
 
-  if (preview) items.push(lateHoursItem(preview, previousStart))
+  if (preview) {
+    const carried = personRows(preview).reduce((sum, row) => sum + row.carriedWaiting, 0)
+    if (carried > 0) items.push({ key: 'carried_waiting', status: 'todo', text: 'Carried in, still waiting', meta: hoursLabel(carried), action: { label: 'Review', to: ADMIN_PATHS.approvals } })
+    const late = lateHoursItem(preview, previousStart)
+    if (carried === 0 || late.status !== 'done') items.push(late)
+  }
   return items
 }
 
@@ -208,6 +215,7 @@ export interface PersonRow {
   regular: number
   overtime: number
   waiting: number
+  carriedWaiting: number
   stillClockedIn: boolean
   overtimeWaiting: number
   /** The part of `overtimeWaiting` from shifts dated before this period (carried in). */
@@ -223,7 +231,7 @@ export function personRows(payload: PayrollBatchPayload): PersonRow[] {
   const row = (id: string, name: string) => {
     let current = rows.get(id)
     if (!current) {
-      current = { id, name, regular: 0, overtime: 0, waiting: 0, stillClockedIn: false, overtimeWaiting: 0, overtimeWaitingEarlier: 0, missingCategory: false, lines: [], held: [] }
+      current = { id, name, regular: 0, overtime: 0, waiting: 0, carriedWaiting: 0, stillClockedIn: false, overtimeWaiting: 0, overtimeWaitingEarlier: 0, missingCategory: false, lines: [], held: [] }
       rows.set(id, current)
     }
     return current
@@ -238,7 +246,11 @@ export function personRows(payload: PayrollBatchPayload): PersonRow[] {
   for (const item of payload.exclusions) {
     const current = row(item.source_user_id, item.display_name)
     current.held.push(item)
-    if (WAITING_REASONS.has(item.reason)) current.waiting += item.waiting_hours_in_period ?? item.held_total_hours
+    if (WAITING_REASONS.has(item.reason)) {
+      const currentHours = item.waiting_hours_in_period ?? (item.original_work_date < payload.start_date ? 0 : item.held_total_hours)
+      current.waiting += currentHours
+      if (item.original_work_date < payload.start_date) current.carriedWaiting += Math.max(0, item.held_total_hours - currentHours)
+    }
     if (item.reason === 'open_clock') current.stillClockedIn = true
     if (item.reason === 'pending_overtime') {
       current.overtimeWaiting += item.waiting_hours_in_period ?? item.held_overtime_hours

@@ -27,7 +27,7 @@ import {
 
 const ISSUE_LABELS: Array<[keyof PayrollBatchIssues, string]> = [
   ['payment_attestation_pending_count', 'Payment reported, check details pending'],
-  ['pending_approval_count', 'Pending approval'],
+  ['pending_approval_count', LIFECYCLE_LABELS.awaiting_approval],
   ['denied_approval_count', 'Denied'],
   ['open_clock_count', 'Still clocked in'],
   ['pending_overtime_count', 'Pending overtime'],
@@ -38,21 +38,21 @@ const ISSUE_LABELS: Array<[keyof PayrollBatchIssues, string]> = [
 
 const EXCLUSION_LABELS: Record<string, string> = {
   pending_payment_attestation: 'Payment reported; check evidence pending',
-  pending_approval: 'Pending approval',
+  pending_approval: 'Waiting for approval',
   denied_approval: 'Denied',
   open_clock: 'Still clocked in',
   pending_overtime: 'Overtime pending approval',
   denied_overtime: 'Overtime denied',
-  created_after_cutoff: 'Created after cutoff',
+  created_after_cutoff: 'Created after lock',
   manual_reservation_released: 'Manual reservation released',
-  changed_after_cutoff: 'Edited after cutoff',
-  deleted_after_cutoff: 'Deleted after cutoff',
-  approved_after_cutoff: 'Approved after cutoff',
-  overtime_approved_after_cutoff: 'Overtime approved after cutoff',
+  changed_after_cutoff: 'Edited after lock',
+  deleted_after_cutoff: 'Deleted after lock',
+  approved_after_cutoff: 'Approved after lock',
+  overtime_approved_after_cutoff: 'Overtime approved after lock',
 }
 
 const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; detail: string; className: string }> = {
-  scheduled_supplemental: { label: 'Scheduled for supplemental payroll', detail: 'Assigned to a supplemental payroll in Cornerstone. Finish that payroll and record its payment; these hours will not be included automatically in a regular cutoff.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
+  scheduled_supplemental: { label: 'Scheduled for supplemental payroll', detail: 'Assigned to a supplemental payroll in Cornerstone. Finish that payroll and record its payment; these hours will not be included automatically in a regular lock.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
   needs_review: { label: 'Needs payroll review', detail: 'Review the recorded payments and choose a payroll destination in Cornerstone. These historical hours will not be included automatically.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   partially_allocated: { label: LIFECYCLE_LABELS.partially_allocated, detail: 'Some hours are already reserved in payroll. Review the remaining hours in Cornerstone before choosing a destination.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   payment_attested_pending_evidence: { label: LIFECYCLE_LABELS.payment_attested_pending_evidence, detail: 'The owner reported these hours paid. They remain held while the payment evidence is reconciled in Cornerstone.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
@@ -180,7 +180,7 @@ function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
-          <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)} · entry #{item.source_time_entry_id}</p>
+          <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)}</p>
         </div>
         <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
       </div>
@@ -227,7 +227,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
           <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
               ['Needs approval', queue.summary.awaiting_approval_count],
-              ['Ready for cutoff', queue.summary.ready_for_next_batch_count],
+              ['Ready for the next payroll', queue.summary.ready_for_next_batch_count],
               ['Needs payroll review', queue.summary.needs_review_count ?? 0],
               ['In payroll', queue.summary.in_payroll_count],
               ['Paid records', queue.summary.paid_count ?? recordedItems.filter((item) => item.completion === 'paid').length],
@@ -235,7 +235,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
               [PAYROLL_WORDS.closedWithoutPay, queue.summary.not_payable_count],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                <p className="text-[11px] font-semibold text-slate-500">{label}</p>
                 <p className="mt-1 text-xl font-semibold text-slate-950">{value}</p>
               </div>
             ))}
@@ -275,10 +275,11 @@ function issueDestination(key: keyof PayrollBatchIssues, period: PayrollPeriod) 
   return withPayrollPeriod(ADMIN_PATHS.reports, period, { approval_status: 'all' })
 }
 
-function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: PayrollPeriod }) {
+function IssueSummary({ issues, period, exclusions }: { issues: PayrollBatchIssues; period: PayrollPeriod; exclusions: PayrollBatchPayload['exclusions'] }) {
+  const carriedPending = exclusions.filter(item => item.reason === 'pending_approval' && item.original_work_date < period.start).length
   const active = ISSUE_LABELS.filter(([key]) => (issues[key] ?? 0) > 0)
   if (active.length === 0) {
-    return <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">No unresolved or blocking items were found for this cutoff.</p>
+    return <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">No unresolved or blocking items were found for this lock.</p>
   }
   return (
     <div className="flex flex-wrap gap-2">
@@ -286,7 +287,7 @@ function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: 
         const blocking = key === 'missing_category_count'
         return (
           <Link key={key} to={issueDestination(key, period)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${blocking ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-            {issues[key]} {label}
+            {key === 'pending_approval_count' ? Math.max(0, issues[key] - carriedPending) : issues[key]} {label}{key === 'pending_approval_count' && carriedPending > 0 ? ` + ${carriedPending} carried in, still waiting` : ''}
           </Link>
         )
       })}
@@ -301,8 +302,8 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Included ledger</p>
-            <h2 className="mt-1 text-xl font-semibold text-slate-950">What this cutoff sends to payroll</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Approved hours</p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">What this lock sends to payroll</h2>
           </div>
           <p className="text-xs text-slate-500">{payload.summary.adjustment_count} payroll {payload.summary.adjustment_count === 1 ? 'line' : 'lines'}</p>
         </div>
@@ -323,7 +324,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
                     <div>
                       <p className="font-medium text-slate-800">{adjustment.category?.name || 'Category missing'} · {formatDate(adjustment.original_work_date)}</p>
                       <Link className="mt-1 inline-flex min-h-11 min-w-11 items-center text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
-                      <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Carried forward hours' : 'Correction to a prior payroll cutoff'}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Carried forward hours' : 'Correction to a prior payroll lock'}</p>
                     </div>
                     <div className="text-left text-xs text-slate-600 sm:text-right">
                       <p className="font-semibold text-slate-900">{formatHours(adjustment.total_hours)}</p>
@@ -339,7 +340,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Tracked, not paid</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-950">Excluded at this cutoff</h2>
+        <h2 className="mt-1 text-xl font-semibold text-slate-950">Excluded at this lock</h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">Pending and open work stays attached to its original date. {payload.published_calendar_periods?.length ? CALENDAR_LATE_HOURS_NOTICE : payload.preview ? AUTOMATIC_CARRYOVER_NOTICE : `${CALENDAR_LATE_HOURS_NOTICE} ${AUTOMATIC_CARRYOVER_NOTICE}`}</p>
         <div className="mt-5 space-y-2">
           {payload.exclusions.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Nothing is excluded.</p>}
@@ -349,7 +350,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
                 <div>
                   <p className="text-sm font-semibold text-slate-800">{EXCLUSION_LABELS[item.reason] || item.reason}</p>
                   <p className="mt-1 text-xs text-slate-600">{item.display_name} · {item.category?.name || 'Category missing'}</p>
-                  <p className="mt-1 text-xs text-slate-500">Entry #{item.source_time_entry_id} · {formatDate(item.original_work_date)}</p>
+                  <p className="mt-1 text-xs text-slate-500">Shift on {formatDate(item.original_work_date)}</p>
                 </div>
                 <span className="whitespace-nowrap text-xs font-semibold text-slate-700">{formatHours(item.held_total_hours)}</span>
               </div>
@@ -426,7 +427,7 @@ export function FinalizeDialog({ payload, onClose, onConfirm, submitting, error 
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
       <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="finalize-title" className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl outline-none">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Final confirmation</p>
-        <h2 id="finalize-title" className="mt-2 text-2xl font-semibold text-slate-950">Finalize this payroll cutoff?</h2>
+        <h2 id="finalize-title" className="mt-2 text-2xl font-semibold text-slate-950">Finalize this payroll lock?</h2>
         <p className="mt-3 text-sm leading-6 text-slate-600">This creates a permanent payroll batch for {formatDate(payload.start_date)}–{formatDate(payload.end_date)}. Time entries remain editable, but later approvals and corrections are recorded in a future batch.</p>
 
         {needsCorrectionNote && (
@@ -461,13 +462,14 @@ function PublishedCalendarNotice({ payload, onOpenBatch, activationEnabled }: {
   return (
     <section aria-label="Published payroll calendar" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-4 text-sm text-cyan-950">
       <p className="font-semibold">{activationEnabled ? 'Use the published payroll calendar' : 'Published payroll history'}</p>
-      <p className="mt-1 leading-6">{activationEnabled ? payload.finalization_blocked_reason || 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch.' : 'Published period details and finalized batches remain available for review. Activation actions are unavailable.'}</p>
-      {activationEnabled && <p className="mt-1 leading-6">Open Payroll Calendar in Cornerstone Payroll and select the matching period. Its published cutoff determines which hours are included.</p>}
+      <p className="mt-1 leading-6">{activationEnabled ? 'This range overlaps a published payroll calendar. Open its Pay period page to change the lock time or review its locked hours.' : 'Published period details and finalized batches remain available for review. Activation actions are unavailable.'}</p>
+      {activationEnabled && <p className="mt-1 leading-6">Open the matching Pay period page in AIRE. Its lock time determines which hours are included.</p>}
       <ul className="mt-3 space-y-2">
         {payload.published_calendar_periods.map(period => (
           <li key={period.external_pay_period_id}>
             <p className="font-medium">Period {period.external_pay_period_id} · {formatDate(period.start_date)}–{formatDate(period.end_date)}</p>
-            <p>Published cutoff: {formatDateTime(period.cutoff_at)} · {period.status}</p>
+            <Link to={`/admin/payroll/periods/${period.start_date}`} className="min-h-11 inline-flex items-center font-semibold underline">Open Pay period</Link>
+            <p>Published lock: {formatDateTime(period.cutoff_at)} · {period.status}</p>
             {period.payroll_batch_id && onOpenBatch && <button type="button" onClick={() => onOpenBatch(period.payroll_batch_id!)} className="mt-2 min-h-11 rounded-lg border border-cyan-300 bg-white px-3 py-2 font-semibold text-primary hover:bg-cyan-100">View published batch</button>}
           </li>
         ))}
@@ -590,9 +592,9 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
                 ['Employees', snapshot.summary.employee_count],
                 ['Excluded', snapshot.summary.exclusion_count],
                 ['Missing category', snapshot.issues.missing_category_count],
-              ].map(([label, value]) => <div key={label} className="rounded-xl bg-white px-3 py-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 font-semibold text-slate-950">{value}</p></div>)}
+              ].map(([label, value]) => <div key={label} className="rounded-xl bg-white px-3 py-3"><p className="text-[11px] font-semibold text-slate-500">{label}</p><p className="mt-1 font-semibold text-slate-950">{value}</p></div>)}
             </div>
-            <p className="mt-3 text-xs leading-5 text-cyan-900">Cutoff: {formatDateTime(snapshot.cutoff_at)}. Compare the included totals and exclusions below with the payroll already processed.</p>
+            <p className="mt-3 text-xs leading-5 text-cyan-900">Lock: {formatDateTime(snapshot.cutoff_at)}. Compare the included totals and exclusions below with the payroll already processed.</p>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               <div className="rounded-xl border border-cyan-100 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Included employee totals</p>
@@ -601,7 +603,7 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
                 </div>
               </div>
               <div className="rounded-xl border border-cyan-100 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Excluded at this cutoff</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Excluded at this lock</p>
                 <div className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-1">
                   {snapshot.exclusions.length === 0 && <p className="px-2 py-1.5 text-sm text-slate-500">Nothing excluded.</p>}
                   {snapshot.exclusions.map((item) => <div key={`${item.source_time_entry_id}-${item.reason}`} className="rounded-lg px-2 py-1.5"><div className="flex items-center justify-between gap-3 text-sm"><span className="truncate text-slate-700">{item.display_name}</span><span className="shrink-0 font-semibold text-slate-950">{formatHours(item.held_total_hours)}</span></div><p className="text-xs text-slate-500">{EXCLUSION_LABELS[item.reason] || item.reason} · {formatDate(item.original_work_date)}</p></div>)}
@@ -624,7 +626,7 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
         {snapshot && missingCategories > 0 && (
           <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <input id="acknowledge-missing-categories" type="checkbox" checked={acknowledgeMissingCategories} onChange={(event) => setAcknowledgeMissingCategories(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
-            <label htmlFor="acknowledge-missing-categories" className="cursor-pointer text-sm leading-6 text-amber-950">I confirm these {missingCategories} legacy uncategorized entries were included in the payroll already processed. New payroll cutoffs remain blocked until categories are fixed.</label>
+            <label htmlFor="acknowledge-missing-categories" className="cursor-pointer text-sm leading-6 text-amber-950">I confirm these {missingCategories} legacy uncategorized entries were included in the payroll already processed. New payroll locks remain blocked until categories are fixed.</label>
           </div>
         )}
 
@@ -792,7 +794,7 @@ export default function PayrollRecords() {
     else {
       setPreview(null)
       setShowConfirm(false)
-      setError(response.error || 'The payroll cutoff could not be previewed.')
+      setError(response.error || 'The hours could not be previewed.')
     }
     setPreviewing(false)
   }
@@ -904,7 +906,7 @@ export default function PayrollRecords() {
       <section className="flex flex-col gap-4 border-l-4 border-primary bg-white/65 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Payroll records</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{connectionEnabled ? `Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. ${CALENDAR_LATE_HOURS_NOTICE} ${AUTOMATIC_CARRYOVER_NOTICE}` : connection?.enabled === false ? 'Review recorded hours, approvals and finalized history. Use the hours report for manual payroll while the connection is paused.' : 'Review recorded hours, approvals and finalized payroll history while the connection status is being checked.'}</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{connectionEnabled ? `Preview exactly which approved hours will be included, then lock a saved copy of the hours for Cornerstone Payroll. ${CALENDAR_LATE_HOURS_NOTICE} ${AUTOMATIC_CARRYOVER_NOTICE}` : connection?.enabled === false ? 'Review recorded hours, approvals and finalized history. Use the hours report for manual payroll while the connection is paused.' : 'Review recorded hours, approvals and finalized payroll history while the connection status is being checked.'}</p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Link to={withPayrollPeriod(ADMIN_PATHS.approvals, activePeriod, { through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
@@ -924,10 +926,10 @@ export default function PayrollRecords() {
           <label className="text-sm font-medium text-slate-700">Period end
             <input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
-          <button type="button" onClick={runPreview} disabled={previewing || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate > endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
+          <button type="button" onClick={runPreview} disabled={previewing || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate > endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview hours'}</button>
         </div>
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 text-sm leading-6 text-primary">
-          {connectionEnabled ? 'Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll cutoff.' : 'Hours previews, reports and finalized CSV downloads remain available. Activation actions are unavailable while the payroll connection is paused or its status cannot be confirmed.'}
+          {connectionEnabled ? 'Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll lock.' : 'Hours previews, reports and finalized CSV downloads remain available. Activation actions are unavailable while the payroll connection is paused or its status cannot be confirmed.'}
         </div>
       </section>
 
@@ -939,7 +941,7 @@ export default function PayrollRecords() {
         <>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{selectedBatch ? 'Finalized batch' : 'Live preview'}</p>
+              <p className="text-xs font-semibold text-slate-400">{selectedBatch ? 'Finalized batch' : 'Live preview'}</p>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">{formatDate(activePayload.start_date)}–{formatDate(activePayload.end_date)}</h2>
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · finalized {formatDateTime(selectedBatch.finalized_at)}</p>}
               {selectedBatch?.processing && <p className={`mt-1 text-sm font-medium ${selectedBatch.processing.status === 'payment_failed' ? 'text-red-700' : 'text-emerald-700'}`}>{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
@@ -950,22 +952,22 @@ export default function PayrollRecords() {
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
               {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download finalized CSV</button>}
               {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
-              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
+              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this lock</button>}
             </div>
           </div>
           {preview && <PublishedCalendarNotice payload={preview} activationEnabled={connectionEnabled} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
           {preview?.finalization_blocked_reason && !preview.published_calendar_periods?.length && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{preview.finalization_blocked_reason}</p>}
-          <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
+          <IssueSummary exclusions={activePayload.exclusions} issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
           {preview && preview.issues.missing_category_count > 0 && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
           <SummaryCards payload={activePayload} />
-          {selectedUserId && <p className="text-sm text-slate-600">Included ledger filtered to the linked employee. Batch totals above include everyone.</p>}
+          {selectedUserId && <p className="text-sm text-slate-600">Approved hours filtered to the linked employee. Batch totals above include everyone.</p>}
           <BatchContents payload={activePayload} userId={selectedUserId} entryId={selectedEntryId} returnTo={currentUrl} />
         </>
       )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Permanent ledger</p>
+          <p className="text-xs font-semibold text-slate-400">Payroll history</p>
           <h2 className="mt-1 text-xl font-semibold text-slate-950">Finalized payroll batches</h2>
         </div>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">

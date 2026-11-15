@@ -77,7 +77,7 @@ function publish(...periods: PayrollPeriodSummary[]) {
   })
 }
 
-/** Pending approvals on the period's dates: 31 shifts, one with 6h overtime (Ethan). */
+/** Pending approvals on the period's dates: 31 shifts, one with 6.0h overtime (Ethan). */
 function pendingApprovals(params: { approval_type?: string }) {
   if (params.approval_type === 'overtime') {
     return { data: { count: 1, pending_entries: [{ id: 905, user: { full_name: 'Ethan Cruz', display_name: 'Ethan' }, pending_overtime_hours: 6 }],
@@ -90,6 +90,7 @@ const checklist = () => within(screen.getByRole('region', { name: /Before it loc
 const steps = () => within(screen.getByRole('list', { name: 'Hand-off to Cornerstone Payroll' }))
 
 beforeEach(() => {
+  sessionStorage.clear()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] })
   vi.setSystemTime(new Date(NOW))
   restoreMatchMedia = mockMatchMedia({ width: 1280 })
@@ -113,6 +114,25 @@ afterEach(() => {
 })
 
 describe('pay period page: open period', () => {
+  it('opens the period containing a mid-period deep link', async () => {
+    await open('/admin/payroll?start_date=2026-11-05')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Nov 1–15 pay period')
+    expect(mocks.period).toHaveBeenCalledWith('2026-11-01')
+  })
+  it('explains an invalid date and opens the current period', async () => {
+    await open('/admin/payroll?start_date=banana')
+    expect(screen.getByText("That date wasn't valid, so here's the current pay period.")).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Nov 1–15 pay period')
+  })
+  it('keeps unrelated connection problems out of a paid period header', async () => {
+    mocks.connection.mockResolvedValue({ data: connection({ state: 'delivery_problem', undelivered: { count: 1, failed_count: 1, stuck_count: 0, events: [{ event_id: 'other', period: { start_date: '2026-11-01', end_date: '2026-11-15' } }] } }) })
+    await open('/admin/payroll/periods/2026-10-16')
+    const status = within(screen.getByRole('list', { name: 'Status' }))
+    expect(status.getByText('Paid')).toBeInTheDocument()
+    expect(status.queryByText(/haven't reached/)).not.toBeInTheDocument()
+    expect(screen.getByText("An update for Nov 1–15 hasn't reached Cornerstone Payroll.")).toBeInTheDocument()
+  })
+
   it.each([390, 1024])('keeps waiting hours and the expand action in the person list at %spx', async (width) => {
     restoreMatchMedia()
     restoreMatchMedia = mockMatchMedia({ width })
@@ -132,7 +152,7 @@ describe('pay period page: open period', () => {
     expect(screen.getByText(/pays Wed, Nov 25/).closest('p')).toHaveTextContent('Locks Wed, Nov 18, 5:00 PM · pays Wed, Nov 25')
     const status = within(screen.getByRole('list', { name: 'Status' }))
     expect(status.getByText('Open · locks in 7 days')).toBeInTheDocument()
-    expect(status.getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
+    expect(status.queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
     expect(document.title).toBe('Nov 1–15 pay period | AIRE Ops')
     // The #170 lock control, unchanged, with its own buttons.
     expect(screen.getByRole('button', { name: 'Lock now' })).toBeInTheDocument()
@@ -164,8 +184,8 @@ describe('pay period page: open period', () => {
   it('uses period totals even when the pending queue includes approved time and double-counted overtime', async () => {
     mocks.period.mockResolvedValue({ data: { period: periodSummary({ time_waiting_hours: 12, overtime_waiting_hours: 2, waiting_count: 3 }), previous_start_date: null, next_start_date: null } })
     await open()
-    expect(checklist().getByText('Time waiting for approval').closest('li')).toHaveTextContent('12h')
-    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('2h')
+    expect(checklist().getByText('Time waiting for approval').closest('li')).toHaveTextContent('12.0h')
+    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('2.0h')
     expect(checklist().getByText('3 shifts with time or overtime waiting for approval.')).toBeInTheDocument()
     expect(checklist().queryByText('276.1h')).not.toBeInTheDocument()
   })
@@ -188,9 +208,9 @@ describe('pay period page: open period', () => {
     await open()
     const table = screen.getByRole('table', { name: 'What goes to payroll if it locked now' })
     const caleb = within(table).getByRole('rowheader', { name: /Caleb Perez/ }).closest('tr')!
-    expect(caleb).toHaveTextContent('Caleb PerezStill clocked in43.2h0h9.1h')
-    expect(within(table).getByRole('rowheader', { name: /Ethan Cruz/ })).toHaveTextContent('6h OT waiting')
-    expect(within(table).getByRole('rowheader', { name: 'Total' }).closest('tr')).toHaveTextContent('Total92.1h0h15.1h')
+    expect(caleb).toHaveTextContent('Caleb PerezStill clocked in43.2h0.0h9.1h')
+    expect(within(table).getByRole('rowheader', { name: /Ethan Cruz/ })).toHaveTextContent('6.0h OT waiting')
+    expect(within(table).getByRole('rowheader', { name: 'Total' }).closest('tr')).toHaveTextContent('Total92.1h0.0h15.1h')
     expect(within(table).queryByText(/Mon, Nov 3/)).not.toBeInTheDocument()
     fireEvent.click(within(table).getByRole('button', { name: "Show Caleb Perez's days" }))
     expect(within(table).getByText(/Tue, Nov 3 · Ground Operations/)).toBeInTheDocument()
@@ -222,8 +242,8 @@ describe('pay period page: open period', () => {
     mocks.previewPayrollBatch.mockResolvedValue({ data: preview({ exclusions: [...base.exclusions, earlier] }) })
     await open()
     const table = screen.getByRole('table', { name: 'What goes to payroll if it locked now' })
-    expect(within(table).getByText('14h OT waiting · 8h from earlier periods')).toBeInTheDocument()
-    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('6h')
+    expect(within(table).getByText('14.0h OT waiting · 8.0h from earlier periods')).toBeInTheDocument()
+    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('6.0h')
     // Only Ethan's flag has an earlier part.
     expect(within(table).getAllByText(/from earlier periods/)).toHaveLength(1)
   })
@@ -291,8 +311,8 @@ describe('pay period page: open period', () => {
       ? { data: { count: 1, pending_entries: [{ id: 905, user: { full_name: 'Ethan Cruz', display_name: 'Ethan' }, pending_overtime_hours: 0 }], summary: { entry_count: 1, total_hours: 8 } } }
       : pendingApprovals(params))
     await open()
-    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('0h')
-    expect(checklist().queryByText(/0h overtime/)).not.toBeInTheDocument()
+    expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('0.0h')
+    expect(checklist().queryByText(/0.0h overtime/)).not.toBeInTheDocument()
   })
 
   it('becomes a list of people on a phone', async () => {
@@ -393,11 +413,11 @@ describe('pay period page: lock states', () => {
     expect(screen.getByRole('button', { name: 'Locked hours (CSV)' })).toBeInTheDocument()
     expect(screen.queryAllByText(/was sent|went to payroll/i)).toEqual([])
     expect(screen.getByText(/It can differ from the locked hours/)).toBeInTheDocument()
-    // Only people whose hours went; held-back shifts aren't listed at 0h.
-    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez4h OT held back at the lock', 'Total'])
+    // Only people whose hours went; held-back shifts aren't listed at 0.0h.
+    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez4.0h OT held back at the lock', 'Total'])
     // Overtime held back at the lock may be approved since: it isn't called waiting.
     expect(within(sent).queryByText(/OT waiting/)).not.toBeInTheDocument()
-    expect(within(sent).getByText('4h OT held back at the lock')).toBeInTheDocument()
+    expect(within(sent).getByText('4.0h OT held back at the lock')).toBeInTheDocument()
     expect(screen.getByText(/Locked Nov 11/).closest('p')).toHaveTextContent('Locked Nov 11 · pays Wed, Nov 25')
     const carriedList = within(screen.getByRole('region', { name: /Hours carried to a later period/ }))
     expect(carriedList.getByText('Jun Santos').closest('li')).toHaveTextContent('Jun Santos · Wed, Nov 4 · 8.9h→ Next payroll')
@@ -478,18 +498,18 @@ describe('pay period page: past periods and other states', () => {
     await open()
     expect(screen.getByText(/Cornerstone Payroll hasn't published a pay period yet. Hours are still tracked./)).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Not published')).toBeInTheDocument()
-    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Status' })).queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.getByRole('menuitem', { name: 'Finalize without a published period…' })).toBeEnabled()
     expect(screen.getByRole('menuitem', { name: 'Record manual payroll…' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Finalize without a published period…' }))
-    expect(screen.getByRole('dialog', { name: 'Finalize this payroll cutoff?' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Finalize this payroll lock?' })).toBeInTheDocument()
   })
 
   it('says the connection is not set up yet when Cornerstone Payroll has never answered', async () => {
     mocks.connection.mockResolvedValue({ data: connection({ last_publication: null, last_delivery: null, account_link: null, latest_locked_period_delivery: null, undelivered: { count: 0, failed_count: 0, stuck_count: 0 } }) })
     await open()
-    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Set up, but nothing confirmed yet')).toBeInTheDocument()
+    expect(screen.getByText('Set up, but nothing confirmed yet')).toBeInTheDocument()
   })
 
   it('does not call the connection connected when the latest lock has no receipt', async () => {
@@ -497,7 +517,7 @@ describe('pay period page: past periods and other states', () => {
     await open()
     const status = within(screen.getByRole('list', { name: 'Status' }))
     expect(status.queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
-    expect(status.getByText("Hours haven't reached Cornerstone Payroll yet")).toBeInTheDocument()
+    expect(status.queryByText("Hours haven't reached Cornerstone Payroll yet")).not.toBeInTheDocument()
   })
 
   it('only offers to finalize without a published period when none is published', async () => {
@@ -515,7 +535,7 @@ describe('pay period page: past periods and other states', () => {
     mocks.getPayrollCutoff.mockResolvedValue({ data: { ...cutoff(), connected_payroll: paused } })
     await open()
     expect(screen.getByRole('alert')).toHaveTextContent('Payroll connection paused.')
-    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Payroll connection paused')).toBeInTheDocument()
+    expect(screen.getByText("Locking is paused. AIRE won't lock these hours until Cornerstone Payroll resumes the connection.")).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.queryByRole('menuitem', { name: /Record manual payroll/ })).not.toBeInTheDocument()
