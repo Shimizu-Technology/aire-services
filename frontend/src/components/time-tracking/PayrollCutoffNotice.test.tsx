@@ -310,16 +310,14 @@ describe('Payroll cutoff notice', () => {
       expect(await screen.findByRole('region', { name: 'Payroll lock status' })).toHaveTextContent(/^Oct 16–31 is locked\.$/)
     })
 
-    it('keeps the warning, in lock wording, while that period still has waiting items', async () => {
+    it('keeps a compact review line when a locked period has waiting shifts', async () => {
       auth.role = 'admin'
       vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 3 } })
       vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: passed, next_lock: nextLock, acknowledged: true } })
       mount()
-      expect(await screen.findByRole('link', { name: '3 pending approvals' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
-      const banner = screen.getByRole('region', { name: 'Payroll cutoff' })
-      expect(banner).toHaveTextContent('The payroll lock has passed.')
-      expect(banner).not.toHaveTextContent(/cutoff has passed/)
-      expect(screen.queryByRole('region', { name: 'Payroll lock status' })).not.toBeInTheDocument()
+      expect(await screen.findByRole('link', { name: '→ Review' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
+      expect(screen.getByRole('region', { name: 'Payroll lock status' })).toHaveTextContent('Oct 16–31 is locked · 3 shifts still waiting')
+      expect(screen.queryByRole('region', { name: 'Payroll cutoff' })).toBeNull()
     })
 
     it('keeps the full warning and its approvals link while the waiting count is still loading', async () => {

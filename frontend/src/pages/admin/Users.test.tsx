@@ -190,6 +190,36 @@ describe('Users filters', () => {
     expect(screen.queryByText('Total Team Members')).not.toBeInTheDocument()
   })
 
+  it('offers ended people when a name has no active match and keeps the search', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ id: 9, full_name: 'Daniel Pangelinan', display_name: 'Daniel Pangelinan', is_active: false, employment_status: 'terminated' })] } })
+    render(<MemoryRouter initialEntries={['/admin/users?search=Daniel']}><Users /></MemoryRouter>)
+    expect(await screen.findByText('No active match.')).toBeInTheDocument()
+    expect(screen.getByText('1 ended person matches.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show ended' }))
+    expect(await screen.findByRole('link', { name: 'Daniel Pangelinan' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search name or email' })).toHaveValue('Daniel')
+  })
+
+  it('counts ended matches using the same search and role filters as Show ended', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [
+      makeUser({ id: 9, full_name: 'Daniel Pilot', role: 'employee', is_active: false, employment_status: 'terminated' }),
+      makeUser({ id: 10, full_name: 'Daniel Manager', role: 'manager', is_active: false, employment_status: 'terminated' }),
+    ] } })
+    render(<MemoryRouter initialEntries={['/admin/users?search=Daniel&role=manager']}><Users /></MemoryRouter>)
+    expect(await screen.findByText('No active match.')).toBeInTheDocument()
+    expect(screen.getByText('1 ended person matches.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show ended' }))
+    expect(await screen.findByRole('link', { name: 'Daniel Manager' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Daniel Pilot' })).not.toBeInTheDocument()
+  })
+
+  it('does not offer ended people excluded by another filter', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ id: 9, full_name: 'Daniel Pilot', role: 'employee', is_active: false, employment_status: 'terminated' })] } })
+    render(<MemoryRouter initialEntries={['/admin/users?search=Daniel&role=manager']}><Users /></MemoryRouter>)
+    expect(await screen.findByText('No one matches.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show ended' })).not.toBeInTheDocument()
+  })
+
   it('narrows the team by search and the Filters sheet', async () => {
     render(<MemoryRouter><Users /></MemoryRouter>)
 

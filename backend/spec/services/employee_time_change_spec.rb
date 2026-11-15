@@ -23,12 +23,12 @@ RSpec.describe EmployeeTimeChange do
     expect(entry.approval_status).to eq("approved")
   end
 
-  it "splits pending projected overtime into additive approval quantities" do
+  it "keeps a shift with both decisions pending entirely in time waiting" do
     entry.update!(approval_status: "pending")
     quantities = Payroll::ApprovalHours.new(allocations: {}, legacy_allocations: {},
       projected_allocations: { entry.id => { regular_hours: 2.0, overtime_hours: 4.0 } }).for(entry)
-    expect(quantities[:time_waiting_hours]).to eq(2.0)
-    expect(quantities[:overtime_waiting_hours]).to eq(4.0)
+    expect(quantities[:time_waiting_hours]).to eq(6.0)
+    expect(quantities[:overtime_waiting_hours]).to eq(0.0)
     expect(quantities.values_at(:time_waiting_hours, :overtime_waiting_hours).sum).to eq(entry.hours.to_f)
   end
   %w[denied approved pending].each do |state|
@@ -61,11 +61,21 @@ RSpec.describe EmployeeTimeChange do
     entry.update!(clock_out_at: start + 25.hours, end_time: start + 25.hours)
     snapshot = described_class.capture(entry)
     entry.update!(clock_out_at: start + 8.hours, end_time: start + 8.hours, original_employee_change: snapshot)
+    expect(described_class.presentation(entry)).to include("restorable" => false, "restoration_reason" => /original clock-out was missing/)
     expect { described_class.reject!(entry: entry, actor: admin, version: entry.lock_version, note: "Original") }
-      .to raise_error(TimeClockService::ClockError, /original clock-out was missing/)
+      .to raise_error(TimeClockService::ClockError, "The original clock-out was missing, so there's nothing to go back to. Approve the employee's fix or edit the shift.")
     expect(entry.reload.hours.to_f).to eq(8)
     expect(entry.original_employee_change).to be_present
     expect(AuditLog.where(action: "time_entry.change_rejected")).to be_empty
+  end
+
+  it "marks an original without a clock-out as unrestorable while keeping the fix" do
+    snapshot = described_class.capture(entry).merge("clock_out_at" => nil)
+    entry.update!(original_employee_change: snapshot, approval_status: "pending")
+    expect(described_class.presentation(entry)).to include("restorable" => false, "restoration_reason" => described_class::RESTORATION_ERROR)
+    expect { described_class.reject!(entry: entry, actor: admin, version: entry.lock_version, note: "Original") }
+      .to raise_error(TimeClockService::ClockError, described_class::RESTORATION_ERROR)
+    expect(entry.reload.clock_out_at).to eq(start + 6.hours)
   end
 
   it "does not capture or reject hand-added shifts, even with an old snapshot" do
@@ -79,6 +89,7 @@ RSpec.describe EmployeeTimeChange do
 
   it "presents the original date as well as the Guam clock range" do
     entry.update!(original_employee_change: described_class.capture(entry), work_date: Date.new(2026, 11, 15))
+    expect(described_class.presentation(entry)).to include("restorable" => true, "restoration_reason" => nil)
     expect(described_class.presentation(entry)["formatted_range"]).to eq("Sat, Nov 14, 7:00 AM–1:00 PM")
   end
   it "records settlement approval history when restoring an approved original" do

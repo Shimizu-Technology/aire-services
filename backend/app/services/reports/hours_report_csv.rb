@@ -15,7 +15,7 @@ module Reports
     SUMMARY_HEADERS = [
       "Export Reference", "Employee", "Departments", "Employee Type", "Approved regular hours",
       "Approved overtime hours", "Approved for payroll", "Break Hours", "Entries", "Report Status",
-      "Time waiting for approval", "Overtime waiting for approval — not included", "Worked hours"
+      "Time waiting for approval", "Overtime waiting for approval — not included", "Worked hours (approved + waiting)"
     ].freeze
 
     def self.detailed(report:, export:)

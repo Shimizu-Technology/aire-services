@@ -64,6 +64,23 @@ describe('ActivityHistory', () => {
     })
   })
 
+  it.each(['create', 'update', 'delete', 'destroy'])('marks refused %s as Not saved and labels the application source plainly', async (action) => {
+    const failed = { ...event, outcome: 'failed', action: `time_entry.${action}`, summary: 'Chels tried to change Daniel’s clock-out — a reason was required' }
+    const response = await apiMock.getAuditLogs()
+    apiMock.getAuditLogs.mockResolvedValue({ data: { ...response.data, audit_logs: [failed] } })
+    renderPage()
+    expect(await screen.findByText('Not saved', { exact: true })).toBeVisible()
+    expect(screen.queryByText(/in AIRE Ops/)).not.toBeInTheDocument()
+  })
+
+  it('does not mark a refused download as Not saved', async () => {
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [{ ...event, action: 'report.downloaded', outcome: 'denied' }],
+      pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    await screen.findByText(event.summary)
+    expect(screen.queryByText('Not saved')).not.toBeInTheDocument()
+  })
+
   it('loads the permanent event list and opens complete event context', async () => {
     renderPage()
 

@@ -151,10 +151,11 @@ export function DayRow({ date, today, items, categories, readOnly = false, block
                 onClick={() => onOpen(entry)}
                 disabled={!!blockedReason}
                 title={blockedReason ?? undefined}
-                aria-label={`${range}, ${detail}, ${entry.status === 'completed' ? formatHours(item.hours) : 'on the clock'}, ${status.label}. Edit shift`}
+
                 className={cx(rowClass, 'min-h-11 hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70')}
               >
                 {content}
+                <span className="sr-only">Edit shift</span>
                 <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-ink-subtle" />
               </button>
             )
