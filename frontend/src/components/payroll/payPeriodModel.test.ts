@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NOW, attention, caleb, ethan, period as attentionPeriod } from '../../test/fixtures/today'
 import { carried, lockedBatch, paidPeriod, periodSummary, preview } from '../../test/fixtures/payPeriod'
-import { carriedDestination, carriedHours, checklistEntries, periodFacts, personRows, type ChecklistInput, type PeriodWaiting } from './payPeriodModel'
+import { payPeriodHoursLabel, carriedDestination, carriedHours, checklistEntries, periodFacts, personRows, type ChecklistInput, type PeriodWaiting } from './payPeriodModel'
 
 const range = { start: '2026-11-01', end: '2026-11-15' }
 
@@ -219,3 +219,5 @@ describe('earlier periods and carried hours', () => {
     expect(carriedHours(carried({ exclusion_reason: 'open_clock', held_total_hours: 0, current_total_hours: null }))).toEqual({ carried: 0, shift: null })
   })
 })
+
+it('uses one decimal for whole carried-hour amounts too', () => { expect(payPeriodHoursLabel(6)).toBe('6.0h') })
