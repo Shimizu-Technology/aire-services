@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PayrollPeriodSummary } from '../../lib/api/payrollPeriod'
 import type { HandoffState } from '../../lib/payrollTerms'
 import { carried, preview } from '../../test/fixtures/payPeriod'
+import { EarlierPeriods } from './EarlierPeriods'
 import { CarriedHours } from './CarriedHours'
 import { HandoffSteps } from './HandoffSteps'
 import { BeforeLockChecklist, type ChecklistSource } from './BeforeLockChecklist'
@@ -120,4 +121,15 @@ describe('stale answers', () => {
     expect(screen.getByRole('status')).toHaveTextContent("Couldn't refresh what goes to payroll. Last updated 7:41 PM.")
     restore()
   })
+})
+
+it('warns when the global carried queue is incomplete even with no matching rows', () => {
+  render(<MemoryRouter><CarriedHours items={[]} truncated range={{ start: '2026-10-16', end: '2026-10-31' }} recordsHref="/admin/payroll/records" /></MemoryRouter>)
+  expect(screen.getByText(/The carried-hours list is incomplete/)).toHaveAttribute('role', 'status')
+})
+
+it('links to the previous period outside the recent history window', () => {
+  render(<MemoryRouter><EarlierPeriods periods={[]} before="2025-01-01" previousStart="2024-12-16" /></MemoryRouter>)
+  expect(screen.getByRole('link', { name: 'View previous pay period' })).toHaveAttribute('href', '/admin/payroll/periods/2024-12-16')
+  expect(screen.queryByText('No earlier pay periods yet.')).not.toBeInTheDocument()
 })

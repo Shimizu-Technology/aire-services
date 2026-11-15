@@ -129,6 +129,7 @@ function PayrollRouteHarness() {
   return (
     <>
       <button type="button" onClick={() => navigate('/admin/payroll?start_date=2026-07-01&end_date=2026-07-15')}>Open July payroll</button>
+      <button type="button" onClick={() => navigate(-1)}>Go back</button>
       <PayrollRuns />
     </>
   )
@@ -897,6 +898,60 @@ describe('PayrollRuns', () => {
       processing_note: 'Matched against committed payroll period 61',
     })))
     expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
+  })
+
+  it.each(['refresh', 'route'])('invalidates confirmed historical payroll on %s', async (change) => {
+    const historical = {
+      ...preview, cutoff_at: '2026-08-31T03:06:00Z',
+      issues: { ...issues, missing_category_count: 1, negative_adjustment_count: 1 },
+    }
+    let finish!: (value: { data: typeof historical }) => void
+    apiMock.previewPayrollBatch
+      .mockResolvedValueOnce({ data: preview })
+      .mockResolvedValueOnce({ data: historical })
+      .mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    render(<MemoryRouter initialEntries={['/admin/payroll?start_date=2026-08-16&end_date=2026-08-31']}><PayrollRouteHarness /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Record already processed' }))
+    fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
+    fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })
+    fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: '61' } })
+    fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Compared historical payroll records' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+    await screen.findByRole('button', { name: 'Refresh historical snapshot' })
+    const confirm = () => {
+      fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 legacy uncategorized/ }))
+      fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 negative correction/ }))
+      fireEvent.change(screen.getByLabelText('Negative correction explanation'), { target: { value: 'Corrected historical overpayment' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: /I compared this historical AIRE snapshot/ }))
+    }
+    confirm()
+    expect(screen.getByRole('button', { name: 'Record as processed manually' })).toBeEnabled()
+    if (change === 'route') {
+      fireEvent.click(screen.getByRole('button', { name: 'Open July payroll' }))
+      await waitFor(() => expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-01'))
+      expect(screen.getByLabelText(/Hours frozen at/)).toHaveValue('')
+      expect(screen.queryByRole('checkbox', { name: /I compared this historical AIRE snapshot/ })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Go back' }))
+      await waitFor(() => expect(screen.getByLabelText('Period start')).toHaveValue('2026-08-16'))
+      expect(screen.getByLabelText(/Hours frozen at/)).toHaveValue('')
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh historical snapshot' }))
+      const record = screen.getByRole('button', { name: 'Record as processed manually' })
+      expect(record).toBeDisabled()
+      fireEvent.click(record)
+      expect(screen.queryByRole('checkbox', { name: /I compared this historical AIRE snapshot/ })).not.toBeInTheDocument()
+      await act(async () => { finish({ data: { ...historical, summary: { ...historical.summary, total_hours: 12, exclusion_count: 3 } } }) })
+      expect(screen.getByText('12.00 hrs')).toBeInTheDocument()
+      expect(screen.getByRole('checkbox', { name: /I compared this historical AIRE snapshot/ })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: /I confirm these 1 legacy uncategorized/ })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: /I confirm these 1 negative correction/ })).not.toBeChecked()
+      expect(screen.getByLabelText('Negative correction explanation')).toHaveValue('')
+      expect(record).toBeDisabled()
+      confirm()
+      expect(record).toBeEnabled()
+    }
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
   })
 
   it('discards a historical preview response after the Guam cutoff changes', async () => {

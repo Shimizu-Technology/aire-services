@@ -277,7 +277,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
           {exportError && <p role="alert" className="rounded-card border border-red-200 bg-danger-soft px-4 py-3 text-body-sm text-red-900">{exportError}</p>}
 
           {locked && range && carryovers.data && (
-            <CarriedHours items={carryovers.data.items} range={range} recordsHref={PAYROLL_RECORDS_PATH} />
+            <CarriedHours items={carryovers.data.items} truncated={carryovers.data.truncated} range={range} recordsHref={PAYROLL_RECORDS_PATH} />
           )}
         </div>
 
@@ -287,7 +287,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
             <ConnectionCard connection={connection.data} load={blockLoad(connection)} updatedAt={connection.loadedAt} now={now} onRetry={() => void connection.reload()} />
           )}
           {period && <PayStubsStep payDate={period.pay_date} today={todayInGuam(now)} />}
-          {range && periods.data && <EarlierPeriods periods={periods.data.periods} before={range.start} />}
+          {range && periods.data && <EarlierPeriods periods={periods.data.periods} before={range.start} previousStart={show.data?.previous_start_date} />}
         </aside>
       </div>
 

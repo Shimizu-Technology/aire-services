@@ -7,6 +7,7 @@ import { dayLabel, hoursLabel } from '../today/format'
 import { carriedDestination, carriedHours } from './payPeriodModel'
 
 export interface CarriedHoursProps {
+  truncated?: boolean
   items: PayrollCarryoverItem[]
   range: PayPeriod
   /** Every carried shift, for the full history. */
@@ -14,11 +15,11 @@ export interface CarriedHoursProps {
 }
 
 /** Shifts from this period that went to a later payroll. Renders nothing when there are none. */
-export function CarriedHours({ items, range, recordsHref }: CarriedHoursProps) {
+export function CarriedHours({ items, range, recordsHref, truncated = false }: CarriedHoursProps) {
   const carried = items
     .filter(item => payPeriodIncludes(range, item.original_work_date))
     .sort((a, b) => a.original_work_date.localeCompare(b.original_work_date) || a.display_name.localeCompare(b.display_name))
-  if (carried.length === 0) return null
+  if (carried.length === 0 && !truncated) return null
 
   return (
     <section aria-labelledby="carried-hours" className="space-y-2">
@@ -26,6 +27,7 @@ export function CarriedHours({ items, range, recordsHref }: CarriedHoursProps) {
         {PAYROLL_WORDS.carriedHours}
         <HelpTip label={PAYROLL_WORDS.carriedHours}>{PAYROLL_WORDS.carriedHoursHelp}</HelpTip>
       </h2>
+      {truncated && <p role="status" className="text-body-sm text-ink-muted">The carried-hours list is incomplete. Some shifts from this period may be missing because only the first 250 carried shifts were loaded.</p>}
       <ul className="divide-y divide-line rounded-card border border-line bg-surface">
         {carried.map(item => {
           const destination = carriedDestination(item)

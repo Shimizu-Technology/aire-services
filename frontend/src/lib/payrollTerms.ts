@@ -139,7 +139,7 @@ export const PAYROLL_WORDS = {
   lateHours: 'Late hours (added to the next payroll)',
   lock: 'Lock',
   manualPayroll: 'Manual payroll',
-  manualPayrollHelp: 'Payroll handled without the AIRE connection, recorded so the hours count as paid.',
+  manualPayrollHelp: 'Records hours handled outside the AIRE connection. Only issued payments count as paid.',
   paymentFollowUp: 'Payment follow-up',
   closedWithoutPay: 'Closed without pay',
 } as const

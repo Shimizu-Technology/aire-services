@@ -517,6 +517,7 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
       setError('Enter the date and time when the included hours were frozen for payroll.')
       return
     }
+    invalidateSnapshot()
     const requestSequence = ++reviewRequestSequence.current
     setReviewing(true)
     setError(null)
@@ -532,14 +533,14 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
   const missingCategories = snapshot?.issues.missing_category_count || 0
   const negativeAdjustments = snapshot?.issues.negative_adjustment_count || 0
   const canRecord = Boolean(
-    !snapshot?.published_calendar_periods?.length && snapshot?.connected_payroll?.enabled !== false && snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
+    !reviewing && !snapshot?.published_calendar_periods?.length && snapshot?.connected_payroll?.enabled !== false && snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
     new Date(processedAt || 0).getTime() >= new Date(cutoffAt || 0).getTime() &&
     (!missingCategories || acknowledgeMissingCategories) &&
     (!negativeAdjustments || (acknowledgeNegativeAdjustments && negativeAdjustmentNote.trim().length >= 10)) && !submitting,
   )
 
   const recordProcessed = async () => {
-    if (!snapshot || snapshot.connected_payroll?.enabled === false || snapshot.published_calendar_periods?.length || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
+    if (!canRecord || !snapshot || snapshot.connected_payroll?.enabled === false || snapshot.published_calendar_periods?.length || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
     setSubmitting(true)
     setError(null)
     const response = await api.finalizePayrollBatch({
@@ -699,14 +700,12 @@ export default function PayrollRecords() {
   const carryoverRequestSequence = useRef(0)
   const previewRequestSequence = useRef(0)
   const batchRequestSequence = useRef(0)
-  const internalPeriodNavigation = useRef<string | null>(null)
   const displayedPeriodKey = useRef(`${routedPeriod.start}|${routedPeriod.end}`)
 
   useEffect(() => { document.title = 'Payroll records | AIRE Ops' }, [])
 
   const syncPeriodToUrl = useCallback((period: PayrollPeriod, keepBatch = false) => {
     const periodKey = `${period.start}|${period.end}`
-    internalPeriodNavigation.current = periodKey
     displayedPeriodKey.current = periodKey
     const next = new URLSearchParams(searchParams)
     next.set('start_date', period.start)
@@ -717,10 +716,6 @@ export default function PayrollRecords() {
 
   useEffect(() => {
     const routeKey = `${routedPeriod.start}|${routedPeriod.end}`
-    if (internalPeriodNavigation.current === routeKey) {
-      internalPeriodNavigation.current = null
-      return
-    }
     if (displayedPeriodKey.current === routeKey) return
     displayedPeriodKey.current = routeKey
     batchRequestSequence.current += 1
@@ -997,7 +992,7 @@ export default function PayrollRecords() {
       </section>
 
       {connectionEnabled && showConfirm && preview && <FinalizeDialog payload={preview} onClose={() => setShowConfirm(false)} onConfirm={finalize} submitting={finalizing} error={dialogError} />}
-      {connectionEnabled && showManualProcessing && <ManualProcessingDialog period={{ start: startDate, end: endDate }} onClose={() => setShowManualProcessing(false)} onRecorded={manualProcessingRecorded} />}
+      {connectionEnabled && showManualProcessing && <ManualProcessingDialog key={`${startDate}|${endDate}`} period={{ start: startDate, end: endDate }} onClose={() => setShowManualProcessing(false)} onRecorded={manualProcessingRecorded} />}
     </div>
   )
 }

@@ -17,18 +17,21 @@ const TONES: Record<HandoffState, StatusTone> = {
 
 export interface EarlierPeriodsProps {
   periods: PayrollPeriodSummary[]
+  previousStart?: string | null
   /** Periods that start before this date are listed. */
   before: string
 }
 
 /** Earlier pay periods, newest first, each opening its own page. */
-export function EarlierPeriods({ periods, before }: EarlierPeriodsProps) {
+export function EarlierPeriods({ periods, before, previousStart }: EarlierPeriodsProps) {
   const earlier = periods.filter(period => period.start_date < before).slice(0, 6)
   return (
     <section aria-labelledby="earlier-periods" className="rounded-card border border-line bg-surface p-4">
       <h2 id="earlier-periods" className="text-body font-semibold text-ink">Earlier pay periods</h2>
       {earlier.length === 0 ? (
-        <p className="mt-1 text-body-sm text-ink-muted">No earlier pay periods yet.</p>
+        previousStart
+          ? <Link to={periodHref(previousStart)} className="inline-flex min-h-11 items-center text-body-sm font-semibold text-primary underline">View previous pay period</Link>
+          : <p className="mt-1 text-body-sm text-ink-muted">No earlier pay periods yet.</p>
       ) : (
         <ul className="-mx-2 mt-1">
           {earlier.map(period => (
