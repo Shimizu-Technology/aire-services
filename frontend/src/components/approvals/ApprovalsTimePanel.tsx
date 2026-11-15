@@ -21,7 +21,7 @@ interface ApprovalsTimePanelProps {
   onApproveAll: () => void
   onGroupChange: (group: 'person' | 'day') => void
   onSelect: (rows: ReviewEntry[], checked: boolean) => void
-  onApproveGroup: (rows: ReviewEntry[]) => Promise<void>
+  onApproveGroup: (rows: ReviewEntry[]) => Promise<boolean>
   onSeeEveryone: () => void
 }
 
