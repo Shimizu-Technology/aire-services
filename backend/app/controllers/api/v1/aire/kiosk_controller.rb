@@ -4,6 +4,25 @@ module Api
   module V1
     module Aire
       class KioskController < BaseController
+        # A PIN is proved afresh even when the tablet already has a device token.
+        def lock
+          device = AireKioskAccessToken.device_from_token(params[:kiosk_access_token].to_s)
+          return render json: { error: "Kiosk session expired. Sign in again." }, status: :unauthorized unless device
+
+          result = AireKioskService.verify_pin(pin: params[:pin].to_s, kiosk_access_token: params[:kiosk_access_token].to_s)
+          manager = result[:user]
+          return render json: { error: "Enter a manager's PIN to lock this kiosk." }, status: :forbidden unless manager.can_unlock_kiosk?
+
+          device.with_lock do
+            device.update!(revoked_at: Time.current)
+            AuditLog.record!(action: "kiosk.locked", auditable: device, actor: manager,
+                             event_category: "security", source: "kiosk", metadata: { device_id: device.id })
+          end
+          head :no_content
+        rescue AireKioskService::KioskError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
         # POST /api/v1/aire/kiosk/verify
         def verify
           result = AireKioskService.verify_pin(

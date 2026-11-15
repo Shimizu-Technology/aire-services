@@ -352,6 +352,7 @@ class TimeClockService
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
         attrs = {
+          original_employee_change: nil,
           approval_status: "approved",
           approved_by: approved_by,
           approved_at: Time.current,
@@ -381,6 +382,7 @@ class TimeClockService
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
         entry.update!(
+          original_employee_change: nil,
           approval_status: "denied",
           approved_by: denied_by,
           approved_at: Time.current,

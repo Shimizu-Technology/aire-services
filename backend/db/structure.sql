@@ -550,6 +550,39 @@ ALTER SEQUENCE public.employee_pay_rates_id_seq OWNED BY public.employee_pay_rat
 
 
 --
+-- Name: kiosk_device_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.kiosk_device_sessions (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    expires_at timestamp(6) without time zone NOT NULL,
+    revoked_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: kiosk_device_sessions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.kiosk_device_sessions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: kiosk_device_sessions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.kiosk_device_sessions_id_seq OWNED BY public.kiosk_device_sessions.id;
+
+
+--
 -- Name: leave_requests; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2543,7 +2576,9 @@ CREATE TABLE public.time_entries (
     effective_rate_cents_snapshot integer,
     lock_version integer DEFAULT 0 NOT NULL,
     overtime_allocation_signature jsonb,
-    allocation_contract_version character varying
+    allocation_contract_version character varying,
+    original_employee_change jsonb,
+    rejected_employee_change jsonb
 );
 
 
@@ -2767,6 +2802,13 @@ ALTER TABLE ONLY public.audit_logs ALTER COLUMN id SET DEFAULT nextval('public.a
 --
 
 ALTER TABLE ONLY public.employee_pay_rates ALTER COLUMN id SET DEFAULT nextval('public.employee_pay_rates_id_seq'::regclass);
+
+
+--
+-- Name: kiosk_device_sessions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kiosk_device_sessions ALTER COLUMN id SET DEFAULT nextval('public.kiosk_device_sessions_id_seq'::regclass);
 
 
 --
@@ -3193,6 +3235,14 @@ ALTER TABLE ONLY public.audit_logs
 
 ALTER TABLE ONLY public.employee_pay_rates
     ADD CONSTRAINT employee_pay_rates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: kiosk_device_sessions kiosk_device_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kiosk_device_sessions
+    ADD CONSTRAINT kiosk_device_sessions_pkey PRIMARY KEY (id);
 
 
 --
@@ -4054,6 +4104,13 @@ CREATE INDEX index_employee_pay_rates_on_time_category_id ON public.employee_pay
 --
 
 CREATE INDEX index_employee_pay_rates_on_user_id ON public.employee_pay_rates USING btree (user_id);
+
+
+--
+-- Name: index_kiosk_device_sessions_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_kiosk_device_sessions_on_user_id ON public.kiosk_device_sessions USING btree (user_id);
 
 
 --
@@ -6118,6 +6175,14 @@ ALTER TABLE ONLY public.payroll_manual_allocation_events
 
 
 --
+-- Name: kiosk_device_sessions fk_rails_f6e24c3c85; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kiosk_device_sessions
+    ADD CONSTRAINT fk_rails_f6e24c3c85 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_f9c6b16c38; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6132,6 +6197,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261115010000'),
 ('20261114010000'),
 ('20261111120000'),
 ('20261111000000'),

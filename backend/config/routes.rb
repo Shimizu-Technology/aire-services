@@ -69,6 +69,7 @@ Rails.application.routes.draw do
 
       # Public kiosk endpoints
       namespace :aire do
+        post "kiosk/lock", to: "kiosk#lock"
         post "kiosk/verify", to: "kiosk#verify"
         post "kiosk/clock_in", to: "kiosk#clock_in"
         post "kiosk/clock_out", to: "kiosk#clock_out"
@@ -142,6 +143,7 @@ Rails.application.routes.draw do
         member do
           post :approve
           post :decline
+          post :undo_cancel
           post :cancel
         end
       end
@@ -161,6 +163,7 @@ Rails.application.routes.draw do
         end
         member do
           post :approve
+          post :reject_change
           post :deny
           post :approve_overtime
           post :deny_overtime

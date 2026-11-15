@@ -11,8 +11,8 @@ module Api
 
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval ]
+      before_action :set_time_entry, only: [ :show, :update, :destroy, :reject_change, :approve, :deny, :approve_overtime, :deny_overtime ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :reject_change, :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval ]
 
       # GET /api/v1/time_entries
       def index
@@ -147,6 +147,7 @@ module Api
 
         return unless require_correction_reason_for_payroll_entry!
 
+        original_change = EmployeeTimeChange.capture(@time_entry)
         old_values = {
           hours: @time_entry.hours.to_f,
           work_date: @time_entry.work_date.iso8601,
@@ -187,6 +188,14 @@ module Api
             @time_entry.approval_note,
             actor_kind: supervisor_edit ? :admin : :employee
           )
+        end
+
+        if !supervisor_edit && @time_entry.status == "completed"
+          update_params[:original_employee_change] = original_change["approval_status"] == "pending" ? (@time_entry.original_employee_change.presence || original_change) : original_change
+          update_params[:rejected_employee_change] = nil
+        elsif supervisor_edit
+          update_params[:original_employee_change] = nil
+          update_params[:rejected_employee_change] = nil
         end
 
         saved = false
@@ -472,6 +481,18 @@ module Api
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
+      def reject_change
+        entry = EmployeeTimeChange.reject!(entry: @time_entry, actor: current_user,
+                                           version: params[:expected_version], note: params[:note])
+        render json: { time_entry: serialize_time_entry(entry) }
+      rescue EmployeeTimeChange::Stale => e
+        render json: { error: e.message, code: "stale_entry" }, status: :conflict
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
+      rescue TimeClockService::ClockError, ActiveRecord::RecordInvalid => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
 
@@ -1123,6 +1144,8 @@ module Api
           payroll_hours_by_date: @approval_hours&.segments_for(entry),
           id: entry.id,
           version: entry.lock_version,
+          original_employee_change: entry.original_employee_change&.slice("start_time", "end_time", "clock_in_at", "clock_out_at", "hours"),
+          rejected_employee_change: entry.rejected_employee_change,
           work_date: entry.work_date.iso8601,
           start_time: entry.start_time&.in_time_zone(tz)&.strftime("%H:%M"),
           end_time: entry.end_time&.in_time_zone(tz)&.strftime("%H:%M"),

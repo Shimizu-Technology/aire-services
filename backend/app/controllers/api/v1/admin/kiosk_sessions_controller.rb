@@ -10,17 +10,20 @@ module Api
         def create
           issued_at = Time.current
 
+          token = AireKioskAccessToken.issue_for(current_user, issued_at: issued_at)
+          device = AireKioskAccessToken.device_from_token(token)
+
           AuditLog.record!(
             action: "kiosk.unlocked",
             auditable: current_user,
             actor: current_user,
             event_category: "security",
             source: "admin",
-            metadata: { expires_at: AireKioskAccessToken.expires_at(issued_at: issued_at).iso8601 }
+            metadata: { device_id: device.id, expires_at: AireKioskAccessToken.expires_at(issued_at: issued_at).iso8601 }
           )
 
           render json: {
-            kiosk_access_token: AireKioskAccessToken.issue_for(current_user, issued_at: issued_at),
+            kiosk_access_token: token,
             expires_at: AireKioskAccessToken.expires_at(issued_at: issued_at).iso8601,
             unlocked_by: {
               id: current_user.id,
