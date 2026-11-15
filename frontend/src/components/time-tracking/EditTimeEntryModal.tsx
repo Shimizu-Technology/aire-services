@@ -440,7 +440,7 @@ export default function EditTimeEntryModal({
               : 'max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl'}
           >
             <div className="p-6">
-              <h2 id={titleId} className="mb-1 text-xl font-bold text-primary-dark">Edit Time Entry</h2>
+              <h2 id={titleId} className="mb-1 text-xl font-bold text-primary-dark">Edit shift</h2>
               <div className="mb-4">
                 <p className="text-sm text-primary-dark/70">
                   Entry for: <span className="font-medium text-primary-dark">{ownerName}</span>
@@ -525,14 +525,14 @@ export default function EditTimeEntryModal({
                     disabled={!!reviewAction}
                     value={formData.work_date}
                     onChange={(event) => setFormData({ ...formData, work_date: event.target.value })}
-                    className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                     required
                   />
                 </div>
 
                 <div className={`grid gap-4 ${isActiveClockEntry ? 'grid-cols-1' : 'grid-cols-2'}`}>
                   <div>
-                    <label htmlFor={`${titleId}-start`} className="mb-1 block text-sm font-medium text-primary-dark">{isActiveClockEntry ? 'Clock-in Time *' : 'Start Time *'}</label>
+                    <label htmlFor={`${titleId}-start`} className="mb-1 block text-sm font-medium text-primary-dark">{isActiveClockEntry ? 'Clock-in time *' : 'Start time *'}</label>
                     <input
                       id={`${titleId}-start`}
                       type="time"
@@ -541,13 +541,13 @@ export default function EditTimeEntryModal({
                       aria-invalid={timeError ? true : undefined}
                       aria-describedby={timeError ? `${titleId}-time-error` : undefined}
                       onChange={(event) => { setTimeError(null); setFormData({ ...formData, start_time: event.target.value }) }}
-                      className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                       required
                     />
                   </div>
                   {(!isActiveClockEntry || reviewAction === 'end_clock') && (
                     <div>
-                      <label htmlFor="edit-time-entry-end" className="mb-1 block text-sm font-medium text-primary-dark">{reviewAction === 'end_clock' ? 'Clock-out time (Guam) *' : 'End Time *'}</label>
+                      <label htmlFor="edit-time-entry-end" className="mb-1 block text-sm font-medium text-primary-dark">{reviewAction === 'end_clock' ? 'Clock-out time (Guam) *' : 'End time *'}</label>
                       <input
                         id="edit-time-entry-end"
                         type="time"
@@ -556,7 +556,7 @@ export default function EditTimeEntryModal({
                         aria-invalid={timeError ? true : undefined}
                         aria-describedby={timeError ? `${titleId}-time-error` : undefined}
                         onChange={(event) => { setTimeError(null); setFormData({ ...formData, end_time: event.target.value }) }}
-                        className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                        className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                         required
                       />
                     </div>
@@ -570,7 +570,7 @@ export default function EditTimeEntryModal({
                   </div>
                 ) : (
                   <div className="flex items-center justify-between rounded-lg bg-neutral-warm/30 p-3">
-                    <span className="text-sm text-primary-dark">Calculated Hours:</span>
+                    <span className="text-sm text-primary-dark">Hours:</span>
                     <span className="text-lg font-bold text-primary">{calculatedHours.toFixed(2)}h</span>
                   </div>
                 )}
@@ -621,7 +621,7 @@ export default function EditTimeEntryModal({
                             break_minutes: event.target.value ? parseInt(event.target.value, 10) : null,
                           })}
                           placeholder="Minutes"
-                          className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                          className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       )}
                     <p className="mt-1 text-xs text-text-muted">{breakRows.length > 0
@@ -649,7 +649,7 @@ export default function EditTimeEntryModal({
                               type="time"
                               value={row.start_time}
                               onChange={(event) => setBreakRows(breakRows.map((item, i) => i === index ? { ...item, start_time: event.target.value } : item))}
-                              className="w-full rounded-lg border border-neutral-warm px-2 py-1.5 text-sm"
+                              className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-2 py-1.5 text-sm"
                             />
                           </label>
                           <label className="block">
@@ -658,13 +658,13 @@ export default function EditTimeEntryModal({
                               type="time"
                               value={row.end_time}
                               onChange={(event) => setBreakRows(breakRows.map((item, i) => i === index ? { ...item, end_time: event.target.value } : item))}
-                              className="w-full rounded-lg border border-neutral-warm px-2 py-1.5 text-sm"
+                              className="pointer-coarse:min-h-11 w-full rounded-lg border border-neutral-warm px-2 py-1.5 text-sm"
                             />
                           </label>
                           <button
                             type="button"
                             onClick={() => setBreakRows(breakRows.filter((_, i) => i !== index))}
-                            className="rounded-lg px-2 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                            className="pointer-coarse:min-h-11 rounded-lg px-2 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
                           >
                             Remove
                           </button>
@@ -683,7 +683,7 @@ export default function EditTimeEntryModal({
                     onChange={(event) => { setCategoryError(null); setFormData({ ...formData, time_category_id: event.target.value }) }}
                     aria-invalid={categoryError ? true : undefined}
                     aria-describedby={[categories.length === 0 ? `${titleId}-category-hint` : '', categoryError ? `${titleId}-category-error` : ''].filter(Boolean).join(' ') || undefined}
-                    className={`w-full rounded-lg border px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary ${categoryError ? 'border-red-400' : 'border-neutral-warm'}`}
+                    className={`pointer-coarse:min-h-11 w-full rounded-lg border px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary ${categoryError ? 'border-red-400' : 'border-neutral-warm'}`}
                     aria-required={!isActiveClockEntry || reviewAction === 'end_clock'}
                   >
                     <option value="">Select category...</option>
@@ -708,7 +708,7 @@ export default function EditTimeEntryModal({
                     onChange={(event) => setFormData({ ...formData, description: event.target.value })}
                     rows={3}
                     placeholder="What did you work on?"
-                    className="w-full resize-none rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="pointer-coarse:min-h-11 w-full resize-none rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
 
@@ -730,7 +730,7 @@ export default function EditTimeEntryModal({
                       aria-invalid={reasonError ? true : undefined}
                       aria-describedby={`${titleId}-reason-hint${reasonError ? ` ${titleId}-reason-error` : ''}`}
                       autoFocus={!historyGuard}
-                      className={`w-full resize-none rounded-lg border bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500 ${reasonError ? 'border-red-500' : 'border-amber-300'}`}
+                      className={`pointer-coarse:min-h-11 w-full resize-none rounded-lg border bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500 ${reasonError ? 'border-red-500' : 'border-amber-300'}`}
                       placeholder="What changed and why?"
                     />
                     {reasonError && (
@@ -752,7 +752,7 @@ export default function EditTimeEntryModal({
                       type="button"
                       onClick={handleDelete}
                       disabled={!canDelete || deleting || saving}
-                      className={`rounded-lg px-4 py-2 transition-colors ${
+                      className={`pointer-coarse:min-h-11 rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
                       title={canDelete ? 'Delete this time entry' : 'You cannot delete this time entry'}
@@ -765,14 +765,14 @@ export default function EditTimeEntryModal({
                     <button
                       type="button"
                       onClick={requestClose}
-                      className="rounded-lg px-4 py-2 font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
+                      className="pointer-coarse:min-h-11 rounded-lg px-4 py-2 font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={saving || deleting}
-                      className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                      className="pointer-coarse:min-h-11 rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
                     >
                       {saving ? 'Saving...' : reviewAction === 'end_clock' ? 'End clock and submit' : reviewAction === 'resubmit_denied' ? 'Submit for review' : 'Update'}
                     </button>
@@ -786,7 +786,7 @@ export default function EditTimeEntryModal({
             open={historyGuard}
             title="Save your changes before viewing history?"
             description="You have changed this shift but haven't saved it yet. If you leave without saving, those changes are lost."
-            details={(correctionReasonRequired || reviewAction) ? <div className="space-y-2"><label htmlFor="history-correction-reason">Add a short reason, then save and view history</label><textarea autoFocus data-confirm-initial-focus id="history-correction-reason" className="w-full rounded border p-2" value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} aria-describedby={reasonError ? 'history-reason-error' : undefined} />{reasonError && <p id="history-reason-error" role="alert" className="text-red-800">{reasonError}</p>}</div> : error ? <p>{error}</p> : undefined}
+            details={(correctionReasonRequired || reviewAction) ? <div className="space-y-2"><label htmlFor="history-correction-reason">Add a short reason, then save and view history</label><textarea autoFocus data-confirm-initial-focus id="history-correction-reason" className="pointer-coarse:min-h-11 w-full rounded border p-2" value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} aria-describedby={reasonError ? 'history-reason-error' : undefined} />{reasonError && <p id="history-reason-error" role="alert" className="text-red-800">{reasonError}</p>}</div> : error ? <p>{error}</p> : undefined}
             confirmLabel="Save and view history"
             cancelLabel="Keep editing"
             alternate={{ label: 'Discard changes', tone: 'danger', onClick: () => { leaving.current = true; window.location.assign(historyHref) } }}
