@@ -2,6 +2,7 @@
 
 class EmployeeTimeChange
   class Stale < StandardError; end
+  RESTORATION_ERROR = "The original clock-out was missing, so there's nothing to go back to. Approve the employee's fix or edit the shift.".freeze
   FIELDS = %w[work_date start_time end_time clock_in_at clock_out_at hours break_minutes description time_category_id status approval_status approved_by_id approved_at approval_note overtime_status overtime_approved_by_id overtime_approved_at overtime_note].freeze
 
   def self.capture(entry)
@@ -15,15 +16,24 @@ class EmployeeTimeChange
     original = entry.original_employee_change
     return unless entry.clock_entry? && original.present?
 
+    candidate = TimeEntry.instantiate(entry.attributes)
+    candidate.assign_attributes(original.slice(*FIELDS))
+    candidate.calculate_hours_from_times if candidate.start_time && candidate.end_time
+    restorable = candidate.clock_in_at.present? && candidate.clock_out_at.present? &&
+      !candidate.needs_administrator_correction? && candidate.hours.to_f.positive? && candidate.valid?
+    reason = restorable ? nil : RESTORATION_ERROR
+    details = { "restorable" => restorable, "restoration_reason" => reason }
     zone = TimeClockService::BUSINESS_TIMEZONE
     first = Time.iso8601(original.fetch("clock_in_at")).in_time_zone(zone)
     last = Time.iso8601(original.fetch("clock_out_at")).in_time_zone(zone)
     end_format = first.to_date == last.to_date ? "%-I:%M %p" : "%a, %b %-d, %-I:%M %p"
-    original.slice("start_time", "end_time", "clock_in_at", "clock_out_at", "hours").merge(
+    original.slice("start_time", "end_time", "clock_in_at", "clock_out_at", "hours").merge(details).merge(
       "formatted_range" => "#{first.strftime('%a, %b %-d, %-I:%M %p')}–#{last.strftime(end_format)}"
     )
   rescue KeyError, ArgumentError, TypeError
-    nil
+    original.slice("start_time", "end_time", "clock_in_at", "clock_out_at", "hours").merge(
+      "formatted_range" => "Original clock-out missing", "restorable" => false,
+      "restoration_reason" => RESTORATION_ERROR)
   end
 
   def self.reject!(entry:, actor:, version:, note:)
@@ -40,7 +50,7 @@ class EmployeeTimeChange
         entry.assign_attributes(original.slice(*FIELDS))
         entry.calculate_hours_from_times
         if entry.needs_administrator_correction? || entry.clock_in_at.nil? || entry.clock_out_at.nil? || entry.hours.to_f <= 0 || !entry.valid?
-          raise TimeClockService::ClockError, "The original clock-out was missing, so there's nothing to go back to. Approve the employee's fix or edit the shift."
+          raise TimeClockService::ClockError, RESTORATION_ERROR
         end
         # Restore the original time decision; rejecting a change never approves
         # pending time. OT requires a fresh allocation review.

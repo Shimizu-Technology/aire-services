@@ -23,7 +23,7 @@ describe('AttentionList', () => {
     expect(rows).toEqual([
       'Caleb Perez still clocked in',
       'Grace Torres on the clock 12.4h',
-      '31 shifts waiting for approval',
+      '31 to review · waiting hours this period',
       '6h overtime waiting',
       '2 shifts with no work category',
       'The lock failed for Nov 1–15',
@@ -39,7 +39,7 @@ describe('AttentionList', () => {
     expect(meta).toEqual([
       'Since Tue, Nov 10, 7:02 AM · 36.7h',
       'Since 7:15 AM · Flight Instruction',
-      '276.1h · 1 added by hand · oldest Fri, Nov 6',
+      '276.1h time · 0h overtime · 1 added by hand · oldest Fri, Nov 6',
       'Ethan Cruz · week of Nov 1',
       'Nov 1–15 · the lock needs a category on every shift',
       "AIRE couldn't lock these hours, so Payroll doesn't have them yet",
@@ -64,6 +64,13 @@ describe('AttentionList', () => {
     renderList()
     const reviews = screen.getAllByRole('link', { name: 'Review' }).map(link => link.getAttribute('href'))
     expect(reviews).toEqual(['/admin/approvals', '/admin/approvals?kind=overtime&user_id=9', '/admin/leave'])
+  })
+
+  it('links earlier waiting hours to the exact approval period', () => {
+    const approvals = allItems.find(item => item.type === 'approvals_waiting')!
+    if (approvals.type !== 'approvals_waiting') throw new Error('fixture')
+    renderList([{ ...approvals, earlier_periods: [{ start_date: '2026-10-16', end_date: '2026-10-31', hours: 2 }] }])
+    expect(screen.getAllByRole('link', { name: 'Review' })[0]).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
   })
 
   it('leaves the person out of the overtime link when several people have overtime', () => {

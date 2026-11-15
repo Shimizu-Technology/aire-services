@@ -73,7 +73,7 @@ describe('Today', () => {
     expect(rowTexts()).toEqual([
       'Caleb Perez still clocked in',
       'Grace Torres on the clock 12.4h',
-      '31 shifts waiting for approval',
+      '31 to review · waiting hours this period',
       '6h overtime waiting',
       '2 shifts with no work category',
       'The lock failed for Nov 1–15',
@@ -245,7 +245,7 @@ describe('Today', () => {
       expect(within(banner).getByRole('link', { name: 'See details' })).toHaveAttribute('href', '/admin/settings/payroll-connection')
       // The banner comes before the pay period card, and the list has no paused row.
       expect(banner.compareDocumentPosition(screen.getByRole('heading', { name: 'Nov 1–15 pay period' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(rowTexts()).toEqual(['31 shifts waiting for approval'])
+      expect(rowTexts()).toEqual(['31 to review · waiting hours this period'])
       expect(screen.getByRole('heading', { name: /Needs attention\s+· 1/ })).toBeInTheDocument()
     })
 

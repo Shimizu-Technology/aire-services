@@ -104,7 +104,7 @@ export function ListRow({
         onKeyDown={onKeyDown}
         onClick={onClick}
         className={cx(
-          'flex min-h-14 items-center gap-3 px-3.5 py-2.5 pointer-fine:min-h-12 pointer-fine:px-4 pointer-fine:py-2',
+          'flex min-h-14 flex-wrap items-center gap-3 px-3.5 py-2.5 pointer-fine:min-h-12 pointer-fine:px-4 pointer-fine:py-2',
           'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
           (onOpen || expandable) && 'cursor-pointer',
           isSelected ? 'bg-primary/5' : 'hover:bg-surface-muted',
@@ -121,9 +121,9 @@ export function ListRow({
           />
         )}
         {leading}
-        <div className="min-w-0 flex-1">
-          <p id={`${id}-title`} className="truncate text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
-          {meta && <p id={`${id}-meta`} className="mt-0.5 truncate text-body-sm text-ink-muted">{meta}</p>}
+        <div className="min-w-[min(9rem,100%)] flex-1">
+          <p id={`${id}-title`} className="whitespace-normal break-normal text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
+          {meta && <p id={`${id}-meta`} className="mt-0.5 whitespace-normal break-normal text-body-sm text-ink-muted">{meta}</p>}
         </div>
         {trailing && <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
         {action && (

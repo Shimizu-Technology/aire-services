@@ -166,7 +166,7 @@ const routes = createRoutesFromElements(
           <Route
             path="activity"
             element={
-              <ProtectedRoute requiredCapability="view_activity">
+              <ProtectedRoute requiredCapability="manage_team_time">
                 <Suspense fallback={<AdminLoadingFallback />}><ActivityHistory /></Suspense>
               </ProtectedRoute>
             }

@@ -793,7 +793,9 @@ module Api
         return true if correction_reason.present?
 
         render json: {
-          error: "A correction reason is required because this entry is referenced by a finalized payroll batch.",
+          error: finalized_payroll_batches.any? ?
+            "This shift is included in a locked payroll batch. Add a short reason so the payroll history stays clear." :
+            "You downloaded a complete report that includes this shift. Add a short reason so the report history stays clear.",
           code: "correction_reason_required",
           export_references: active_payroll_exports.map(&:public_id),
           payroll_batch_ids: finalized_payroll_batches.map(&:public_id)
@@ -1500,7 +1502,7 @@ module Api
       def pending_approval_entries_scope
         entries = TimeEntry
           .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
-          .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
+          .merge(AttentionQuery.waiting_scope)
 
         approval_group = params[:approval_group].to_s
         return entries if approval_group.blank?

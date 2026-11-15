@@ -268,7 +268,7 @@ function CalendarUserGroup({
         {firstStart && lastEnd && (
           <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{firstStart} – {lastEnd}</div>
         )}
-        <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-primary/60">
+        <div className="mt-1 text-sm font-medium text-primary">
           {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
         </div>
         <div className="mt-2 space-y-1.5">
@@ -279,7 +279,7 @@ function CalendarUserGroup({
             </div>
           ))}
           {hiddenCategoryCount > 0 && (
-            <div className="text-[10px] font-medium text-text-muted">+{hiddenCategoryCount} more categories</div>
+            <div className="text-sm font-medium text-slate-700">+{hiddenCategoryCount} more categories</div>
           )}
         </div>
         <div className="mt-2 truncate text-[11px] text-primary-dark/70">{name}</div>

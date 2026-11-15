@@ -33,6 +33,7 @@ module Api
         end
 
         def preview
+          Current.domain_audit_recorded = true # Read-only calculation, not an activity.
           cutoff_at = parse_preview_cutoff
           result = ::Payroll::BatchBuilder.new(
             start_date: params[:start_date],
