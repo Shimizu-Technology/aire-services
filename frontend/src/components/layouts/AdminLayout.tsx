@@ -136,7 +136,7 @@ function AdminShell() {
                             <NavIcon icon={navItem.icon} />
                             {showBadge && desktopCollapsed && (
                               <span aria-hidden="true" className="absolute -right-1.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-white ring-2 ring-white">
-                                {approvalBadgeText(approvalCount)}
+                                {' '}{approvalBadgeText(approvalCount)}
                               </span>
                             )}
                           </span>
@@ -149,7 +149,7 @@ function AdminShell() {
                               <span className="min-w-0 flex-1 truncate">{navItem.name}</span>
                               {showBadge && (
                                 <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold text-amber-800">
-                                  {approvalBadgeText(approvalCount)}
+                                  {' '}{approvalBadgeText(approvalCount)}
                                 </span>
                               )}
                             </>

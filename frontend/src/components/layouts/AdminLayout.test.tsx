@@ -235,7 +235,8 @@ describe('AdminLayout phone tab bar', () => {
 
     const approvals = await within(tabBar()).findByRole('link', { name: 'Approvals, 12 waiting' })
     expect(approvals).toHaveAttribute('aria-current', 'page')
-    expect(approvals).toHaveTextContent('12')
+    expect(approvals).toHaveTextContent('Approvals 12')
+    expect(approvals).toHaveAccessibleName('Approvals, 12 waiting')
     expect(names(tabBar())).toEqual(['Approvals', 'Timecards', 'Reports', 'My Time'])
     expect(apiMock.getPendingApprovals).toHaveBeenCalledWith({ page: 1, per_page: 1 })
 

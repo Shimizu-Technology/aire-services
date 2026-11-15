@@ -455,7 +455,8 @@ it.each([
 
 it('keeps zero-hour pending overtime out of every ordinary approval payload', async () => {
   renderInbox()
-  expect(await screen.findByText(/0.0h overtime to review/)).toBeInTheDocument()
+  expect(await screen.findByText('Projected overtime')).toBeInTheDocument()
+  expect(screen.queryByText(/overtime waiting/)).not.toBeInTheDocument()
   expect(screen.queryByText(/0.0h overtime this week/)).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Approve all 3' }))
   fireEvent.click(screen.getByRole('button', { name: 'Approve 3 shifts' }))

@@ -38,7 +38,7 @@ export default function PayrollConnectionSettings() {
           )}
           <p className="font-semibold">{payrollConnectionCopy(connection).title}</p>
           <p>{payrollConnectionCopy(connection).detail}</p>
-          <p>Last heard from: {connection.last_publication ? formatPayrollConnectionTime(connection.last_publication.published_at) : 'No publication yet'}</p>
+          <p>Last pay-period update: {connection.last_publication ? formatPayrollConnectionTime(connection.last_publication.published_at) : 'No pay-period update yet'}</p>
           {connection.account_link && (
             <p>
               {connection.account_link.payroll_user_email} · Linked by{' '}

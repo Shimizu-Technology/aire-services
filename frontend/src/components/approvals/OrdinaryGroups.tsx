@@ -76,7 +76,6 @@ export default function OrdinaryGroups({
                   </span>
                 ) : undefined
               }
-              metaWrap
               meta={meta}
               checkbox={{
                 checked: count === 0 ? false : count === entries.length ? true : 'mixed',
@@ -119,7 +118,6 @@ export default function OrdinaryGroups({
                     title={
                       groupBy === 'day' ? entry.user.full_name : formatApprovalDate(entry.work_date)
                     }
-                    metaWrap
                     meta={detail}
                     checkbox={{
                       checked: selected.has(entry.id),

@@ -48,7 +48,7 @@ module Approvals
       allocation_hold: "Payroll can't place this time yet",
       too_many_segments: "Too many work category switches",
       over_max_hours: "Over %{hours}h",
-      after_lock: "After the lock (goes to the next payroll)",
+      after_lock: "Goes to the next payroll",
       crosses_period: "Crosses into the next period",
       needs_time_review: "Needs time review",
       overlaps: "Overlaps another shift"
@@ -111,7 +111,11 @@ module Approvals
       elsif rules.include?(:not_completed_clock)
         found << exception(:not_completed)
       end
-      found << exception(:edited, editor ? "Edited by #{editor}" : nil) if editor || (rules.include?(:edited) && !entry.manual_entry?)
+      if entry.rejected_employee_change.present?
+        found << exception(:edited, "Kept original time · #{entry.rejected_employee_change['manager']}")
+      elsif editor || (rules.include?(:edited) && !entry.manual_entry?)
+        found << exception(:edited, editor ? "Edited by #{editor}" : nil)
+      end
       found << exception(:clocked_by_supervisor) if rules.include?(:not_self_service) && entry.clock_entry?
       found << exception(:corrected_clock_out) if entry.approval_note.to_s.downcase.include?("corrected clock-out")
       found << exception(:administrator_correction) if entry.needs_administrator_correction?

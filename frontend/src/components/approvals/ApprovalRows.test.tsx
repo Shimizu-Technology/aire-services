@@ -52,6 +52,7 @@ it('shows full overtime secondary copy without truncation or current-year noise'
           review_kind: 'needs_look',
           work_date: '2026-11-06',
           hours: 11.5,
+          approval_status: 'approved',
           overtime_status: 'pending',
           pending_overtime_hours: 6,
           exceptions: [{ key: 'overtime', label: 'Overtime' }],
@@ -69,6 +70,7 @@ it('groups exceptional shifts by person and Sun–Sat week, with totals, tiny-sh
   const onReview = vi.fn()
   const base = reviewEntry(1, 1, {
     review_kind: 'needs_look',
+    approval_status: 'approved',
     overtime_status: 'pending',
     pending_overtime_hours: 8,
     exceptions: [
@@ -104,4 +106,20 @@ it('groups exceptional shifts by person and Sun–Sat week, with totals, tiny-sh
     screen.getByRole('button', { name: 'Review Marcus Quinata, week of Sun, Nov 8' }),
   )
   expect(onReview).toHaveBeenCalledWith(base)
+})
+
+it('counts only approved-time overtime as waiting in a mixed group', () => {
+  render(<NeedsLookList rows={[
+    reviewEntry(11, 1, { hours: 10, approval_status: 'pending', overtime_status: 'pending', pending_overtime_hours: 2, exceptions: [{ key: 'overtime', label: 'Overtime' }] }),
+    reviewEntry(12, 1, { hours: 8, approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 3, exceptions: [{ key: 'overtime', label: 'Overtime' }] }),
+  ]} onReview={vi.fn()} />)
+  expect(screen.getByText(/10.0h time waiting · 3.0h overtime waiting/)).toBeInTheDocument()
+  expect(screen.getByText('Projected overtime')).toBeInTheDocument()
+  expect(screen.queryByText(/5.0h overtime waiting/)).not.toBeInTheDocument()
+})
+
+it('labels time-pending overtime as projected without waiting totals', () => {
+  render(<NeedsLookList rows={[reviewEntry(11, 1, { approval_status: 'pending', overtime_status: 'pending', pending_overtime_hours: 2, exceptions: [{ key: 'overtime', label: 'Overtime' }] })]} onReview={vi.fn()} />)
+  expect(screen.getByText('Projected overtime')).toBeInTheDocument()
+  expect(screen.queryByText(/overtime waiting/)).not.toBeInTheDocument()
 })

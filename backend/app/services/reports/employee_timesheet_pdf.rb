@@ -144,6 +144,8 @@ module Reports
         [ "Approved regular", "Approved overtime", "Approved for payroll", "Time waiting for approval", "Overtime waiting for approval — not included" ],
         [ hours(employee.dig(:payroll_hours, :approved_regular_hours)), hours(employee.dig(:payroll_hours, :approved_overtime_hours)), hours(employee.dig(:payroll_hours, :approved_hours)), hours(employee.dig(:payroll_hours, :time_waiting_hours)), hours(employee.dig(:payroll_hours, :overtime_waiting_hours)) ]
       ]
+      pdf.text "Worked hours (approved + waiting): #{hours(employee[:worked_hours])}", size: 9
+      pdf.move_down 6
       pdf.table(rows, width: pdf.bounds.width, cell_style: { align: :center, padding: [ 8, 5 ], border_color: BORDER }) do |table|
         table.row(0).background_color = NAVY
         table.row(0).text_color = "FFFFFF"

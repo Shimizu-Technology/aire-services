@@ -251,7 +251,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:unprocessable_entity)
         expect(json.fetch(:code)).to eq("correction_reason_required")
-        expect(json.fetch(:error)).to match(/referenced by a finalized payroll batch/i)
+        expect(json.fetch(:error)).to match(/included in a locked payroll batch/i)
         expect(json.fetch(:payroll_batch_ids)).to eq([ batch.public_id ])
 
         patch "/api/v1/time_entries/#{entry.id}",

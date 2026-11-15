@@ -45,11 +45,12 @@ export function reasonChips(entries: ReviewEntry[]) {
     'corrected_clock_out',
     'added',
     'overtime',
+    'projected_overtime',
     'own_time',
     'supervisor_own_time',
   ]
   const unique = new Map(
-    entries.flatMap((entry) => entry.exceptions).map((reason) => [reason.key, reason]),
+    entries.flatMap((entry) => entry.exceptions.map((reason) => reason.key === 'overtime' && entry.approval_status === 'pending' ? { ...reason, key: 'projected_overtime', label: 'Projected overtime' } : reason)).map((reason) => [reason.key, reason]),
   )
   return [...unique.values()]
     .sort((a, b) => {

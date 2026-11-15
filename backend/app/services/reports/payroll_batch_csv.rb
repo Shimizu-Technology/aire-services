@@ -7,7 +7,7 @@ module Reports
     def self.render(batch)
       CSV.generate do |csv|
         csv << [
-          "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
+          "Batch ID", "Period start", "Period end", "Lock at (Guam, ChST UTC+10)", "Employee", "Email",
           "Source entry", "Type", "Original work date", "Category", "Regular hours",
           "Overtime hours", "Total hours"
         ]
@@ -17,7 +17,7 @@ module Reports
               batch.public_id,
               batch.start_date.iso8601,
               batch.end_date.iso8601,
-              batch.cutoff_at.iso8601,
+              batch.cutoff_at.in_time_zone("Guam").iso8601,
               safe(employee["display_name"]),
               safe(employee["email"]),
               row["source_time_entry_id"],
