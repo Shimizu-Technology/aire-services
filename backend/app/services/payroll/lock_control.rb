@@ -103,19 +103,24 @@ module Payroll
           .where("occurred_at > ?", Time.current - 1.minute).order(occurred_at: :desc, id: :desc).first
         raise Error, PROCESSING if recent&.outcome == "deferred"
 
-        change = CutoffChangeClient.new.request_change(
-          external_pay_period_id: period.external_pay_period_id,
-          action: action.to_s,
-          cutoff_at: target,
-          reason: reason,
-          actor: actor_json(user),
-          request_id: request_id
-        )
+        begin
+          change = CutoffChangeClient.new.request_change(
+            external_pay_period_id: period.external_pay_period_id,
+            action: action.to_s,
+            cutoff_at: target,
+            reason: reason,
+            actor: actor_json(user),
+            request_id: request_id
+          )
+        rescue CutoffChangeClient::Unconfirmed => e
+          # Recorded before the lock is released, so the next request sees it.
+          audit!(user, action, target, reason, "deferred", error: e.message)
+          raise
+        end
         audit!(user, action, target, reason, "succeeded", change: change)
         change
       end
-    rescue CutoffChangeClient::Unconfirmed => e
-      audit!(user, action, target, reason, "deferred", error: e.message)
+    rescue CutoffChangeClient::Unconfirmed
       raise
     rescue CutoffChangeClient::Error => e
       audit!(user, action, target, reason, "failed", error: e.message)
