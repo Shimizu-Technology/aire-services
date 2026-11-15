@@ -356,7 +356,7 @@ it('links tracking supervisors to their own leave page from the Leave chip', asy
   renderInbox('/admin/approvals?kind=leave')
   expect(await screen.findByRole('link', { name: 'Request your own leave' })).toHaveAttribute(
     'href',
-    '/admin/leave?mine=1',
+    '/admin/leave?mine=1&return_to=kind%3Dleave',
   )
 })
 

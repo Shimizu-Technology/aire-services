@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
-import type { LeaveRequest } from '../../lib/api'
+import { api, type LeaveRequest } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
 import { ToastProvider } from '../ui'
 import LeaveRequestsList from './LeaveRequestsList'
@@ -151,4 +151,20 @@ it('quietly reports a failed overlap page and retries without presenting partial
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
   expect(await screen.findByText(/Also off: Grace Torres/)).toBeInTheDocument()
   expect(screen.queryByText(/Couldn't check overlaps/)).not.toBeInTheDocument()
+})
+
+
+it('requires a nonblank employee-facing decline reason, while approval stays available', async () => {
+  const request = { id: 5, version: 2, user: { id: 5, full_name: 'Ethan Cruz' }, leave_type: 'sick', start_date: '2026-11-21', end_date: '2026-11-21', total_days: 1 } as LeaveRequest
+  const decline = vi.spyOn(api, 'declineLeaveRequest').mockResolvedValue({ data: { leave_request: { ...request, status: 'declined' } } })
+  render(<ToastProvider><LeaveRequestsList requests={[request]} onChanged={vi.fn()} /></ToastProvider>)
+  expect(screen.getByRole('button', { name: 'Approve leave for Ethan Cruz' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: "Decline Ethan Cruz's time off, Sat, Nov 21" }))
+  const save = screen.getByRole('button', { name: 'Decline leave' })
+  expect(save).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Reason (required)'), { target: { value: '   ' } })
+  expect(save).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Reason (required)'), { target: { value: ' Coverage needed ' } })
+  fireEvent.click(save)
+  await waitFor(() => expect(decline).toHaveBeenCalledWith(5, 'Coverage needed', 2))
 })
