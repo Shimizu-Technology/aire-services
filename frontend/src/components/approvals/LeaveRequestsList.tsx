@@ -20,9 +20,11 @@ export default function LeaveRequestsList({
   requests,
   viewerId,
   onChanged,
+  onSaved,
 }: {
   requests: LeaveRequest[]
   viewerId?: number
+  onSaved?: (request: LeaveRequest) => void
   onChanged: () => Promise<void>
 }) {
   const online = useOnlineStatus()
@@ -74,19 +76,20 @@ export default function LeaveRequestsList({
     }
   }, [requestKey, rangeStart, rangeEnd, overlapAttempt])
   const save = async (request: LeaveRequest, decline = false) => {
-    if (lock.current || !online || request.user.id === viewerId) return
+    if (lock.current || !online || request.user.id === viewerId || (decline && !note.trim())) return
     lock.current = true
     setBusy(true)
     setError('')
     try {
       const response = decline
-        ? await api.declineLeaveRequest(request.id, note.trim())
-        : await api.approveLeaveRequest(request.id)
+        ? await api.declineLeaveRequest(request.id, note.trim(), request.version)
+        : await api.approveLeaveRequest(request.id, undefined, request.version)
       if (!response.data) {
         setError(response.error || "Couldn't save this leave decision.")
         return
       }
-      toast.show({
+      onSaved?.(response.data.leave_request)
+      if (!onSaved) toast.show({
         message: `${decline ? 'Declined' : 'Approved'} ${name(request)}'s time off, ${leaveDateRange(request.start_date, request.end_date)}`,
       })
       setDeclining(null)
@@ -177,6 +180,7 @@ export default function LeaveRequestsList({
               trailing={
                 own ? undefined : (
                   <Button
+                    aria-label={`Decline ${name(request)}'s time off, ${leaveDateRange(request.start_date, request.end_date)}`}
                     variant="ghost"
                     size="sm"
                     disabled={busy || !online}
@@ -206,16 +210,17 @@ export default function LeaveRequestsList({
               if (declining) void save(declining, true)
             }}
             loading={busy}
-            disabled={!online}
+            disabled={!online || !note.trim()}
             title={!online ? 'Reconnect to decline' : undefined}
           >
             Decline leave
           </Button>
         }
       >
-        <Field label="Note (optional)">
-          <Textarea value={note} onChange={(event) => setNote(event.target.value)} />
+        <Field label="Reason (required)">
+          <Textarea required value={note} onChange={(event) => setNote(event.target.value)} />
         </Field>
+        <p className="text-body-sm text-ink-muted">Write a short reason so the employee knows why their leave was declined.</p>
         {error && <p role="alert">{error}</p>}
       </Sheet>
     </>

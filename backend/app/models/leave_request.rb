@@ -4,6 +4,10 @@ class LeaveRequest < ApplicationRecord
   LEAVE_TYPES = %w[paid_time_off sick unpaid bereavement other].freeze
   STATUSES = %w[pending approved declined cancelled].freeze
 
+  has_many :decision_events,
+           -> { where(action: %w[leave_request.approved leave_request.declined leave_request.decision_changed leave_request.decision_undone]).order(occurred_at: :desc, id: :desc) },
+           class_name: "AuditLog", as: :auditable
+
   belongs_to :user
   belongs_to :reviewed_by, class_name: "User", optional: true
   belongs_to :cancelled_by, class_name: "User", optional: true
@@ -34,6 +38,10 @@ class LeaveRequest < ApplicationRecord
     return 0 unless start_date.present? && end_date.present?
 
     (end_date - start_date).to_i + 1
+  end
+
+  def initial_decision?
+    decision_events.first&.action.in?(%w[leave_request.approved leave_request.declined])
   end
 
   private
@@ -67,7 +75,7 @@ class LeaveRequest < ApplicationRecord
 
     return unless overlapping
 
-    errors.add(:base, "overlaps with another pending or approved leave request")
+    errors.add(:base, "#{user.full_name} already has other time off waiting or approved on these dates.")
   end
 
   def overlapping_active_requests

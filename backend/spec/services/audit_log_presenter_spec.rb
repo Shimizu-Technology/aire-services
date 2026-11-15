@@ -16,6 +16,11 @@ RSpec.describe AuditLogPresenter do
     { employee_id: employee.id, employee_name: employee.full_name, work_date: work_date }
   end
 
+  it "uses plain leave correction labels" do
+    expect(summary_for("leave_request.decision_changed")).to include("changed the leave decision")
+    expect(summary_for("leave_request.decision_undone")).to include("undid the leave decision")
+  end
+
   after { Current.reset }
 
   it "names a refused clock-out edit and the real reason" do

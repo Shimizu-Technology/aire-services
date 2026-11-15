@@ -3,14 +3,16 @@
 module Api
   module V1
     class LeaveRequestsController < BaseController
+      rescue_from ActiveRecord::RecordInvalid, with: :invalid_leave
+
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :set_leave_request, only: [ :show, :approve, :decline, :cancel, :undo_cancel ]
-      before_action -> { require_capability!(:approve_leave) }, only: [ :approve, :decline ]
+      before_action :set_leave_request, only: [ :show, :approve, :decline, :cancel, :change_decision, :undo, :undo_cancel ]
+      before_action -> { require_capability!(:approve_leave) }, only: [ :approve, :decline, :change_decision, :undo ]
 
       def index
         requests = current_user.can_approve_leave? ? LeaveRequest.all : current_user.leave_requests
-        requests = requests.includes(:user, :reviewed_by, :cancelled_by)
+        requests = requests.includes(:decision_events, :reviewed_by, :cancelled_by, user: :user_approval_groups)
         if params[:status].present?
           requests = if params[:status] == "reviewed"
             requests.where.not(status: "pending")
@@ -27,7 +29,13 @@ module Api
         end
         requests = requests.where("end_date >= ?", start_date) if start_date
         requests = requests.where("start_date <= ?", end_date) if end_date
-        requests = requests.recent
+        requests = if params[:view] == "decisions" && current_user.can_approve_leave?
+          requests.where(status: %w[approved declined]).or(
+            requests.where(id: AuditLog.where(auditable_type: "LeaveRequest", action: %w[leave_request.approved leave_request.declined leave_request.decision_changed leave_request.decision_undone]).select(:auditable_id))
+          ).order(Arel.sql("COALESCE(reviewed_at, updated_at) DESC, id DESC"))
+        else
+          requests.recent
+        end
 
         page = [ params[:page].to_i, 1 ].max
         per_page = params[:per_page].to_i
@@ -77,6 +85,14 @@ module Api
 
       def decline
         review_request!("declined")
+      end
+
+      def undo
+        change_saved_decision!(undo: true)
+      end
+
+      def change_decision
+        change_saved_decision!(undo: false)
       end
 
       def undo_cancel
@@ -136,6 +152,22 @@ module Api
 
       private
 
+      def invalid_leave(exception)
+        render json: { error: exception.record.errors.full_messages.join(", ").presence || "This leave request could not be saved." }, status: :unprocessable_entity
+        write_default_audit_event
+      end
+
+      def change_saved_decision!(undo:)
+        LeaveDecisionChange.new(@leave_request, current_user).call!(
+          version: params[:version], status: params[:status], reason: params[:reason], undo: undo
+        )
+        render json: { leave_request: serialize_leave_request(@leave_request) }
+      rescue LeaveDecisionChange::Conflict => e
+        render json: { error: e.message }, status: :conflict
+      rescue LeaveDecisionChange::Invalid => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
       def parse_date_filter(key)
         return nil if params[key].blank?
 
@@ -147,7 +179,7 @@ module Api
 
       def set_leave_request
         scope = current_user.can_approve_leave? ? LeaveRequest : current_user.leave_requests
-        @leave_request = scope.includes(:user, :reviewed_by, :cancelled_by).find(params[:id])
+        @leave_request = scope.includes(:decision_events, :reviewed_by, :cancelled_by, user: :user_approval_groups).find(params[:id])
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Leave request not found" }, status: :not_found
       end
@@ -170,6 +202,11 @@ module Api
               next
             end
 
+            if params.key?(:version) && params[:version].to_s != @leave_request.lock_version.to_s
+              error_response = { error: "This leave request changed. Refresh and try again.", status: :conflict }
+              next
+            end
+
             unless @leave_request.pending?
               error_response = {
                 error: "Only pending leave requests can be reviewed",
@@ -178,11 +215,16 @@ module Api
               next
             end
 
+            if status == "declined" && params[:review_note].to_s.strip.blank?
+              error_response = { error: "Write a short reason to decline this leave request.", status: :unprocessable_entity }
+              next
+            end
+
             @leave_request.update!(
               status: status,
               reviewed_by: current_user,
               reviewed_at: Time.current,
-              review_note: params[:review_note].presence,
+              review_note: params[:review_note].to_s.strip.presence,
               cancelled_by: nil,
               cancelled_at: nil
             )
@@ -207,8 +249,15 @@ module Api
       end
 
       def serialize_leave_request(request)
+        request.association(:decision_events).reset if action_name.in?(%w[approve decline undo change_decision])
         {
           id: request.id,
+          version: request.lock_version,
+          undo_expires_at: request.initial_decision? && request.reviewed_at && request.status.in?(%w[approved declined]) ? (request.reviewed_at + 15.minutes).iso8601 : nil,
+          decision_history: current_user.can_approve_leave? ? request.decision_events.map { |event| {
+              action: event.action, at: event.occurred_at.iso8601, actor: event.actor_name,
+              from: event.metadata["from"], to: event.metadata["to"], reason: event.metadata["reason"] || event.metadata["review_note"]
+            } } : [],
           leave_type: request.leave_type,
           start_date: request.start_date.iso8601,
           end_date: request.end_date.iso8601,
@@ -224,7 +273,9 @@ module Api
             id: request.user.id,
             email: request.user.email,
             display_name: request.user.display_name,
-            full_name: request.user.full_name
+            full_name: request.user.full_name,
+            department: request.user.approval_group_labels.presence&.join(", ") || "Unassigned",
+            approval_group_keys: request.user.approval_group_keys
           },
           reviewed_by: request.reviewed_by ? {
             id: request.reviewed_by.id,

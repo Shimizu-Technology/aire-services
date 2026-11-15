@@ -56,7 +56,7 @@ import RecentApprovals from '../../components/approvals/RecentApprovals'
 import ReviewSheet from '../../components/approvals/ReviewSheet'
 import ApproveAllDialog from '../../components/approvals/ApproveAllDialog'
 import FiltersSheet from '../../components/approvals/FiltersSheet'
-import LeaveRequestsList from '../../components/approvals/LeaveRequestsList'
+import LeaveOverview from '../../components/approvals/LeaveOverview'
 import StubRequestsList from '../../components/approvals/StubRequestsList'
 
 const Classic = lazy(() => import('./TimeTracking'))
@@ -223,9 +223,9 @@ function ApprovalsInbox() {
   })
 
   const extrasGeneration = useRef(0)
-  const loadExtras = useCallback(async () => {
+  const loadExtras = useCallback(async (quiet = false) => {
     const generation = ++extrasGeneration.current
-    setExtrasLoading(true)
+    if (!quiet) setExtrasLoading(true)
     const [leaveResult, stubResult, workerResult] = await Promise.allSettled([
       loadPendingLeave(),
       capabilities.send_pay_statements
@@ -557,7 +557,7 @@ function ApprovalsInbox() {
           currentUser?.time_tracking_enabled === true && (
             <Link
               className="inline-flex min-h-11 items-center font-semibold text-primary underline"
-              to="/admin/leave?mine=1"
+              to={`/admin/leave?mine=1&return_to=${encodeURIComponent(query.toString())}`}
             >
               Request your own leave
             </Link>
@@ -577,10 +577,14 @@ function ApprovalsInbox() {
           ) : extrasLoading ? (
             <p>Loading leave requests…</p>
           ) : (
-            <LeaveRequestsList
+            <LeaveOverview
+              startDate={query.get('start_date') || undefined}
+              departmentLabel={department === 'all' ? 'All departments' : department === 'unassigned' ? 'Unassigned' : departmentOptions.find((item) => item.value === department)?.label || department}
+              matchesPerson={matchesPerson}
+              matchesDates={(request) => leaveMatchesDates(request, query)}
               requests={visibleLeave}
               viewerId={currentUser?.id}
-              onChanged={loadExtras}
+              onChanged={() => loadExtras(true)}
             />
           ))}
         {kind === 'stubs' &&
