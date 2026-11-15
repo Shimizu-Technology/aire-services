@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
 
-const apiMock = vi.hoisted(() => ({ updateTimeEntry: vi.fn(), deleteTimeEntry: vi.fn() }))
+const apiMock = vi.hoisted(() => ({ updateTimeEntry: vi.fn(), deleteTimeEntry: vi.fn(), getTimeEntry: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
 
 const entry = {
@@ -435,4 +435,26 @@ describe('Edit shift: a refused save is shown where it can be fixed (item 5)', (
     expect(alert).toHaveTextContent('The pay period is locked')
     expect(scrollIntoView.mock.contexts).toContain(alert)
   })
+})
+
+it('exposes conflict recovery after Save and view history and keeps the reason on reload', async () => {
+  apiMock.updateTimeEntry.mockReset().mockResolvedValueOnce({ status: 422, code: 'correction_reason_required', error: 'Add a reason' }).mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { ...entry, version: 3, description: 'Latest shift' } } })
+  const config = show()
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Typed edit' } })
+  fireEvent.click(historyLink())
+  fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
+  fireEvent.change(await screen.findByLabelText('Add a short reason, then save and view history'), { target: { value: 'Keep my explanation' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Nothing was saved')
+  expect(screen.queryByRole('button', { name: 'Save and view history' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+  await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue('Latest shift'))
+  expect(screen.getByLabelText('Correction reason *')).toHaveValue('Keep my explanation')
+  expect(config.onSaved).not.toHaveBeenCalled()
+  expect(config.onClose).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'New correction' } })
+  apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: entry } })
+  fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(44, expect.objectContaining({ expected_version: 3 }), 'Keep my explanation'))
 })

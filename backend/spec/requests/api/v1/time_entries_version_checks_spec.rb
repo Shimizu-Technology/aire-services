@@ -91,6 +91,22 @@ RSpec.describe "Time entry optimistic version checks", type: :request do
     end
   end
 
+  [ false, true ].each do |versioned|
+    it "audits a #{versioned ? 'versioned' : 'legacy'} 422 refusal" do
+      entry.update!(overtime_status: "none")
+      expect { write_entry("deny_overtime", version: versioned ? entry.lock_version : :absent) }.to change(AuditLog, :count).by(1)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(AuditLog.last.outcome).to eq(response.status == 403 ? "denied" : "failed")
+    end
+
+    it "audits a #{versioned ? 'versioned' : 'legacy'} 403 refusal" do
+      allow(TimeClockService).to receive(:deny_entry).and_raise(TimeClockService::AuthorizationError, "Not allowed")
+      expect { write_entry("deny", version: versioned ? entry.lock_version : :absent) }.to change(AuditLog, :count).by(1)
+      expect(response).to have_http_status(:forbidden)
+      expect(AuditLog.last.outcome).to eq(response.status == 403 ? "denied" : "failed")
+    end
+  end
+
   context "reject_change" do
     before do
       entry.update!(entry_method: "clock", clock_in_at: Time.current - 8.hours, clock_out_at: Time.current)
@@ -204,12 +220,8 @@ RSpec.describe "Time entry optimistic version checks", type: :request do
         expect(entry.reload.attributes).to eq(before_entry)
         expect(entry.time_entry_breaks.reload.order(:id).map(&:attributes)).to eq(before_breaks)
         expect(export.reload.attributes).to eq(before_export)
-        if versioned
-          expect(AuditLog.order(:id).map(&:attributes)).to eq(before_audits)
-        else
-          # Legacy requests keep their existing failed-request audit.
-          expect(AuditLog.where(outcome: "succeeded").count).to eq(before_audits.count { |row| row["outcome"] == "succeeded" })
-        end
+        expect(AuditLog.count).to eq(before_audits.size + 1)
+        expect(AuditLog.last.outcome).to eq("failed")
       end
     end
   end

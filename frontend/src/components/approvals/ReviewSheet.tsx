@@ -151,6 +151,10 @@ export default function ReviewSheet({
           note.trim(),
         )
         if (!response.data) {
+          if (response.status === 409 && response.code === 'stale_entry') {
+            await reloadDenial()
+            return
+          }
           const message =
             response.status === 409
               ? response.code === 'payroll_busy'
@@ -210,10 +214,11 @@ export default function ReviewSheet({
   }
   const reloadDenial = async (fresh?: TimeEntry) => {
     setDenialNeedsReload(true)
+    const unchanged = denying === 'change' ? 'Nothing was changed.' : 'Nothing was denied.'
     await onReload()
     const latest = fresh ?? (await api.getTimeEntry(entry.id)).data?.time_entry
     if (!latest) {
-      setError("This shift changed. Nothing was denied. Your note is kept; reload the shift before deciding again.")
+      setError(`This shift changed. ${unchanged} Your note is kept; reload the shift before deciding again.`)
       return
     }
     // The inbox supplies the current exceptions and overtime facts as well as
@@ -221,13 +226,15 @@ export default function ReviewSheet({
     const response = await approvalsApi.pending({ user_id: latest.user.id, date: latest.work_date, per_page: 500 })
     const row = response.data?.pending_entries.find(item => item.id === entry.id)
     if (!row) {
-      setError(response.error || 'This shift no longer needs this decision. Nothing was denied. Your note is kept; close this review to continue.')
+      setError(response.error || `This shift no longer needs this decision. ${unchanged} Your note is kept; close this review to continue.`)
       return
     }
     setEntry(row)
-    const canDeny = denying === 'overtime' ? row.overtime_status === 'pending' : row.approval_status === 'pending'
+    const canDeny = denying === 'change'
+      ? row.entry_method === 'clock' && row.approval_status === 'pending' && !!row.original_employee_change
+      : denying === 'overtime' ? row.overtime_status === 'pending' : row.approval_status === 'pending'
     setDenialNeedsReload(!canDeny)
-    setError(`This shift changed since you opened it. Nothing was denied. Your note is kept. ${canDeny ? 'Review the latest shift before denying again.' : 'This shift no longer needs this decision.'}`)
+    setError(`This shift changed since you opened it. ${unchanged} Your note is kept. ${canDeny ? 'Review the latest shift before deciding again.' : 'This shift no longer needs this decision.'}`)
   }
   const closeChanged = async (decision: 'approved' | 'denied') => {
     await onReload()

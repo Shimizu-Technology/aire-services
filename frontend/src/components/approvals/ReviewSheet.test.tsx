@@ -451,11 +451,6 @@ it('requires a reason, refreshes restored pending time, and never approves or de
 it.each([
   [
     409,
-    'stale_entry',
-    'This shift changed since you opened it. Review it again before keeping the original time.',
-  ],
-  [
-    409,
     'payroll_busy',
     'Payroll is working on this period right now. Try again in a minute. Nothing was changed.',
   ],
@@ -519,4 +514,20 @@ it('hides keep-original when the server marks the original nonrestorable', () =>
   expect(screen.getByText("The original clock-out was missing, so there's no original time to keep.")).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Approve time \+/ })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Deny overtime…' })).not.toBeInTheDocument()
+})
+
+it.each([true, false])('keeps the original-time reason in place on stale refusal (still pending: %s)', async (pending) => {
+  const config = changedClockProps()
+  const fresh = { ...config.entry, version: 18, original_employee_change: pending ? config.entry.original_employee_change : null }
+  vi.mocked(api.rejectTimeEntryChange).mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  vi.mocked(api.getTimeEntry).mockResolvedValue({ data: { time_entry: fresh } })
+  vi.mocked(approvalsApi.pending).mockResolvedValue({ data: { pending_entries: [fresh] } } as never)
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the original time' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Preserve this note' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the original time' }))
+  await screen.findByText(/Your note is kept/)
+  expect(screen.getByRole('textbox')).toHaveValue('Preserve this note')
+  expect(config.onClose).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Keep the original time' }).hasAttribute('disabled')).toBe(!pending)
 })

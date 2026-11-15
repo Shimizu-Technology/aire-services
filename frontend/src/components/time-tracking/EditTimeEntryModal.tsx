@@ -132,7 +132,7 @@ function breakRowsFromEntry(entry: EditableTimeEntry) {
 
 export default function EditTimeEntryModal({
   isOpen,
-  entry,
+  entry: sourceEntry,
   categories,
   canDelete,
   canManageTeamTime = false,
@@ -142,6 +142,8 @@ export default function EditTimeEntryModal({
   onError,
   phoneSheet = false,
 }: EditTimeEntryModalProps) {
+  const [reloadedEntry, setReloadedEntry] = useState<EditableTimeEntry | null>(null)
+  const entry = reloadedEntry ?? sourceEntry
   const toast = useContext(ToastContext)
   const activityCapabilities = useCapabilities()
   const canViewActivity = activityCapabilities.view_activity || activityCapabilities.manage_team_time
@@ -179,10 +181,11 @@ export default function EditTimeEntryModal({
   const [confirm, confirmDialog] = useConfirm()
 
   useEffect(() => {
-    if (!isOpen || !entry) return
+    if (!isOpen || !sourceEntry) return
 
-    setFormData(formFromEntry(entry))
-    setBreakRows(breakRowsFromEntry(entry))
+    setReloadedEntry(null)
+    setFormData(formFromEntry(sourceEntry))
+    setBreakRows(breakRowsFromEntry(sourceEntry))
     setHistoryGuard(false)
     setDiscardGuard(false)
     leaving.current = false
@@ -191,12 +194,12 @@ export default function EditTimeEntryModal({
     setTimeError(null)
     setNeedsReload(false)
     setReviewAction(null)
-    setStopDate(entry.work_date)
+    setStopDate(sourceEntry.work_date)
     setError(null)
     setCorrectionReasonRequired(false)
     setCorrectionReason('')
     setExportReferences([])
-  }, [entry, isOpen])
+  }, [sourceEntry, isOpen])
 
   const calculatedHours = useMemo(() => {
     if (entry?.hours != null && formData.start_time === (entry.start_time || '08:00') &&
@@ -359,6 +362,7 @@ export default function EditTimeEntryModal({
 
       if (response.error) {
         if (response.status === 409 && response.code === 'stale_entry') {
+          setHistoryGuard(false)
           setNeedsReload(true)
           setLocalError('This shift changed since you opened it. Nothing was saved.')
           return false
@@ -751,7 +755,28 @@ export default function EditTimeEntryModal({
                   <div role="alert" ref={errorRef} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
                     {needsReload && (
-                      <button type="button" className="mt-2 block underline" onClick={async () => { await onSaved(); onClose() }}>
+                      <button type="button" className="mt-2 block underline" onClick={async () => {
+                        setSaving(true)
+                        try {
+                          const response = await api.getTimeEntry(entry.id)
+                          if (!response.data) {
+                            setLocalError(response.error || "Couldn't reload this shift. Try again.")
+                            return
+                          }
+                          const fresh = response.data.time_entry
+                          setReloadedEntry(fresh)
+                          setFormData(formFromEntry(fresh))
+                          setBreakRows(breakRowsFromEntry(fresh))
+                          setReviewAction(null)
+                          setStopDate(fresh.work_date)
+                          setNeedsReload(false)
+                          setLocalError(null)
+                        } catch {
+                          setLocalError("Couldn't reload this shift. Try again.")
+                        } finally {
+                          setSaving(false)
+                        }
+                      }}>
                         Reload this shift
                       </button>
                     )}

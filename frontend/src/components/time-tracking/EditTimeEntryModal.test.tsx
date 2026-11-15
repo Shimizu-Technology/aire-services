@@ -6,6 +6,7 @@ import EditTimeEntryModal from './EditTimeEntryModal'
 const apiMock = vi.hoisted(() => ({
   updateTimeEntry: vi.fn(),
   deleteTimeEntry: vi.fn(),
+  getTimeEntry: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -468,8 +469,15 @@ it('blocks repeat edits after a server stale conflict and reloads the shift', as
   expect(screen.getByRole('button', { name: 'Update' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
   expect(onSaved).not.toHaveBeenCalled()
+  apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: {
+    id: 99, version: 5, work_date: '2026-11-10', start_time: '08:00', end_time: '16:00',
+    break_minutes: 0, description: 'Winning edit', user: { id: 2, email: 'worker@aire.test' },
+    time_category: { id: 1, name: 'Ground' },
+  } } })
   fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
-  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
-  expect(onClose).toHaveBeenCalledOnce()
+  await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue('Winning edit'))
+  expect(onSaved).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(apiMock.updateTimeEntry).toHaveBeenCalledOnce()
 })

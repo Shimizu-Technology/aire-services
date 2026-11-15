@@ -1999,10 +1999,10 @@ export const api = {
   getWhosWorking: () =>
     fetchApi<{ workers: WorkerStatus[] }>('/api/v1/time_entries/whos_working'),
 
-  approveTimeEntry: (id: number, note?: string, options?: { includeOvertime: boolean }) =>
+  approveTimeEntry: (id: number, note?: string, options?: { includeOvertime?: boolean; expectedVersion?: number }) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/approve`, {
       method: 'POST',
-      body: JSON.stringify(options?.includeOvertime ? { note, include_overtime: true } : { note }),
+      body: JSON.stringify({ note, ...(options?.includeOvertime ? { include_overtime: true } : {}), expected_version: options?.expectedVersion }),
     }),
 
   bulkApproveTimeEntries: (entryIds: number[], note?: string) =>
@@ -2020,10 +2020,10 @@ export const api = {
       body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
-  approveOvertime: (id: number, note?: string) =>
+  approveOvertime: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/approve_overtime`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
   denyOvertime: (id: number, note?: string, expectedVersion?: number) =>
