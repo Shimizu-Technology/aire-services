@@ -35,6 +35,12 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     )
   end
 
+  it "does not record opening a read-only payroll preview as activity" do
+    post "/api/v1/admin/payroll_batches/preview", params: { start_date: "2026-08-01", end_date: "2026-08-15" }, headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    expect(AuditLog.where("action LIKE ?", "%payroll_batches.preview")).not_to exist
+  end
+
   it "identifies regular and supplemental summaries without changing list scope" do
     regular = create(:payroll_batch)
     supplemental = create(:payroll_batch, payload: { "purpose" => "supplemental" })
