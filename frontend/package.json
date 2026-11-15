@@ -50,5 +50,8 @@
     "typescript-eslint": "^8.46.4",
     "vite": "^7.3.7",
     "vitest": "^4.1.12"
+  },
+  "engines": {
+    "node": ">=22 <25"
   }
 }
