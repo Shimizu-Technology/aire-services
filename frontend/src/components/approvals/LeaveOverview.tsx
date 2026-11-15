@@ -46,7 +46,11 @@ export default function LeaveOverview({
   onChanged,
   matchesPerson,
   matchesDates,
+  departmentLabel = 'All departments',
+  startDate,
 }: {
+  departmentLabel?: string
+  startDate?: string
   requests: LeaveRequest[]
   viewerId?: number
   onChanged: () => Promise<void>
@@ -59,9 +63,12 @@ export default function LeaveOverview({
   const [nextWeek, setNextWeek] = useState(false)
   const [approved, setApproved] = useState<LeaveRequest[]>([])
   const [history, setHistory] = useState<LeaveRequest[]>([])
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyPages, setHistoryPages] = useState(1)
   const [recent, setRecent] = useState<LeaveRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState(false)
   const [editing, setEditing] = useState<LeaveRequest | null>(null)
   const [reason, setReason] = useState('')
   const [status, setStatus] = useState<LeaveRequest['status']>('pending')
@@ -74,49 +81,48 @@ export default function LeaveOverview({
   const reload = useCallback(async () => {
     const id = ++generation.current
     setLoading(true)
-    const collect = async (decisions: boolean) => {
-      const rows: LeaveRequest[] = []
-      for (let page = 1; ; page++) {
-        const result = await api.getLeaveRequests(
-          decisions ? undefined : 'approved',
-          page,
-          100,
-          decisions ? 'decisions' : undefined,
-        )
-        if (!result.data)
-          throw new Error(result.error || "Couldn't load leave overview.")
-        rows.push(...result.data.leave_requests)
-        if (page >= result.data.pagination.total_pages) return rows
-      }
-    }
     try {
-      const [off, decisions] = await Promise.all([
-        collect(false),
-        collect(true),
+      const [offResult, decisionsResult] = await Promise.all([
+        api.getLeaveRequests('approved', 1, 100, undefined, startDate || weekRange(false)[0]),
+        api.getLeaveRequests(undefined, 1, 25, 'decisions'),
       ])
+      if (!offResult.data || !decisionsResult.data)
+        throw new Error(offResult.error || decisionsResult.error || "Couldn't load leave overview.")
+      const off = [...offResult.data.leave_requests]
+      for (let page = 2; page <= offResult.data.pagination.total_pages; page++) {
+        const result = await api.getLeaveRequests('approved', page, 100, undefined, startDate || weekRange(false)[0])
+        if (!result.data) throw new Error(result.error || "Couldn't load approved leave.")
+        off.push(...result.data.leave_requests)
+      }
+      const decisions = decisionsResult.data.leave_requests
       if (id !== generation.current) return
+      setLoadError(false)
+      setNow(Date.now())
       setApproved(off)
       setHistory(decisions)
+      setHistoryPage(1)
+      setHistoryPages(decisionsResult.data.pagination.total_pages)
       setRecent(
         decisions.filter(
           (row) =>
             row.reviewed_by?.id === viewerId &&
-            row.undo_expires_at &&
-            Date.parse(row.undo_expires_at) > Date.now(),
+            row.undo_expires_at,
         ),
       )
       setError('')
     } catch (cause) {
-      if (id === generation.current)
+      if (id === generation.current) {
+        setLoadError(true)
         setError(
           cause instanceof Error
             ? cause.message
             : "Couldn't load leave overview.",
         )
+      }
     } finally {
       if (id === generation.current) setLoading(false)
     }
-  }, [viewerId])
+  }, [viewerId, startDate])
   useEffect(() => {
     void reload()
     // Invalidate pending network responses after unmount.
@@ -126,9 +132,13 @@ export default function LeaveOverview({
     }
   }, [reload])
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
+    const expiries = [...recent, ...approved, ...history]
+      .map((row) => Date.parse(row.undo_expires_at || ''))
+      .filter((expiry) => expiry > Date.now())
+    if (!expiries.length) return
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(...expiries) - Date.now() + 1)
+    return () => window.clearTimeout(timer)
+  }, [recent, approved, history, now])
   const changed = async () => {
     await Promise.all([onChanged(), reload()])
   }
@@ -166,6 +176,12 @@ export default function LeaveOverview({
             reason.trim(),
           )
       if (!result.data) {
+        if (result.status === 409) {
+          await changed()
+          setEditing(null)
+          setError('This leave request changed. The latest decision is now shown.')
+          return
+        }
         setError(
           result.error ||
             "Couldn't change this decision. Refresh and try again.",
@@ -200,7 +216,7 @@ export default function LeaveOverview({
     view === 'Waiting'
       ? recent
       : view === 'Approved'
-        ? approved.filter((row) => row.end_date >= dateToday())
+        ? approved.filter((row) => row.end_date >= dateToday()).sort((a, b) => a.start_date.localeCompare(b.start_date))
         : history
   ).filter((row) => matchesPerson(row.user.id) && matchesDates(row))
   const renderDecision = (row: LeaveRequest) => (
@@ -210,7 +226,7 @@ export default function LeaveOverview({
     >
       <h3 className="font-semibold text-ink">
         {person(row)} ·{' '}
-        {row.status === 'pending' ? 'Waiting again' : row.status}
+        {row.status === 'pending' ? 'Waiting again' : row.status === 'approved' ? 'Approved' : 'Declined'}
       </h3>
       <p className="text-body-sm text-ink-muted">
         {leaveDateRange(row.start_date, row.end_date)} ·{' '}
@@ -228,6 +244,7 @@ export default function LeaveOverview({
             {undoable(row) && (
               <Button
                 size="sm"
+                aria-label={`Undo ${row.status === 'approved' ? 'approval' : 'decline'} for ${person(row)}, ${leaveDateRange(row.start_date, row.end_date)}`}
                 disabled={busy || !online}
                 onClick={() => {
                   void decide(row, true)
@@ -239,6 +256,7 @@ export default function LeaveOverview({
             <Button
               size="sm"
               variant="ghost"
+              aria-label={`Change decision for ${person(row)}, ${leaveDateRange(row.start_date, row.end_date)}`}
               disabled={busy || !online}
               onClick={() => {
                 setEditing(row)
@@ -249,6 +267,9 @@ export default function LeaveOverview({
             >
               Change decision
             </Button>
+            {row.reviewed_by?.id === viewerId && row.undo_expires_at && !undoable(row) && (
+              <p className="self-center text-body-sm text-ink-muted">Undo time is over — use Change decision.</p>
+            )}
             {undoable(row) && (
               <p className="self-center text-body-sm text-ink-muted">
                 Undo available until {stamp(row.undo_expires_at!)} (Guam)
@@ -262,7 +283,7 @@ export default function LeaveOverview({
             <li key={index}>
               {stamp(event.at)} · {event.actor || 'Reviewer'} ·{' '}
               {event.from
-                ? `${event.from} → ${event.to}`
+                ? `${event.from === 'pending' ? 'Waiting' : event.from === 'approved' ? 'Approved' : 'Declined'} changed to ${event.to === 'pending' ? 'Waiting' : event.to === 'approved' ? 'Approved' : 'Declined'}`
                 : event.action.endsWith('.approved')
                   ? 'Approved'
                   : 'Declined'}
@@ -292,11 +313,11 @@ export default function LeaveOverview({
           </Button>
         </div>
         <p className="text-body-sm text-ink-muted">
-          {leaveDateRange(start!, end!)} · Whole days · Selected department
+          {leaveDateRange(start!, end!)} · Whole days · {departmentLabel}
         </p>
         {loading ? (
           <p>Loading approved absences…</p>
-        ) : error ? (
+        ) : loadError ? (
           <p>Approved absences could not be refreshed.</p>
         ) : off.length ? (
           <ul className="space-y-3">
@@ -313,20 +334,19 @@ export default function LeaveOverview({
           </ul>
         ) : (
           <p className="text-body-sm text-ink-muted">
-            No approved absences this week in this department.
+            No approved absences {nextWeek ? 'next' : 'this'} week · {departmentLabel}.
           </p>
         )}
       </section>
       <div
-        role="tablist"
+        role="group"
         aria-label="Leave views"
         className="flex flex-wrap gap-2"
       >
         {(['Waiting', 'Approved', 'Past decisions'] as const).map((label) => (
           <Button
             key={label}
-            role="tab"
-            aria-selected={view === label}
+            aria-pressed={view === label}
             variant={view === label ? 'primary' : 'ghost'}
             onClick={() => setView(label)}
           >
@@ -334,7 +354,7 @@ export default function LeaveOverview({
           </Button>
         ))}
       </div>
-      {error && (
+      {error && !editing && (
         <div role="alert" className="space-y-2 text-body-sm text-danger">
           <p>{error}</p>
           <Button
@@ -363,6 +383,17 @@ export default function LeaveOverview({
       ) : (
         <div className="space-y-3">
           {decisionRows.map(renderDecision)}
+          {view === 'Past decisions' && historyPage < historyPages && (
+            <Button disabled={busy || !online} onClick={async () => {
+              setBusy(true)
+              try {
+                const result = await api.getLeaveRequests(undefined, historyPage + 1, 25, 'decisions')
+                if (!result.data) { setError(result.error || "Couldn't load more decisions."); return }
+                setHistory((rows) => [...rows, ...result.data!.leave_requests])
+                setHistoryPage(historyPage + 1)
+              } finally { setBusy(false) }
+            }}>Show more</Button>
+          )}
           {view !== 'Waiting' && !decisionRows.length && !error && (
             <EmptyState
               title={
@@ -422,7 +453,7 @@ export default function LeaveOverview({
             />
           </Field>
           <p className="text-body-sm text-ink-muted">
-            The change and your reason will stay in Past decisions.
+            Only managers and admins see this reason. The change and your reason will stay in Past decisions.
           </p>
           {error && (
             <p role="alert" className="text-danger">

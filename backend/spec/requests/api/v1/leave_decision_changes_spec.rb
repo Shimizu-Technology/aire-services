@@ -49,6 +49,50 @@ RSpec.describe "Leave decision corrections", type: :request do
       expect(data["leave_request"]["decision_history"].first).to include("reason" => "Coverage changed", "from" => "approved", "to" => "declined")
     end
   end
+  it "refuses Undo after a correction without replacing the employee note" do
+    post "/api/v1/leave_requests/#{leave.id}/approve", params: { review_note: "Enjoy your time off" }, headers: headers
+    correct
+    expect(response).to have_http_status(:ok)
+    expect(data["leave_request"]["undo_expires_at"]).to be_nil
+    expect(leave.reload.review_note).to eq("Enjoy your time off")
+    undo
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(leave.reload).to have_attributes(status: "declined", review_note: "Enjoy your time off")
+  end
+  it "clears the note written by an undone initial decision" do
+    post "/api/v1/leave_requests/#{leave.id}/decline", params: { review_note: "Coverage unavailable" }, headers: headers
+    undo
+    expect(response).to have_http_status(:ok)
+    expect(leave.reload.review_note).to be_nil
+  end
+  it "refuses reopening for inactive and terminated employees" do
+    approve
+    correct
+    employee.update!(is_active: false)
+    %w[approved pending].each do |status|
+      correct(status: status)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(data["error"]).to include("inactive or terminated")
+    end
+    employee.update!(terminated_at: Time.current, termination_effective_on: Date.current)
+    correct(status: "pending")
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(leave.reload.status).to eq("declined")
+  end
+  it "returns a plain conflict for optimistic locking errors" do
+    approve
+    allow_any_instance_of(LeaveDecisionChange).to receive(:call!).and_raise(ActiveRecord::StaleObjectError.new(leave, "update"))
+    correct
+    expect(response).to have_http_status(:conflict)
+    expect(data).to eq("error" => "This request changed. Refresh and try again.")
+  end
+  it "filters approved leave by overlapping dates" do
+    approve
+    get "/api/v1/leave_requests", params: { status: "approved", start_date: leave.end_date + 1.day }, headers: headers
+    expect(data["leave_requests"]).to be_empty
+    get "/api/v1/leave_requests", params: { status: "approved", start_date: leave.end_date }, headers: headers
+    expect(data["leave_requests"].pluck("id")).to eq([ leave.id ])
+  end
   it "requires a version for correction and rejects stale initial decisions" do
     post "/api/v1/leave_requests/#{leave.id}/approve", params: { version: 9 }, headers: headers
     expect(response).to have_http_status(:conflict)
@@ -91,6 +135,7 @@ RSpec.describe "Leave decision corrections", type: :request do
     create(:leave_request, user: employee, start_date: leave.start_date, end_date: leave.end_date)
     correct(status: "pending")
     expect(response).to have_http_status(:unprocessable_entity)
+    expect(data["error"]).to eq("#{employee.full_name} already has other time off waiting or approved on these dates.")
     expect(leave.reload.status).to eq("declined")
   end
   it "rolls back the decision if auditing fails" do

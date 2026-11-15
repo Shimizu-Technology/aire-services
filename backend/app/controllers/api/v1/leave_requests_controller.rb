@@ -3,6 +3,8 @@
 module Api
   module V1
     class LeaveRequestsController < BaseController
+      rescue_from ActiveRecord::RecordInvalid, with: :invalid_leave
+
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_leave_request, only: [ :show, :approve, :decline, :cancel, :change_decision, :undo ]
@@ -131,6 +133,11 @@ module Api
 
       private
 
+      def invalid_leave(exception)
+        render json: { error: exception.record.errors.full_messages.join(", ").presence || "This leave request could not be saved." }, status: :unprocessable_entity
+        write_default_audit_event
+      end
+
       def change_saved_decision!(undo:)
         LeaveDecisionChange.new(@leave_request, current_user).call!(
           version: params[:version], status: params[:status], reason: params[:reason], undo: undo
@@ -222,7 +229,7 @@ module Api
         {
           id: request.id,
           version: request.lock_version,
-          undo_expires_at: request.reviewed_at && request.status.in?(%w[approved declined]) ? (request.reviewed_at + 15.minutes).iso8601 : nil,
+          undo_expires_at: request.initial_decision? && request.reviewed_at && request.status.in?(%w[approved declined]) ? (request.reviewed_at + 15.minutes).iso8601 : nil,
           decision_history: current_user.can_approve_leave? ? request.decision_events.map { |event| {
               action: event.action, at: event.occurred_at.iso8601, actor: event.actor_name,
               from: event.metadata["from"], to: event.metadata["to"], reason: event.metadata["reason"] || event.metadata["review_note"]

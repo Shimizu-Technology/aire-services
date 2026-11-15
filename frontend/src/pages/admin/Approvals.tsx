@@ -570,6 +570,8 @@ function ApprovalsInbox() {
             <p>Loading leave requests…</p>
           ) : (
             <LeaveOverview
+              startDate={query.get('start_date') || undefined}
+              departmentLabel={department === 'all' ? 'All departments' : department === 'unassigned' ? 'Unassigned' : departmentOptions.find((item) => item.value === department)?.label || department}
               matchesPerson={matchesPerson}
               matchesDates={(request) => leaveMatchesDates(request, query)}
               requests={visibleLeave}

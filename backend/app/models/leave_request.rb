@@ -40,6 +40,10 @@ class LeaveRequest < ApplicationRecord
     (end_date - start_date).to_i + 1
   end
 
+  def initial_decision?
+    decision_events.first&.action.in?(%w[leave_request.approved leave_request.declined])
+  end
+
   private
 
   def requires_overlap_validation?
@@ -71,7 +75,7 @@ class LeaveRequest < ApplicationRecord
 
     return unless overlapping
 
-    errors.add(:base, "overlaps with another pending or approved leave request")
+    errors.add(:base, "#{user.full_name} already has other time off waiting or approved on these dates.")
   end
 
   def overlapping_active_requests

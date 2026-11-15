@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
@@ -29,7 +29,7 @@ it('keeps a decided row with versioned Undo and refreshes the pending inbox', as
     return { data: { leave_request: { ...row, version: 2 } } }
   })
   show([row])
-  await screen.findByText('No approved absences this week in this department.')
+  await screen.findByText('No approved absences this week · All departments.')
   fireEvent.click(screen.getByRole('button', { name: 'Approve leave for Ana Rivera' }))
   expect(await screen.findByText('Just decided')).toBeInTheDocument()
   fireEvent.click(screen.getAllByRole('button', { name: 'Undo' })[0]!)
@@ -40,18 +40,18 @@ it('restores recent decisions after a page reload', async () => {
   vi.mocked(api.getLeaveRequests).mockResolvedValue(response([decided()]))
   show()
   expect(await screen.findByText('Just decided')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Undo approval for Ana/ })).toBeInTheDocument()
 })
 it('shows correction reasons in history and requires a reason to save', async () => {
   const approved = { ...decided(), undo_expires_at: new Date(Date.now() - 1).toISOString(), decision_history: [{ action: 'leave_request.decision_changed', at: new Date().toISOString(), actor: 'Chels', from: 'declined', to: 'approved', reason: 'Coverage arranged' }] }
   vi.mocked(api.getLeaveRequests).mockResolvedValue(response([approved]))
   vi.mocked(api.changeLeaveDecision).mockResolvedValue({ data: { leave_request: { ...row, version: 2 } } })
   show()
-  await screen.findByText('No approved absences this week in this department.')
-  fireEvent.click(screen.getByRole('tab', { name: 'Past decisions' }))
+  await screen.findByText('No approved absences this week · All departments.')
+  fireEvent.click(screen.getByRole('button', { name: 'Past decisions' }))
   expect(await screen.findByText(/Coverage arranged/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Change decision' }))
+  fireEvent.click(screen.getByRole('button', { name: /Change decision for Ana/ }))
   expect(screen.getByRole('button', { name: 'Save decision' })).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Reason (required)'), { target: { value: 'Wrong date' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save decision' }))
@@ -61,5 +61,48 @@ it('reports an unavailable roster instead of claiming nobody is off', async () =
   vi.mocked(api.getLeaveRequests).mockResolvedValue({ error: 'Could not connect' })
   show()
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not connect')
-  expect(screen.queryByText('No approved absences this week in this department.')).not.toBeInTheDocument()
+  expect(screen.queryByText('No approved absences this week · All departments.')).not.toBeInTheDocument()
+})
+it('loads only the first history page until Show more and date-filters approved leave', async () => {
+  vi.mocked(api.getLeaveRequests).mockImplementation(async (status, page) => status === 'approved' ? response([]) : ({ data: { leave_requests: [{ ...decided(), id: page || 1 }], pagination: { current_page: page || 1, per_page: 25, total_pages: 2, total_count: 26 } } }))
+  show()
+  await screen.findByText('Just decided')
+  expect(api.getLeaveRequests).toHaveBeenCalledWith('approved', 1, 100, undefined, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/))
+  expect(api.getLeaveRequests).not.toHaveBeenCalledWith(undefined, 2, 25, 'decisions')
+  fireEvent.click(screen.getByRole('button', { name: 'Past decisions' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+  await waitFor(() => expect(api.getLeaveRequests).toHaveBeenCalledWith(undefined, 2, 25, 'decisions'))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument())
+})
+it('reloads after a sheet conflict and shows a single page alert', async () => {
+  vi.mocked(api.getLeaveRequests).mockResolvedValue(response([decided()]))
+  vi.mocked(api.changeLeaveDecision).mockResolvedValue({ error: 'Stale', status: 409 })
+  show()
+  await screen.findByText('Just decided')
+  fireEvent.click(screen.getByRole('button', { name: /Change decision for Ana/ }))
+  expect(screen.getByText(/Only managers and admins see this reason/)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Reason (required)'), { target: { value: 'Coverage changed' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save decision' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
+  expect(screen.getByRole('alert')).toHaveTextContent('This leave request changed')
+  expect(changed).toHaveBeenCalled()
+})
+it('keeps the expired Undo guidance visible and offers no Undo after a correction', async () => {
+  vi.mocked(api.getLeaveRequests).mockResolvedValue(response([{ ...decided(), undo_expires_at: new Date(Date.now() - 1).toISOString() }]))
+  show()
+  expect(await screen.findByText('Undo time is over — use Change decision.')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Undo approval/ })).not.toBeInTheDocument()
+})
+
+it('replaces Undo with expiry guidance when its single timeout fires', async () => {
+  vi.useFakeTimers()
+  try {
+    vi.mocked(api.getLeaveRequests).mockResolvedValue(response([{ ...decided(), undo_expires_at: new Date(Date.now() + 1000).toISOString() }]))
+    await act(async () => { show() })
+    expect(screen.getByRole('button', { name: /Undo approval for Ana/ })).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(1001) })
+    expect(screen.queryByRole('button', { name: /Undo approval for Ana/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Undo time is over — use Change decision.')).toBeInTheDocument()
+  } finally { vi.useRealTimers() }
 })

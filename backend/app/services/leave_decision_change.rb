@@ -22,6 +22,9 @@ class LeaveDecisionChange
         raise Conflict, "Only approved or declined leave can be changed. Refresh and try again." unless @request.status.in?(%w[approved declined])
 
         if undo
+          unless @request.initial_decision?
+            raise Invalid, "Undo is only available after an initial approval or decline. Use Change decision."
+          end
           unless @request.reviewed_by_id == @actor.id && @request.reviewed_at && Time.current < @request.reviewed_at + 15.minutes
             raise Invalid, "The 15-minute Undo window has ended or this was another person's decision. Use Change decision with a reason."
           end
@@ -33,10 +36,15 @@ class LeaveDecisionChange
           raise Invalid, "Enter a short reason (1–500 characters)" unless reason.length.between?(1, 500)
         end
 
+        if status.in?(%w[approved pending]) && (@request.user.terminated? || !@request.user.is_active?)
+          raise Invalid, "This employee is inactive or terminated. Their time off cannot be approved or moved to waiting."
+        end
+
         previous_status = @request.status
-        @request.update!(status: status, reviewed_by: status == "pending" ? nil : @actor,
-                         reviewed_at: status == "pending" ? nil : Time.current,
-                         review_note: undo ? nil : reason)
+        attributes = { status: status, reviewed_by: status == "pending" ? nil : @actor,
+                         reviewed_at: status == "pending" ? nil : Time.current }
+        attributes[:review_note] = nil if undo
+        @request.update!(attributes)
         AuditLog.record!(action: undo ? "leave_request.decision_undone" : "leave_request.decision_changed",
                          auditable: @request, actor: @actor, event_category: "leave",
                          metadata: { from: previous_status, to: status, reason: undo ? nil : reason,

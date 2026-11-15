@@ -59,7 +59,7 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
            headers: auth_headers_for[employee]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/overlaps with another pending or approved leave request/i)
+      expect(json[:error]).to match(/already has other time off waiting or approved on these dates/i)
     end
   end
 
