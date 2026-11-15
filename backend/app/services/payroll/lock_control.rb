@@ -245,12 +245,12 @@ module Payroll
     def with_change_lock
       connection = ActiveRecord::Base.connection
       key = Zlib.crc32("payroll_cutoff_change:#{period.id}")
-      raise Error, PROCESSING unless connection.select_value("SELECT pg_try_advisory_lock(#{key})")
+      raise Error, PROCESSING unless connection.select_value(ActiveRecord::Base.sanitize_sql_array([ "SELECT pg_try_advisory_lock(?)", key ]))
 
       begin
         yield
       ensure
-        connection.select_value("SELECT pg_advisory_unlock(#{key})")
+        connection.select_value(ActiveRecord::Base.sanitize_sql_array([ "SELECT pg_advisory_unlock(?)", key ]))
       end
     end
 

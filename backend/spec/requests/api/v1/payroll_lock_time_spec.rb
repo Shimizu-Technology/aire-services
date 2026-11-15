@@ -194,17 +194,18 @@ RSpec.describe "Payroll lock time", type: :request do
 
   it "refuses a second request while one for the same period is still being sent" do
     key = Zlib.crc32("payroll_cutoff_change:#{period.id}")
-    other = ActiveRecord::Base.connection_pool.checkout
+    # A separate session: transactional tests pin one shared connection, so the pool can't provide one.
+    config = ActiveRecord::Base.connection_db_config.configuration_hash
+    other = PG.connect(dbname: config[:database], host: config[:host], port: config[:port], user: config[:username], password: config[:password])
     begin
-      expect(other.select_value("SELECT pg_try_advisory_lock(#{key})")).to be(true)
+      expect(other.exec_params("SELECT pg_try_advisory_lock($1)", [ key ]).getvalue(0, 0)).to eq("t")
       allow(client).to receive(:request_change)
       request_change(admin)
       expect(response).to have_http_status(:unprocessable_entity)
       expect(response.parsed_body.fetch("error")).to include("may still be processing")
       expect(client).not_to have_received(:request_change)
     ensure
-      other.select_value("SELECT pg_advisory_unlock(#{key})")
-      ActiveRecord::Base.connection_pool.checkin(other)
+      other.close
     end
   end
 end
