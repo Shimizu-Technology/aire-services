@@ -132,7 +132,7 @@ function breakRowsFromEntry(entry: EditableTimeEntry) {
 
 export default function EditTimeEntryModal({
   isOpen,
-  entry,
+  entry: sourceEntry,
   categories,
   canDelete,
   canManageTeamTime = false,
@@ -142,6 +142,8 @@ export default function EditTimeEntryModal({
   onError,
   phoneSheet = false,
 }: EditTimeEntryModalProps) {
+  const [reloadedEntry, setReloadedEntry] = useState<EditableTimeEntry | null>(null)
+  const entry = reloadedEntry ?? sourceEntry
   const toast = useContext(ToastContext)
   const activityCapabilities = useCapabilities()
   const canViewActivity = activityCapabilities.view_activity || activityCapabilities.manage_team_time
@@ -158,6 +160,7 @@ export default function EditTimeEntryModal({
   const [breakRows, setBreakRows] = useState<Array<{ id?: number; start_time: string; end_time: string }>>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [needsReload, setNeedsReload] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [correctionReasonRequired, setCorrectionReasonRequired] = useState(false)
   const [correctionReason, setCorrectionReason] = useState('')
@@ -178,23 +181,25 @@ export default function EditTimeEntryModal({
   const [confirm, confirmDialog] = useConfirm()
 
   useEffect(() => {
-    if (!isOpen || !entry) return
+    if (!isOpen || !sourceEntry) return
 
-    setFormData(formFromEntry(entry))
-    setBreakRows(breakRowsFromEntry(entry))
+    setReloadedEntry(null)
+    setFormData(formFromEntry(sourceEntry))
+    setBreakRows(breakRowsFromEntry(sourceEntry))
     setHistoryGuard(false)
     setDiscardGuard(false)
     leaving.current = false
     setCategoryError(null)
     setReasonError(null)
     setTimeError(null)
+    setNeedsReload(false)
     setReviewAction(null)
-    setStopDate(entry.work_date)
+    setStopDate(sourceEntry.work_date)
     setError(null)
     setCorrectionReasonRequired(false)
     setCorrectionReason('')
     setExportReferences([])
-  }, [entry, isOpen])
+  }, [sourceEntry, isOpen])
 
   const calculatedHours = useMemo(() => {
     if (entry?.hours != null && formData.start_time === (entry.start_time || '08:00') &&
@@ -283,7 +288,7 @@ export default function EditTimeEntryModal({
 
   // Saves the edit. True when it saved (or there was nothing to change).
   const save = async (): Promise<boolean> => {
-    if (!entry) return false
+    if (!entry || needsReload) return false
     setCategoryError(null)
     setReasonError(null)
     setTimeError(null)
@@ -353,9 +358,15 @@ export default function EditTimeEntryModal({
         return true
       }
 
-      const response = await api.updateTimeEntry(entry.id, payload, correctionReason || undefined)
+      const response = await api.updateTimeEntry(entry.id, { ...payload, ...(entry.version != null ? { expected_version: entry.version } : {}) }, correctionReason || undefined)
 
       if (response.error) {
+        if (response.status === 409 && response.code === 'stale_entry') {
+          setHistoryGuard(false)
+          setNeedsReload(true)
+          setLocalError('This shift changed since you opened it. Nothing was saved.')
+          return false
+        }
         refuse(response)
         return false
       }
@@ -490,7 +501,7 @@ export default function EditTimeEntryModal({
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <fieldset disabled={saving || deleting}>
+                <fieldset disabled={saving || deleting || needsReload}>
                 {supervisorEdit && (isActiveClockEntry || entry.approval_status === 'denied') && (
                   <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
                     <label className="flex items-start gap-2 text-sm font-semibold text-cyan-900">
@@ -743,6 +754,32 @@ export default function EditTimeEntryModal({
                 {error && (
                   <div role="alert" ref={errorRef} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
+                    {needsReload && (
+                      <button type="button" className="mt-2 block underline" onClick={async () => {
+                        setSaving(true)
+                        try {
+                          const response = await api.getTimeEntry(entry.id)
+                          if (!response.data) {
+                            setLocalError(response.error || "Couldn't reload this shift. Try again.")
+                            return
+                          }
+                          const fresh = response.data.time_entry
+                          setReloadedEntry(fresh)
+                          setFormData(formFromEntry(fresh))
+                          setBreakRows(breakRowsFromEntry(fresh))
+                          setReviewAction(null)
+                          setStopDate(fresh.work_date)
+                          setNeedsReload(false)
+                          setLocalError(null)
+                        } catch {
+                          setLocalError("Couldn't reload this shift. Try again.")
+                        } finally {
+                          setSaving(false)
+                        }
+                      }}>
+                        Reload this shift
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -751,7 +788,7 @@ export default function EditTimeEntryModal({
                     <button
                       type="button"
                       onClick={handleDelete}
-                      disabled={!canDelete || deleting || saving}
+                      disabled={!canDelete || deleting || saving || needsReload}
                       className={`rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
@@ -771,7 +808,7 @@ export default function EditTimeEntryModal({
                     </button>
                     <button
                       type="submit"
-                      disabled={saving || deleting}
+                      disabled={saving || deleting || needsReload}
                       className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
                     >
                       {saving ? 'Saving...' : reviewAction === 'end_clock' ? 'End clock and submit' : reviewAction === 'resubmit_denied' ? 'Submit for review' : 'Update'}
