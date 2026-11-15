@@ -16,11 +16,12 @@ export function payrollConnectionCopy(connection: ConnectionEvidence) {
   const connected = connection.state === 'connected' && latest?.status === 'delivered' && Boolean(latest.delivered_at) && connection.undelivered?.count === 0
   const problem = connection.state === 'delivery_problem' || (connection.undelivered?.count ?? 0) > 0 || (latest != null && latest.status !== 'delivered')
   const receiptText = receipt ? `Last confirmed receipt: ${formatPayrollConnectionTime(receipt)}.` : 'No confirmed receipt from Cornerstone Payroll yet.'
-  if (connection.state === 'paused') return { title: 'Payroll connection paused', detail: `${receiptText} Cornerstone Payroll admins can resume the connection.`, connected: false }
-  if (problem) return { title: "Hours haven't reached Cornerstone Payroll yet", detail: `${receiptText} Check the connection in Cornerstone Payroll; AIRE keeps retrying.`, connected: false }
+  if (connection.state === 'paused') return { title: 'Payroll connection paused', detail: `${receiptText} Cornerstone Payroll admins can resume the connection.`, connected: false, problem }
+  if (problem) return { title: "Hours haven't reached Cornerstone Payroll yet", detail: `${receiptText} Check the connection in Cornerstone Payroll; AIRE keeps retrying.`, connected: false, problem }
   return {
     title: connected ? 'Connected to Cornerstone Payroll' : 'Set up, but nothing confirmed yet',
     detail: `${receiptText}${connected ? '' : ' Check the connection in Cornerstone Payroll before preparing payroll.'}`,
     connected,
+    problem,
   }
 }
