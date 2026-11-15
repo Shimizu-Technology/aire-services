@@ -49,8 +49,8 @@ describe('lockStatus', () => {
     expect(status('2026-11-18T17:00:00+10:00', { paused: true, control: lockNowPending }).kind).toBe('hold')
   })
 
-  it('still counts down toward a lock that is days away while paused', () => {
-    expect(status('2026-11-18T17:00:00+10:00', { paused: true }).kind).toBe('upcoming')
+  it('puts a future lock on hold while paused', () => {
+    expect(status('2026-11-18T17:00:00+10:00', { paused: true }).kind).toBe('hold')
   })
 
   it('names a failed lock', () => {

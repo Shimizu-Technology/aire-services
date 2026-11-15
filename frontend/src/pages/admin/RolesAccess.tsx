@@ -32,7 +32,7 @@ function rolePhrase(roles: string[]) {
 function FootnoteMarks({ ids, numbers }: { ids: string[]; numbers: Map<string, { n: number; label: string }> }) {
   if (ids.length === 0) return null
   return (
-    <span className="ml-1 inline-flex gap-1 align-super">
+    <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
       {ids.map((id) => {
         const note = numbers.get(id)
         if (!note) return null
@@ -41,9 +41,9 @@ function FootnoteMarks({ ids, numbers }: { ids: string[]; numbers: Map<string, {
             key={id}
             href={`#setting-${id}`}
             aria-label={`Note ${note.n}: ${note.label}`}
-            className="text-caption font-semibold text-cyan-800 hover:underline"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center text-caption font-semibold text-cyan-800 underline"
           >
-            {note.n}
+            Note {note.n}
           </a>
         )
       })}

@@ -284,6 +284,7 @@ it('uses human status/work labels and hides machine annotations while keeping th
   expect(screen.getByText('Work:')).toBeInTheDocument()
   expect(screen.getByText('Waiting for approval')).toBeInTheDocument()
   expect(await screen.findByText(/8.0h · Waiting for approval/)).toBeInTheDocument()
+  expect(screen.queryByText(/0.0h overtime to review/)).not.toBeInTheDocument()
   expect(screen.getByText('Please check my finish time')).toBeInTheDocument()
   expect(screen.queryByText(/Clocked in without a schedule/)).not.toBeInTheDocument()
   expect(screen.queryByText(/awaiting admin review/)).not.toBeInTheDocument()
