@@ -1,10 +1,10 @@
 # Rehearsal follow-up verification
 
-Base: `origin/main` at `b0542bf`. Worktree: `~/work/fix-rehearsal-followups`; branch: `fix/rehearsal-followups-20261116`. No migrations, production access, external payroll requests, or email delivery.
+Initial base: `origin/main` at `b0542bf`; rebased onto dependency-update head `e02a24a`. Tested implementation commit: `a6002d69ced5ae42945305f9288e637ae93617ba`; the following evidence commit changes only this ledger and screenshots. Worktree: `~/work/fix-rehearsal-followups`; branch: `fix/rehearsal-followups-20261116`. No migrations, production access, external payroll requests, or email delivery.
 
 AIRE owns punches, time/leave approvals and frozen payroll hours. Cornerstone owns payroll processing and import. Sources: root README; `docs/PAYROLL_CALENDAR_CONTRACT.md`; `Payroll::LockControl`, `Payroll::ApprovalHours`, `Payroll::CarryoverQueue`; Approvals and pay-period page tests. Acceptance: honest uncertain outcomes; manager dates from the next published lock; accurate open-clock, waiting-hours and import wording; expiring and restorable Undo; current-filter and current-entry race protection.
 
-Agent-executed affected-flow QA, November 16 (Guam), local Chromium at 390×844 and 1280×900. The manager header desktop capture is 1280×800. Screenshots use device pixel ratio 2. Local API on 3454, Vite on 5454; isolated synthetic PostgreSQL database. A temporary development auth adapter selected synthetic users and their real capabilities, using Rails test tokens; it was removed before commit. A temporary test-only transport stub raised `Net::ReadTimeout` after a short delay; no request went to Cornerstone. The lock fixture was subsequently published/finalized locally, and its outbox delivery marked delivered without sending it.
+Agent-executed affected-flow QA, November 16 (Guam), local Chromium at 390×844 and 1280×900. The manager header desktop capture is 1280×800. Screenshots use device pixel ratio 2. Local API on 3454, Vite on 5454; isolated synthetic PostgreSQL database. A temporary development auth adapter selected synthetic users and their real capabilities, using Rails test tokens; it was removed before commit. A temporary test-only transport stub raised `Net::ReadTimeout` after a short delay; no request went to Cornerstone. The lock fixture was subsequently published/finalized locally, and its outbox delivery marked delivered without sending it. All ten screenshots were refreshed after the dependency rebase. That repeat used a Vite transform and Rack wrapper outside the repository; only its final timeout scenario advanced the server clock to Dec 1 to make Nov 16–30 eligible for Lock now. Source files and production authentication were unchanged.
 
 | Required journey | Result | Evidence |
 | --- | --- | --- |
@@ -21,4 +21,21 @@ Scope difference behind 44 versus 46: payroll's `approval_waiting_count` selects
 
 No horizontal overflow was observed at 390 px. Existing touch styles provide 44 px coarse-pointer buttons/tabs; the new reload control is at least 44 px. These are resized Chromium checks, not physical-phone or native keyboard testing. WebKit/mobile Safari were not run on this headless mini. Real Cornerstone acceptance/import and production deployment were outside scope.
 
-Automated gate results and cleanup are recorded below after the final run.
+Final gate on `a6002d69ced5ae42945305f9288e637ae93617ba`, including `e02a24a` dependencies:
+
+| Check | Result |
+| --- | --- |
+| Frontend `npm ci` | Passed, Node 22.23.5 |
+| `npx tsc -b` | Passed |
+| `npm run lint` | Passed |
+| `npm test -- --reporter=dot --maxWorkers=2` | 153 files, 1,906 tests passed |
+| Backend `bundle exec rubocop` | 652 files, zero offenses |
+| `bundle exec rspec` | 2,377 examples, zero failures, one existing opt-in performance benchmark pending (`REVIEW_BATCH_BENCHMARK=1`) |
+| `bundle exec brakeman --no-pager` | Brakeman 8.1.0: zero errors, zero security warnings |
+| Advisory Impeccable scan | No findings in the changed UI paths scanned |
+
+The lock-dialog test now freezes Date instead of automatically advancing it: slow suite execution could otherwise move the rounded minimum from 9:15 to 9:16. Tests that exercise elapsed time still advance it explicitly. For backend reproduction, use a fresh branch-named database and `RAILS_ENV=test bundle exec rails db:create db:schema:load`; `db:prepare` also seeds development records and invalidates empty-database fixture assumptions.
+
+Cleanup verified: task-owned servers on 3454/5454 stopped, all three created preview tabs closed, synthetic session keys removed, and the three task scratch databases dropped. No owned runtime was handed off. The shared `agent-postgres` service remains available. The worktree and branch are intentionally retained for the lead.
+
+Machine setup issue: lifecycle automation could not initialize because its local profile lacked `schema_version: 1`; the shared-context read-only check also found no local `agent-context.json`. Relevant canonical guidance was read directly from `~/Shared-Guidance`. Exact resource ownership and cleanup were tracked and verified manually; no shared service or other account was changed.
