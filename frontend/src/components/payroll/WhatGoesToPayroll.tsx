@@ -43,7 +43,7 @@ function Flags({ row, locked }: { row: PersonRow; locked: boolean }) {
   )
 }
 
-function Days({ row, highlight }: { row: PersonRow; highlight: string | null }) {
+function Days({ row, highlight, locked }: { row: PersonRow; highlight: string | null; locked: boolean }) {
   const lines = [...row.lines].sort((a, b) => a.original_work_date.localeCompare(b.original_work_date))
   return (
     <ul className="space-y-1 text-body-sm">
@@ -66,7 +66,7 @@ function Days({ row, highlight }: { row: PersonRow; highlight: string | null }) 
       })}
       {row.held.map(item => (
         <li key={`${item.source_time_entry_id}-${item.reason}`} className="flex flex-wrap items-baseline justify-between gap-x-3 px-2 py-1 text-ink-muted">
-          <span className="min-w-0">{dayLabel(item.original_work_date)} · {HELD_LABELS[item.reason] ?? 'Held back'}</span>
+          <span className="min-w-0">{dayLabel(item.original_work_date)} · {(locked && item.reason === 'open_clock' ? 'Was still clocked in at the lock' : locked && item.reason === 'pending_overtime' ? 'Overtime was waiting at the lock' : HELD_LABELS[item.reason] ?? 'Held back')}</span>
           <span className="tabular-nums">{hoursLabel(item.waiting_hours_in_period ?? item.held_total_hours)}{item.waiting_hours_in_period !== undefined && item.waiting_hours_in_period !== item.held_total_hours ? ' in this period' : ''}</span>
         </li>
       ))}
@@ -101,10 +101,18 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
   const wide = useMediaQuery('(min-width: 1280px)')
   const storageKey = `pay-period-rows:${returnTo}`
   const [open, setOpen] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') ?? (initialOpen ? [initialOpen] : [])) }
-    catch { return new Set(initialOpen ? [initialOpen] : []) }
+    const restored = new Set<string>()
+    try {
+      const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null')
+      if (Array.isArray(saved)) for (const id of saved) if (typeof id === 'string') restored.add(id)
+    } catch { /* Storage may be unavailable; keep the in-memory rows. */ }
+    if (initialOpen) restored.add(initialOpen)
+    return restored
   })
-  useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify([...open])) }, [open, storageKey])
+  useEffect(() => {
+    try { sessionStorage.setItem(storageKey, JSON.stringify([...open])) }
+    catch { /* Row expansion still works without storage. */ }
+  }, [open, storageKey])
   const toggle = (id: string) => setOpen(current => {
     const next = new Set(current)
     if (next.has(id)) next.delete(id)
@@ -176,7 +184,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                     </tr>
                     {expanded && (
                       <tr>
-                        <td colSpan={locked ? 4 : 5} className="bg-surface-muted px-3.5 py-2"><Days row={row} highlight={highlightEntry} /></td>
+                        <td colSpan={locked ? 4 : 5} className="bg-surface-muted px-3.5 py-2"><Days row={row} highlight={highlightEntry} locked={locked} /></td>
                       </tr>
                     )}
                   </Fragment>
@@ -219,7 +227,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                 </button>
                 {expanded && (
                   <div className="space-y-1 px-3.5 pb-3">
-                    <Days row={row} highlight={highlightEntry} />
+                    <Days row={row} highlight={highlightEntry} locked={locked} />
                     <Link to={personHref(row)} className="inline-flex min-h-11 items-center text-body-sm font-semibold text-primary underline">Open {row.name}</Link>
                   </div>
                 )}

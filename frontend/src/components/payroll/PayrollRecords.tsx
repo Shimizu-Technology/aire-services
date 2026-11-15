@@ -776,6 +776,8 @@ export default function PayrollRecords() {
     syncPeriodToUrl({ start: startDate, end: endDate })
     const requestSequence = ++previewRequestSequence.current
     setPreviewing(true)
+    setPreview(null)
+    setShowManualProcessing(false)
     setError(null)
     setSelectedBatch(null)
     setShowConfirm(false)
@@ -952,7 +954,7 @@ export default function PayrollRecords() {
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
               {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download locked CSV</button>}
               {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
-              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Lock these hours</button>}
+              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={previewing || !preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Lock these hours</button>}
             </div>
           </div>
           {preview && <PublishedCalendarNotice payload={preview} activationEnabled={connectionEnabled} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
