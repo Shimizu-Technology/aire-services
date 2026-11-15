@@ -494,7 +494,7 @@ function ApprovalsInbox() {
       {extrasError.workers && (
         <ErrorState title={extrasError.workers} onRetry={reloadExtras} />
       )}
-      {batches.notice && (
+      {batches.notice && batches.notice.includes('Reload') && (
         <p
           role="status"
           className="rounded-card border border-amber-200 bg-amber-50 p-3 text-body-sm"

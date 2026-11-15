@@ -11,7 +11,7 @@ function TabIcon({ icon: Icon, badge }: { icon: LucideIcon; badge?: string }) {
     <span className="relative inline-flex">
       <Icon aria-hidden="true" className="size-6" strokeWidth={1.8} />
       {badge && (
-        <span aria-hidden="true" className="absolute -right-2.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-white ring-2 ring-surface">
+        <span aria-hidden="true" className="absolute -right-2.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-slate-950 ring-2 ring-surface">
           {badge}
         </span>
       )}
@@ -147,7 +147,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
                         <Icon aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.8} />
                         <span className="min-w-0 flex-1 truncate">{navItem.name}</span>
                         {navItem.badge === 'approvals' && approvalCount > 0 && (
-                          <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-white">{approvalBadgeText(approvalCount)}</span>
+                          <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-slate-950">{approvalBadgeText(approvalCount)}</span>
                         )}
                       </Link>
                     </li>

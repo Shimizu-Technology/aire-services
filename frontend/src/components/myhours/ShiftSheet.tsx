@@ -99,8 +99,8 @@ export function ShiftSheet({
           <dd>
             {entry.approval_status === 'denied'
               ? entry.approved_by
-                ? `Declined by ${entry.approved_by.full_name}`
-                : 'Declined'
+                ? `Denied by ${entry.approved_by.full_name}`
+                : 'Denied'
               : entry.approval_status === 'approved' && entry.approved_by
                 ? `Approved by ${entry.approved_by.full_name}`
                 : entry.approval_status === 'approved' && entry.auto_approved

@@ -184,6 +184,7 @@ export function useReviewBatch(
     const succeeded: SucceededBatch[] = []
     let approved = 0
     let result: ApprovalResult = 'ok'
+    let refusal = ''
     try {
       for (const chunk of approvalChunks(items, batchLimit, rows)) {
         const fingerprint = JSON.stringify({ mode, items: chunk })
@@ -200,15 +201,15 @@ export function useReviewBatch(
           }
           const server = response.error || 'This approval was rejected.'
           const detail = server.replace(/Nothing was approved\.?/i, '').trim()
-          setNotice(
+          refusal =
             unknown
               ? items.length === 1
                 ? "We couldn't confirm this shift was approved. Reload before deciding again."
                 : `Confirmed ${approved} of ${items.length} shifts approved. We couldn't confirm whether this saved. This request's outcome is unknown. Reload before deciding again.`
               : approved
                 ? `Approved ${approved} of ${items.length} shifts. The other ${items.length - approved} weren't approved. ${detail} The list is updated; check them and try again.`
-                : `${server} ${response.status === 409 ? 'The list is updated; check them and try again.' : ''}`,
-          )
+                : `${server} ${response.status === 409 ? 'The list is updated; check them and try again.' : ''}`
+          setNotice(refusal)
           break
         }
         retryKeys.current.delete(fingerprint)
@@ -232,6 +233,18 @@ export function useReviewBatch(
         })
       }
       await reloadFresh()
+      if (refusal) {
+        let message = refusal
+        if (result === 'conflict') {
+          const state = items.length === 1 ? await approvalsApi.entry(items[0].id).catch(() => undefined) : undefined
+          const row = state?.data?.time_entry
+          message = row?.approval_status === 'approved'
+            ? `${row.approved_by?.full_name || 'Another manager'} already approved this. The list has been refreshed.`
+            : `${refusal} The list has been refreshed. Review the remaining shifts before trying again.`
+        }
+        setNotice(message)
+        toast.show({ message, tone: 'danger' })
+      }
       return result
     } finally {
       lock.current = false

@@ -29,7 +29,7 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 vi.mock('../../lib/api/approvals', () => ({
-  approvalsApi: { pending: vi.fn(), review: vi.fn(), undo: vi.fn(), approvedLeave: vi.fn() },
+  approvalsApi: { entry: vi.fn().mockResolvedValue({}), pending: vi.fn(), review: vi.fn(), undo: vi.fn(), approvedLeave: vi.fn() },
 }))
 vi.mock('../../lib/payStubsApi', () => ({
   payStubsApi: { requests: vi.fn().mockResolvedValue({ requests: [] }) },
@@ -455,7 +455,7 @@ it.each([
 
 it('keeps zero-hour pending overtime out of every ordinary approval payload', async () => {
   renderInbox()
-  expect(await screen.findByText(/Overtime to review/)).toBeInTheDocument()
+  expect(await screen.findByText(/0.0h overtime to review/)).toBeInTheDocument()
   expect(screen.queryByText(/0.0h overtime this week/)).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Approve all 3' }))
   fireEvent.click(screen.getByRole('button', { name: 'Approve 3 shifts' }))
