@@ -159,7 +159,7 @@ it('requires a nonblank employee-facing decline reason, while approval stays ava
   const decline = vi.spyOn(api, 'declineLeaveRequest').mockResolvedValue({ data: { leave_request: { ...request, status: 'declined' } } })
   render(<ToastProvider><LeaveRequestsList requests={[request]} onChanged={vi.fn()} /></ToastProvider>)
   expect(screen.getByRole('button', { name: 'Approve leave for Ethan Cruz' })).toBeEnabled()
-  fireEvent.click(screen.getByRole('button', { name: 'Decline…' }))
+  fireEvent.click(screen.getByRole('button', { name: "Decline Ethan Cruz's time off, Sat, Nov 21" }))
   const save = screen.getByRole('button', { name: 'Decline leave' })
   expect(save).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Reason (required)'), { target: { value: '   ' } })

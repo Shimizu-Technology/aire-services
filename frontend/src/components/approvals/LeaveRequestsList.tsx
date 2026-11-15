@@ -181,6 +181,7 @@ export default function LeaveRequestsList({
               trailing={
                 own ? undefined : (
                   <Button
+                    aria-label={`Decline ${name(request)}'s time off, ${leaveDateRange(request.start_date, request.end_date)}`}
                     variant="ghost"
                     size="sm"
                     disabled={busy || !online}
