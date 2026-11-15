@@ -16,7 +16,7 @@ export default function OrdinaryGroups({
   groupBy: 'person' | 'day'
   selected: Set<number>
   onSelect: (rows: ReviewEntry[], checked: boolean) => void
-  onApprove: (rows: ReviewEntry[], name: string) => Promise<void>
+  onApprove: (rows: ReviewEntry[], name: string) => Promise<boolean>
   disabled: boolean
   disabledReason?: string
 }) {
@@ -38,8 +38,10 @@ export default function OrdinaryGroups({
         `Approve ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} for ${title}`,
     )
     const next = buttons[index + 1] ?? buttons[index - 1]
-    await onApprove(entries, title)
+    const completed = await onApprove(entries, title)
+    if (!completed) return
     window.requestAnimationFrame(() => {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], dialog[open]')) return
       if (next?.isConnected && !next.disabled) next.focus({ preventScroll: true })
     })
   }

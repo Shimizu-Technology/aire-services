@@ -23,3 +23,14 @@ it('expands a period into displayed bounds and validates a one-bound edit withou
   expect(query.get('start_date')).toBe('2026-08-20')
   expect(query.get('end_date')).toBe('2026-08-31')
 })
+
+it('reopens an end-only range visibly and clears its bound when All dates is chosen', () => {
+  const apply = vi.fn()
+  render(<FiltersSheet query={new URLSearchParams('end_date=2026-11-15')} categories={[]} people={[]} onApply={apply} onClose={vi.fn()} />)
+  expect(screen.getByLabelText('Date range')).toHaveValue('range')
+  expect(screen.getByLabelText('End date')).toHaveValue('2026-11-15')
+  expect(screen.getByLabelText('Start date')).toHaveValue('')
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'all' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+  expect(apply.mock.calls[0][0].has('end_date')).toBe(false)
+})
