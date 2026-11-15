@@ -307,3 +307,13 @@ RSpec.describe "Api::V1::Auth", type: :request do
     end
   end
 end
+
+RSpec.describe "Signed-in department scope", type: :request do
+  it "returns the current viewer's ordered memberships for the inbox and badge" do
+    manager = create(:user, :manager)
+    manager.user_approval_groups.create!(approval_group: "cfi")
+    post "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{manager.id}" }
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.dig("user", "approval_group_keys")).to eq([ "cfi" ])
+  end
+end

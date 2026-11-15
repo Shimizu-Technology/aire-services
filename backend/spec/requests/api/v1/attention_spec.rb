@@ -48,6 +48,19 @@ RSpec.describe "Attention", type: :request do
     create(:payroll_calendar_period, payroll_calendar_for(Date.new(2026, 11, 1)))
   end
 
+  it "does not count legacy denied time with orphan pending overtime in Today or the live period" do
+    publish_november!
+    entry = shift(caleb, date: Date.new(2026, 11, 9), approval_status: "denied")
+    entry.update_columns(overtime_status: "pending")
+    body = attention
+    expect(body.dig("approvals", "count")).to eq(0)
+    expect(body.fetch("items").pluck("type")).not_to include("approvals_waiting", "overtime_waiting")
+    expect(body.dig("period", "waiting_count")).to eq(0)
+    expect(body.dig("period", "waiting_hours")).to eq(0)
+    get "/api/v1/time_entries/pending_approvals", headers: headers_for(admin)
+    expect(response.parsed_body.fetch("count")).to eq(0)
+  end
+
   describe "open clocks" do
     it "flags yesterday's clock the minute the Guam day changes, and leaves a just-started clock alone" do
       before_midnight = open_clock(caleb, at: zone.local(2026, 11, 10, 23, 50))

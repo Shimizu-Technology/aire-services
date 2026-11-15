@@ -63,6 +63,43 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
     end
   end
 
+  describe "optional overlap filters" do
+    let!(:left) { create(:leave_request, user: employee, start_date: "2026-08-01", end_date: "2026-08-05") }
+    let!(:right) { create(:leave_request, user: employee, start_date: "2026-08-10", end_date: "2026-08-12") }
+    let!(:outside) { create(:leave_request, user: other_employee, start_date: "2026-08-13", end_date: "2026-08-15") }
+
+    it "includes both touching edges and still paginates" do
+      get "/api/v1/leave_requests", params: { start_date: "2026-08-05", end_date: "2026-08-10", per_page: 1 }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(json[:pagination]).to include(total_count: 2, total_pages: 2)
+      expect(json[:leave_requests].length).to eq(1)
+      expect([ left.id, right.id ]).to include(json[:leave_requests].first[:id])
+    end
+
+    it "leaves the unfiltered response byte-for-byte unchanged for absent or blank filters" do
+      get "/api/v1/leave_requests", headers: auth_headers_for[admin]
+      unfiltered = response.body
+      expect(json[:leave_requests].map { |row| row[:id] }).to contain_exactly(left.id, right.id, outside.id)
+      get "/api/v1/leave_requests", params: { start_date: "", end_date: "" }, headers: auth_headers_for[admin]
+      expect(response.body).to eq(unfiltered)
+    end
+
+    it "supports either optional edge and preserves employee scoping" do
+      get "/api/v1/leave_requests", params: { start_date: "2026-08-10" }, headers: auth_headers_for[employee]
+      expect(json[:leave_requests].map { |row| row[:id] }).to eq([ right.id ])
+      get "/api/v1/leave_requests", params: { end_date: "2026-08-05" }, headers: auth_headers_for[employee]
+      expect(json[:leave_requests].map { |row| row[:id] }).to eq([ left.id ])
+    end
+
+    [ { start_date: "not-a-date" }, { end_date: "2026-02-30" }, { start_date: "2026-08-10", end_date: "2026-08-01" } ].each do |filters|
+      it "rejects invalid dates or reversed ranges: #{filters}" do
+        get "/api/v1/leave_requests", params: filters, headers: auth_headers_for[admin]
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json[:error]).to be_a(String)
+      end
+    end
+  end
+
   describe "GET /api/v1/leave_requests" do
     let!(:own_request) { create(:leave_request, user: employee) }
     let!(:other_request) { create(:leave_request, user: other_employee) }
