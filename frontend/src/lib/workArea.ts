@@ -8,5 +8,5 @@ export function workAreaFor(role: Parameters<typeof capabilitiesFor>[0] | null |
   if (capabilities.manage_settings) return { href: ADMIN_PATHS.today, label: 'Back to Today' }
   if (capabilities.approve_time) return { href: ADMIN_PATHS.approvals, label: 'Back to Approvals' }
   if (capabilities.manage_team_time) return { href: ADMIN_PATHS.timecards, label: 'Open Timecards' }
-  return { href: ADMIN_PATHS.myTime, label: 'Open My Time' }
+  return { href: ADMIN_PATHS.myTime, label: 'Open Clock' }
 }

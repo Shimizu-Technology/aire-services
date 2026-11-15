@@ -49,13 +49,13 @@ function StatementCard({ statement, contractor, href }: { statement: MyPayStatem
             {(status.badge || purpose) && (
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 {status.badge && <StatusBadge label={status.label} tone={status.tone} />}
-                {purpose && <span className="text-xs font-medium text-slate-600">{purpose}</span>}
+                {purpose && <span className="text-sm font-medium text-slate-600">{purpose}</span>}
               </div>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1 text-right">
             <div>
-              <p className="text-xs font-medium text-slate-500">{contractor ? 'Payment' : 'Net pay'}</p>
+              <p className="text-sm font-medium text-slate-500">{contractor ? 'Payment' : 'Net pay'}</p>
               <p className="font-display text-xl font-bold tabular-nums text-slate-950 sm:text-2xl">{formatMoney(statement.net_pay)}</p>
             </div>
             <ChevronRight className="h-5 w-5 text-slate-400 transition-colors group-hover:text-cyan-700" aria-hidden="true" />
@@ -121,7 +121,7 @@ export default function MyPay() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">My Pay</h1>
         <p className="mt-1 text-sm text-slate-600">
           {contractor ? 'Every payment statement from AIRE Services, newest first.' : 'Every paycheck from AIRE Services, newest first. Your paper stub still comes with each check.'}

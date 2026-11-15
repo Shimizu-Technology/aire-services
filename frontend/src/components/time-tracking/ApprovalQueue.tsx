@@ -574,10 +574,10 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     }
   }
 
-  const handleDeny = async (entry: TimeEntry, note?: string) => {
+  const handleDeny = async (entry: TimeEntry, note?: string, keepOriginal = false) => {
     if (queueUnavailable) return
     if (!note?.trim()) {
-      askForReason(entry, 'Add a reason, then press Deny again.')
+      askForReason(entry, keepOriginal ? 'Add a reason, then press Reject change again.' : 'Add a reason, then press Deny again.')
       return
     }
     setRowError(null)
@@ -586,7 +586,9 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     setApprovalNotice(null)
     try {
       const isOvertimeOnly = entry.approval_status !== 'pending' && entry.overtime_status === 'pending'
-      const result = isOvertimeOnly
+      const result = keepOriginal
+        ? await api.rejectTimeEntryChange(entry.id, entry.version ?? -1, note)
+        : isOvertimeOnly
         ? await api.denyOvertime(entry.id, note)
         : await api.denyTimeEntry(entry.id, note)
 
@@ -915,12 +917,19 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               >
                 {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : approveLabel(entry)}
               </button>
+              {entry.original_employee_change && <button
+                onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined, true)}
+                disabled={actionLoading === entry.id || queueUnavailable}
+                className="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">
+                Reject change, keep original time
+                <span className="block font-normal">{entry.original_employee_change.clock_in_at ? new Date(entry.original_employee_change.clock_in_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' }) : 'Original start'}–{entry.original_employee_change.clock_out_at ? new Date(entry.original_employee_change.clock_out_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' }) : 'original end'}</span>
+              </button>}
               <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
                 disabled={actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
                 className="min-w-0 flex-1 break-words min-h-[44px] py-2 px-3 bg-white hover:bg-secondary active:bg-secondary-dark disabled:opacity-50 text-red-600 text-sm font-medium rounded-xl transition-colors border border-red-200"
               >
-                Deny
+                {entry.approval_status !== 'pending' && entry.overtime_status === 'pending' ? 'Deny overtime' : 'Deny whole shift'}
               </button>
               {isPendingApproval && isPendingOvertime && (
                 <button

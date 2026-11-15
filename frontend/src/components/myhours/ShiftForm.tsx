@@ -89,6 +89,7 @@ export function ShiftForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!online || saving || uncertain) return
+    if (date > todayInGuam()) { setError("You can't add time for a day that hasn't happened yet."); return }
     if (!entry && (!date || !timesChosen)) {
       setError('Pick the day, then the times you worked.')
       return

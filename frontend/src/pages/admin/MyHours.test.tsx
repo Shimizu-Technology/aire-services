@@ -68,6 +68,8 @@ it('shows one approval pill for unknown payroll, keeping overtime on the shift',
       shift({
         overtime_status: 'pending',
         pending_overtime_hours: 6,
+        hours: 8,
+        payroll_hours_by_date: [{ work_date: '2026-11-14', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 2, overtime_waiting_hours: 6 }],
         payroll_status: {
           status: 'payment_history_unavailable',
           label: 'Payment status not tracked yet',

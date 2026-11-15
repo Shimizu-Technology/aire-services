@@ -51,7 +51,14 @@ export default function MyHours() {
   const [people, setPeople] = useState<UserSummary[]>([])
   const [loadedKey, setLoadedKey] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [detail, setDetail] = useState<TimeEntry | null>(null)
+  const detailId = params.get('shift')
+  const detail = entries.find(entry => String(entry.id) === detailId) ?? null
+  const setDetail = (entry: TimeEntry | null) => {
+    const next = new URLSearchParams(params)
+    if (entry) next.set('shift', String(entry.id))
+    else next.delete('shift')
+    setParams(next, { replace: !entry })
+  }
   const [form, setForm] = useState<TimeEntry | 'new' | null>(null)
   const [week, setWeek] = useState<TimeEntry[]>([])
   const [weekError, setWeekError] = useState(false)
@@ -256,7 +263,7 @@ export default function MyHours() {
                         </div>
                         <p className="text-body-sm text-ink-muted">
                           {entry.time_category?.name ?? 'No work type'}
-                          {partial ? ' · hours in this period' : ''}
+                          {partial ? ' · portion of an overnight shift' : ''}
                           {continuesFrom
                             ? ` · from ${employeeDate(continuesFrom, { month: 'short', day: 'numeric' })}`
                             : ''}

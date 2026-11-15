@@ -185,6 +185,8 @@ export const myTimeApi = {
       },
       'The leave request timed out. Check your requests before trying again.',
     ),
+  undoCancelLeave: (id: number) =>
+    boundedRequest<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/undo_cancel`, { method: 'POST' }, 'Undo timed out. Check your requests before trying again.'),
   cancelLeave: (id: number) =>
     boundedRequest<{ leave_request: LeaveRequest }>(
       `/api/v1/leave_requests/${id}/cancel`,

@@ -178,7 +178,7 @@ it('can undo a cancellation by sending the same request again', async () => {
     data: { leave_request: { ...request, status: 'cancelled' } },
     status: 200,
   })
-  const send = vi.spyOn(myTimeApi, 'requestLeave').mockResolvedValue({
+  const send = vi.spyOn(myTimeApi, 'undoCancelLeave').mockResolvedValue({
     data: { leave_request: { ...request, id: 10 } },
     status: 201,
   })
@@ -186,12 +186,7 @@ it('can undo a cancellation by sending the same request again', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
   await waitFor(() =>
-    expect(send).toHaveBeenCalledWith({
-      leave_type: 'paid_time_off',
-      start_date: '2026-12-01',
-      end_date: '2026-12-01',
-      reason: 'Family visit',
-    }),
+    expect(send).toHaveBeenCalledWith(9),
   )
   expect(
     await screen.findByText('Your request is back and waiting for approval.'),
