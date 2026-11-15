@@ -59,7 +59,7 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
            headers: auth_headers_for[employee]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/overlaps with another pending or approved leave request/i)
+      expect(json[:error]).to match(/already has other time off waiting or approved on these dates/i)
     end
   end
 
@@ -261,6 +261,30 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       request_record.reload
       expect(request_record.status).to eq("approved")
       expect(request_record.review_note).to eq("Approved first")
+    end
+  end
+  describe "decline reason" do
+    [ nil, "", "  \n " ].each do |note|
+      it "refuses a blank reason #{note.inspect} without changing leave or writing a decision audit" do
+        request_record = create(:leave_request, user: employee)
+        expect do
+          post "/api/v1/leave_requests/#{request_record.id}/decline",
+               params: { review_note: note }, headers: auth_headers_for[admin]
+        end.not_to change { AuditLog.where(action: "leave_request.declined").count }
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json[:error]).to eq("Write a short reason to decline this leave request.")
+        expect(request_record.reload.status).to eq("pending")
+      end
+    end
+
+    it "saves the trimmed reason for the employee" do
+      request_record = create(:leave_request, user: employee)
+      post "/api/v1/leave_requests/#{request_record.id}/decline",
+           params: { review_note: "  Coverage needed  " }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(request_record.reload).to have_attributes(status: "declined", review_note: "Coverage needed")
+      get "/api/v1/leave_requests", headers: auth_headers_for[employee]
+      expect(json[:leave_requests].find { |row| row[:id] == request_record.id }[:review_note]).to eq("Coverage needed")
     end
   end
 end

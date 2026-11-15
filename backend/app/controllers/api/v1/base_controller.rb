@@ -7,6 +7,7 @@ module Api
       include Auditable
 
       rescue_from StandardError, with: :internal_server_error
+      rescue_from ActiveRecord::StaleObjectError, with: :stale_object
       rescue_from ActiveRecord::RecordNotFound, with: :not_found
       rescue_from ActiveRecord::RecordInvalid, with: :unprocessable_entity
       rescue_from ActionController::ParameterMissing, with: :bad_request
@@ -23,6 +24,11 @@ module Api
 
       def clear_settings_cache
         Setting.clear_cache!
+      end
+
+      def stale_object(_exception)
+        render json: { error: "This request changed. Refresh and try again." }, status: :conflict
+        write_default_audit_event
       end
 
       def not_found(_exception)

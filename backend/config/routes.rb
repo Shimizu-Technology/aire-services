@@ -146,6 +146,8 @@ Rails.application.routes.draw do
           post :decline
           post :undo_cancel
           post :cancel
+          post :undo
+          post :change_decision
         end
       end
       resources :time_entries, only: [ :index, :show, :create, :update, :destroy ] do
