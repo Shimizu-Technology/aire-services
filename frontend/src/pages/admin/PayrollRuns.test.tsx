@@ -10,6 +10,7 @@ import PayrollRuns from './PayrollRuns'
 import PayrollRecords from '../../components/payroll/PayrollRecords'
 
 const mocks = vi.hoisted(() => ({
+  stubs: vi.fn(),
   periods: vi.fn(),
   period: vi.fn(),
   attention: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('../../lib/api', () => ({
     getPendingApprovals: mocks.getPendingApprovals,
   },
 }))
+vi.mock('../../lib/payStubsApi', () => ({ payStubsApi: { period: mocks.stubs }, PayStubError: class extends Error {} }))
 vi.mock('../../lib/api/attention', () => ({ attentionApi: { attention: mocks.attention, connection: mocks.connection } }))
 vi.mock('../../lib/api/payrollPeriod', () => ({ payrollPeriodApi: { periods: mocks.periods, period: mocks.period } }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: 'admin', isClerkEnabled: true }) }))
@@ -93,6 +95,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(NOW))
   restoreMatchMedia = mockMatchMedia({ width: 1280 })
   for (const mock of Object.values(mocks)) mock.mockReset()
+  mocks.stubs.mockResolvedValue({ workers: [] })
   mocks.periods.mockResolvedValue({ data: periodsIndex() })
   publish(periodSummary(), paidPeriod())
   mocks.attention.mockResolvedValue({ data: attention() })
@@ -445,7 +448,7 @@ describe('pay period page: past periods and other states', () => {
     expect(screen.getByRole('link', { name: 'Back to the current pay period' })).toHaveAttribute('href', '/admin/payroll')
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Paid')).toBeInTheDocument()
     expect(steps().getAllByRole('listitem').map(item => item.getAttribute('data-state'))).toEqual(['done', 'done', 'done', 'done', 'done'])
-    expect(screen.getByRole('link', { name: 'Open Pay stubs' })).toHaveAttribute('href', '/admin/pay-stubs')
+    expect(screen.getByText('No issued pay stubs are available for this period yet.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
     // No carried hours from Oct 16–31, so the section stays away.
     expect(screen.queryByRole('region', { name: /Hours carried to a later period/ })).not.toBeInTheDocument()

@@ -309,7 +309,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
           {capabilities.manage_payroll && (
             <ConnectionCard connection={connection.data} load={blockLoad(connection)} updatedAt={connection.loadedAt} now={now} onRetry={() => void connection.reload()} />
           )}
-          {period && <PayStubsStep payDate={period.pay_date} today={todayInGuam(now)} />}
+          {period && <PayStubsStep key={period.start_date} start={period.start_date} end={period.end_date} paid={period.handoff_state === 'paid'} payDate={period.pay_date} today={todayInGuam(now)} />}
           {range && periods.data && <EarlierPeriods periods={periods.data.periods} before={range.start} previousStart={show.data?.previous_start_date} />}
         </aside>
       </div>

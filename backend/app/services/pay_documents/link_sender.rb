@@ -24,7 +24,8 @@ module PayDocuments
     end
 
     def initialize(worker:, actor:, statement_ids:, origin: "sender", email: nil, email_confirmation: nil, request: nil,
-                   catalog: nil, now: Time.current)
+                   catalog: nil, now: Time.current, allow_former_staff: false)
+      @allow_former_staff = allow_former_staff
       @worker = worker
       @actor = actor
       @statement_ids = Array(statement_ids).map(&:to_s).uniq
@@ -47,6 +48,7 @@ module PayDocuments
         # Lock the worker and the sender in id order so both the per-worker and
         # the per-sender limits are checked atomically, without deadlocks.
         [ worker, actor ].compact.uniq(&:id).sort_by(&:id).each(&:lock_employee!)
+        authorize!
         check_rate_limits!
         create_delivery!(token, entries, recipient_kind, address)
       end
@@ -65,7 +67,13 @@ module PayDocuments
         when "self" then actor && actor.id == worker.id && Setting.my_pay_enabled_for?(worker) && PayDocuments.self_email_enabled?
         end
       raise Error.new("You can't send pay stubs.", code: "not_permitted", status: :forbidden) unless permitted
-      raise Error.new("Pay stubs can only be sent to active team members.", code: "worker_not_found", status: :not_found) unless PayDocuments.sendable_workers.exists?(id: worker.id)
+      raise Error.new("Pay stubs can only be sent to active team members.", code: "worker_not_found", status: :not_found) unless PayDocuments.sendable_workers.exists?(id: worker.id) || former_staff_send?
+    end
+
+    # Opt-in from the admin send controller only, never the self/kiosk flows.
+    # Persist this grant on the new link; old links stay invalid after termination.
+    def former_staff_send?
+      @allow_former_staff && origin == "sender" && actor&.can_manage_payroll? && User.staff.exists?(id: worker.id)
     end
 
     def validate_request!
@@ -132,6 +140,7 @@ module PayDocuments
         sent_by: actor,
         pay_document_request: request,
         origin: origin,
+        former_staff_access: !worker.is_active? && former_staff_send?,
         recipient_email: address,
         recipient_kind: recipient_kind,
         token_digest: PayDocumentDelivery.digest(token),
