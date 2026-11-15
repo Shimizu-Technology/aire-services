@@ -76,7 +76,7 @@ function AdminShell() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.08),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
       <a href="#admin-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-(--z-dialog) focus:rounded-control focus:bg-surface focus:p-3 focus:text-primary">Skip to content</a>
-      <div className="border-b border-slate-200/90 bg-white/95 pt-safe backdrop-blur supports-[backdrop-filter]:bg-white/85">
+      <header className="border-b border-slate-200/90 bg-white/95 pt-safe backdrop-blur supports-[backdrop-filter]:bg-white/85">
         <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button
@@ -105,7 +105,7 @@ function AdminShell() {
             )}
           </div>
         </div>
-      </div>
+      </header>
 
       <div className="mx-auto flex w-full max-w-[104rem]">
         <div className={`hidden shrink-0 border-r border-slate-200 bg-white px-4 py-6 lg:block ${desktopCollapsed ? 'w-24' : 'w-72'}`}>

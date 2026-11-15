@@ -5,6 +5,7 @@ import { timecardsApi } from '../../lib/api/timecards'
 import { linkedId, linkedTimePeriod } from '../../lib/employeeWorkspace'
 import { currentPayPeriod, formatPayPeriod, payPeriodContaining, type PayPeriod } from '../../lib/payPeriods'
 import { formatHours } from '../../lib/timecards'
+import { SHIFT_GONE_MESSAGE, useShiftReturn } from '../../lib/useShiftReturn'
 import { LogMissedTimeSheet, type MissedTimePerson } from '../timecards/LogMissedTimeSheet'
 import { TimecardView } from '../timecards/TimecardView'
 import { ErrorState, useToast } from '../ui'
@@ -41,6 +42,19 @@ export function TimeTab({ user, today }: TimeTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [asked?.start, linkCheck?.period?.start],
   )
+
+  // Back from the shift's history: go to the shift's current pay period, then reopen Edit shift.
+  const shiftReturn = useShiftReturn('entry')
+  const returning = shiftReturn.state.status === 'ready' && shiftReturn.state.entry.user.id === user.id ? shiftReturn.state.entry : null
+  useEffect(() => {
+    if (!returning) return
+    const own = payPeriodContaining(returning.work_date).start
+    if (searchParams.get('period') === own) return
+    const next = new URLSearchParams(searchParams)
+    next.set('period', own)
+    setSearchParams(next, { replace: true })
+  }, [returning, searchParams, setSearchParams])
+  const reopenEntry = returning && period.start === payPeriodContaining(returning.work_date).start ? returning : null
 
   const [categories, setCategories] = useState<TimeCategory[] | null>(null)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
@@ -124,6 +138,12 @@ export function TimeTab({ user, today }: TimeTabProps) {
           onRetry={() => setCategoriesRetry(value => value + 1)}
         />
       )}
+      {(shiftReturn.state.status === 'gone' || (shiftReturn.state.status === 'ready' && !returning)) && (
+        <p role="status" className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface-muted px-4 py-3 text-body-sm text-ink">
+          {SHIFT_GONE_MESSAGE}
+          <button type="button" onClick={shiftReturn.finish} className="font-semibold text-primary underline">Dismiss</button>
+        </p>
+      )}
       {linkCheck?.note && <p role="status" className="rounded-card border border-line bg-surface-muted px-4 py-3 text-body-sm text-ink">{linkCheck.note}</p>}
       {elsewhere && (
         <p role="status" className="rounded-card border border-line bg-surface-muted px-4 py-3 text-body-sm text-ink">
@@ -150,6 +170,8 @@ export function TimeTab({ user, today }: TimeTabProps) {
           logMissedTimeBlockedReason={categoriesBlocked}
           pauseRefresh={logOpen}
           focusEntryId={linkCheck?.note ? null : entryId}
+          reopenEntry={reopenEntry}
+          onReopened={shiftReturn.finish}
           lockAt={lock}
           refreshKey={revision}
           onLogMissedTime={() => setLogOpen(true)}
