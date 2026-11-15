@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { Link, MemoryRouter } from 'react-router-dom'
+import { createMemoryRouter, Link, MemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
@@ -68,6 +68,8 @@ it('shows one approval pill for unknown payroll, keeping overtime on the shift',
       shift({
         overtime_status: 'pending',
         pending_overtime_hours: 6,
+        hours: 8,
+        payroll_hours_by_date: [{ work_date: '2026-11-14', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 2, overtime_waiting_hours: 6 }],
         payroll_status: {
           status: 'payment_history_unavailable',
           label: 'Payment status not tracked yet',
@@ -506,4 +508,20 @@ it.each([
   fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
   expect(screen.getByRole('button', { name: 'Ask for a fix' })).toBeVisible()
   expect(screen.queryByRole('button', { name: 'Remove this shift' })).toBeNull()
+})
+
+it.each(['button', 'Back'])('closing the sheet with %s consumes its history entry, then Back leaves My Hours', async (method) => {
+  const router = createMemoryRouter([
+    { path: '/before', element: <h1>Previous page</h1> },
+    { path: '/admin/my-hours', element: <ToastProvider><MyHours /></ToastProvider> },
+  ], { initialEntries: ['/before', '/admin/my-hours?period=2026-11-01'], initialIndex: 1 })
+  render(<RouterProvider router={router} />)
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  await screen.findByRole('dialog')
+  if (method === 'Back') await act(async () => { await router.navigate(-1) })
+  else fireEvent.click(screen.getByRole('button', { name: /Close/ }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(router.state.location.search).toBe('?period=2026-11-01')
+  await act(async () => { await router.navigate(-1) })
+  expect(screen.getByRole('heading', { name: 'Previous page' })).toBeInTheDocument()
 })

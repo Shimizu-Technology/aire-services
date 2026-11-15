@@ -90,7 +90,8 @@ export default function MyLeave() {
     if (result.data)
       toast.show({
         message: `Cancelled your ${employeeDateRange(request.start_date, request.end_date)} request.`,
-        action: { label: 'Undo', onAction: () => void restore(request) },
+        action: { label: 'Undo', onAction: () => void restore(request),
+          expiresAt: result.data.undoExpiresAt ?? 0 },
       })
     else
       setMessage(
@@ -103,15 +104,10 @@ export default function MyLeave() {
     await load()
   }
 
-  // Undo sends the same request again; it waits for approval like before.
+  // Undo restores the same row and its original queue position.
   const restore = async (request: LeaveRequest) => {
     ++loadGeneration.current
-    const result = await myTimeApi.requestLeave({
-      leave_type: request.leave_type,
-      start_date: request.start_date,
-      end_date: request.end_date,
-      reason: request.reason || undefined,
-    })
+    const result = await myTimeApi.undoCancelLeave(request.id)
     if (result.data)
       toast.show({ message: 'Your request is back and waiting for approval.' })
     else
@@ -169,6 +165,11 @@ export default function MyLeave() {
               </p>
               <p className="text-body-sm text-ink-muted">
                 {employeeDateRange(request.start_date, request.end_date)}
+              </p>
+              <p className="text-body-sm text-ink-muted">
+                {new Date(`${request.start_date}T12:00:00+10:00`).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'long' })}
+                {request.end_date !== request.start_date && `–${new Date(`${request.end_date}T12:00:00+10:00`).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'long' })}`}
+                {request.reviewed_by && ` · ${request.status === 'approved' ? 'Approved' : 'Declined'} by ${request.reviewed_by.full_name}`}
               </p>
               <StatusPill
                 tone={

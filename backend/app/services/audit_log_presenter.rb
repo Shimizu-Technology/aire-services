@@ -19,6 +19,10 @@ class AuditLogPresenter
     "time_entry.updated" => "Edited",
     "time_entry.deleted" => "Deleted",
     "time_entry.submitted" => "Submitted",
+    "time_entry.change_rejected" => "Kept original time for",
+    "kiosk.locked" => "Locked the kiosk",
+    "kiosk.all_locked" => "Locked all kiosks",
+    "kiosk.lock_failed" => "Failed to lock the kiosk",
     "time_entry.approved" => "Approved",
     "time_entry.auto_approved" => "Auto-approved",
     "time_entry.denied" => "Denied",
@@ -69,6 +73,7 @@ class AuditLogPresenter
     "time_entry.auto_closed" => { other: "automatically clocked out %{employee} after a long open shift" },
     "time_entry.clock_ended" => { other: "entered the missed clock-out for %{employee}%{on_date}" },
     "time_entry.created" => { self: "added %{hours} of their own time%{on_date}", other: "added %{hours} for %{employee}%{on_date}" },
+    "time_entry.change_rejected" => { other: "kept %{employee_possessive} original time%{on_date} and didn't approve the change" },
     "time_entry.approved" => { other: "approved %{employee_possessive} time%{on_date}" },
     "time_entry.denied" => { other: "denied %{employee_possessive} time%{on_date}" },
     "time_entry.overtime_approved" => { other: "approved %{employee_possessive} overtime%{on_date}" },
@@ -160,6 +165,9 @@ class AuditLogPresenter
     return unless pattern
 
     work_date = metadata["work_date"].presence
+    if audit_log.action == "time_entry.change_rejected" && work_date
+      work_date = Date.iso8601(work_date).strftime("%a, %b %-d")
+    end
     format(pattern, employee: own ? "themselves" : employee.to_s,
            employee_possessive: own ? "their own" : possessive(employee),
            on_date: work_date ? " for #{work_date}" : "", hours: hours_phrase(metadata["hours"]), subject: subject)

@@ -47,7 +47,7 @@ export default function ReviewSheet({
   const [historyAttempt, setHistoryAttempt] = useState(0)
   const [week, setWeek] = useState<TimeEntry[] | null>(null)
   const [weekError, setWeekError] = useState('')
-  const [denying, setDenying] = useState<'time' | 'overtime' | null>(null)
+  const [denying, setDenying] = useState<'time' | 'overtime' | 'change' | null>(null)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +56,10 @@ export default function ReviewSheet({
   const attemptedDecision = useRef<ReviewItem | null>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const lock = useRef(false)
+  const pendingChange =
+    entry.entry_method === 'clock' &&
+    entry.approval_status === 'pending' &&
+    Boolean(entry.original_employee_change)
   const overtime = entry.overtime_status === 'pending'
   useEffect(() => {
     if (!denying) return
@@ -137,6 +141,36 @@ export default function ReviewSheet({
     setSaving(true)
     setError('')
     try {
+      if (denying === 'change') {
+        const response = await api.rejectTimeEntryChange(
+          entry.id,
+          entry.version,
+          note.trim(),
+        )
+        if (!response.data) {
+          const message =
+            response.status === 409
+              ? response.code === 'payroll_busy'
+                ? 'Payroll is working on this period right now. Try again in a minute. Nothing was changed.'
+                : 'This shift changed since you opened it. Review it again before keeping the original time.'
+              : response.status === 422
+                ? "The original time couldn't be restored. Ask a manager to correct this shift. The requested change is still waiting."
+                : response.error ||
+                  "Couldn't confirm whether the original time was restored. Reload and check the shift before trying again."
+          await onReload()
+          onDirty(false)
+          onClose(true, message)
+          return
+        }
+        await onReload()
+        onDirty(false)
+        const restored = response.data.time_entry
+        onClose(
+          true,
+          `Kept the original time for ${entry.user.full_name}. They'll see your reason.${restored.approval_status === 'pending' ? ' Still waiting for approval.' : ''}`,
+        )
+        return
+      }
       const fresh = await api.getTimeEntry(entry.id)
       if (!fresh.data) {
         setError(fresh.error || "Couldn't check the current shift. Nothing was denied.")
@@ -235,7 +269,7 @@ export default function ReviewSheet({
                   Back
                 </Button>
                 <Button
-                  variant="danger"
+                  variant={denying === 'change' ? 'primary' : 'danger'}
                   onClick={() => {
                     void deny()
                   }}
@@ -243,11 +277,16 @@ export default function ReviewSheet({
                   disabled={blocked || !note.trim()}
                   title={!online ? 'Reconnect to deny' : undefined}
                 >
-                  Deny {denying === 'overtime' ? 'overtime' : 'shift'}
+                  {denying === 'change'
+                    ? 'Keep the original time'
+                    : pendingChange && denying === 'time'
+                      ? 'Deny the whole shift'
+                      : `Deny ${denying === 'overtime' ? 'overtime' : 'shift'}`}
                 </Button>
                 {!note.trim() && (
                   <p className="w-full text-body-sm text-ink-muted">
-                    Write a short note for {entry.user.full_name.split(' ')[0]} to deny.
+                    Write a short note for {entry.user.full_name.split(' ')[0]} to{' '}
+                    {denying === 'change' ? 'keep the original time' : 'deny'}.
                   </p>
                 )}
               </>
@@ -261,7 +300,7 @@ export default function ReviewSheet({
                     disabled={blocked}
                     title={!online ? 'Reconnect to approve' : undefined}
                   >
-                    Approve time
+                    {pendingChange ? 'Approve the change' : 'Approve time'}
                   </Button>
                 )}
                 {overtime && (
@@ -278,21 +317,37 @@ export default function ReviewSheet({
                       : 'overtime'}
                   </Button>
                 )}
-                <Button
-                  variant="secondary"
-                  onClick={() => setDenying(overtime ? 'overtime' : 'time')}
-                  disabled={blocked}
-                  title={!online ? 'Reconnect to deny' : undefined}
-                >
-                  Deny{overtime ? ' overtime' : ''}…
-                </Button>
-                {entry.approval_status === 'pending' && overtime && (
+                {pendingChange && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDenying('change')}
+                    disabled={blocked}
+                  >
+                    Keep the original time
+                  </Button>
+                )}
+                {(!pendingChange || overtime) && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDenying(overtime ? 'overtime' : 'time')}
+                    disabled={blocked}
+                    title={!online ? 'Reconnect to deny' : undefined}
+                  >
+                    Deny{overtime ? ' overtime' : ''}…
+                  </Button>
+                )}
+                {entry.approval_status === 'pending' && (overtime || pendingChange) && (
                   <Button
                     variant="ghost"
+                    className={
+                      pendingChange
+                        ? 'w-full border-t border-line pt-3 text-danger'
+                        : undefined
+                    }
                     onClick={() => setDenying('time')}
                     disabled={blocked}
                   >
-                    Deny shift…
+                    {pendingChange ? 'Deny the whole shift…' : 'Deny shift…'}
                   </Button>
                 )}
               </>
@@ -322,9 +377,13 @@ export default function ReviewSheet({
             </section>
           )}
           {isTinyShift(entry) && (
-            <p className="font-medium text-amber-800">Under 1 minute, probably a mis-tap</p>
+            <p className="font-medium text-amber-800">
+              Under 1 minute, probably a mis-tap
+            </p>
           )}
-          <p className="text-body-sm font-semibold">{formatApprovalDate(entry.work_date)}</p>
+          <p className="text-body-sm font-semibold">
+            {formatApprovalDate(entry.work_date)}
+          </p>
           <div className="flex flex-wrap gap-1">
             {reasonChips([entry]).map((reason) => (
               <StatusPill key={reason.key} tone="waiting">
@@ -332,18 +391,28 @@ export default function ReviewSheet({
               </StatusPill>
             ))}
           </div>
+          {pendingChange && (
+            <p className="text-body-sm">
+              Original: {entry.original_employee_change!.formatted_range} ·{' '}
+              {entry.user.full_name.split(' ')[0]} asked for{' '}
+              {entry.formatted_start_time || entry.start_time}–
+              {entry.formatted_end_time || entry.end_time}
+            </p>
+          )}
           <dl className="space-y-1 text-body-sm">
             <div>
               <dt className="inline font-semibold">Time: </dt>
               <dd className="inline">
                 {entry.formatted_start_time || entry.start_time || '—'}–
-                {entry.formatted_end_time || entry.end_time || '—'} · {entry.hours.toFixed(1)}
-                h
+                {entry.formatted_end_time || entry.end_time || '—'} ·{' '}
+                {entry.hours.toFixed(1)}h
               </dd>
             </div>
             <div>
               <dt className="inline font-semibold">Work: </dt>
-              <dd className="inline">{entry.time_category?.name || 'No work category'}</dd>
+              <dd className="inline">
+                {entry.time_category?.name || 'No work category'}
+              </dd>
             </div>
             <div>
               <dt className="inline font-semibold">Break: </dt>
@@ -356,7 +425,9 @@ export default function ReviewSheet({
           </dl>
           {entry.description && <p className="text-body-sm">{entry.description}</p>}
           {personNote(entry.approval_note) && (
-            <p className="text-body-sm text-ink-muted">{personNote(entry.approval_note)}</p>
+            <p className="text-body-sm text-ink-muted">
+              {personNote(entry.approval_note)}
+            </p>
           )}
           <Button
             variant="ghost"
@@ -377,7 +448,8 @@ export default function ReviewSheet({
               ) : week ? (
                 <>
                   <p className="text-body-sm">
-                    {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week ·{' '}
+                    {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week
+                    ·{' '}
                     {(entry.pending_overtime_hours ?? 0) > 0
                       ? `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
                       : `${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime to review`}
@@ -432,9 +504,15 @@ export default function ReviewSheet({
               </ol>
             )}
           </section>
+          {pendingChange && denying === 'time' && (
+            <p role="alert" className="text-body-sm font-semibold text-danger">
+              Deny the whole shift: no hours from this shift will count. To keep the hours
+              they worked, choose Keep the original time instead.
+            </p>
+          )}
           {denying && (
             <Field
-              label={`Why is this denied? ${entry.user.full_name.split(' ')[0]} will see this.`}
+              label={`${denying === 'change' ? 'Why keep the original time?' : 'Why is this denied?'} ${entry.user.full_name.split(' ')[0]} will see this.`}
               required
             >
               <Textarea

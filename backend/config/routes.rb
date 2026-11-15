@@ -69,6 +69,8 @@ Rails.application.routes.draw do
 
       # Public kiosk endpoints
       namespace :aire do
+        post "kiosk/lock", to: "kiosk#lock"
+        post "kiosk/revoke", to: "kiosk#revoke"
         post "kiosk/verify", to: "kiosk#verify"
         post "kiosk/clock_in", to: "kiosk#clock_in"
         post "kiosk/clock_out", to: "kiosk#clock_out"
@@ -142,6 +144,7 @@ Rails.application.routes.draw do
         member do
           post :approve
           post :decline
+          post :undo_cancel
           post :cancel
           post :undo
           post :change_decision
@@ -163,6 +166,7 @@ Rails.application.routes.draw do
         end
         member do
           post :approve
+          post :reject_change
           post :deny
           post :approve_overtime
           post :deny_overtime
@@ -195,7 +199,9 @@ Rails.application.routes.draw do
             get :export
           end
         end
-        resource :kiosk_session, only: [ :create ]
+        resource :kiosk_session, only: [ :create ] do
+          post :lock_all
+        end
         get "settings/geocode", to: "settings#geocode"
         get "settings/place_autocomplete", to: "settings#place_autocomplete"
         get "settings/place_details", to: "settings#place_details"

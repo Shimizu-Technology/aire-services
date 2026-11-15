@@ -352,6 +352,7 @@ class TimeClockService
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
         attrs = {
+          original_employee_change: nil,
           approval_status: "approved",
           approved_by: approved_by,
           approved_at: Time.current,
@@ -382,6 +383,7 @@ class TimeClockService
 
         close_overtime = entry.overtime_status == "pending"
         attrs = {
+          original_employee_change: nil,
           approval_status: "denied",
           approved_by: denied_by,
           approved_at: Time.current,
@@ -465,7 +467,12 @@ class TimeClockService
     # ── Helpers ──
 
     def with_entry_lock(entry, already_locked, &block)
-      already_locked ? block.call : entry.with_lock(&block)
+      return block.call if already_locked
+
+      TimeEntry.transaction do
+        User.lock_employees!([ entry.user_id ])
+        entry.with_lock(&block)
+      end
     end
 
     def clock_write_transaction(&block)

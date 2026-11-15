@@ -49,11 +49,12 @@ RSpec.describe "Denying a shift in the Approvals inbox", type: :request do
     expect(reasons.pluck(:key)).not_to include("edited")
   end
 
-  it "recalculates overtime and clears the old reviewer when an unchanged denied shift is reopened by a plain edit" do
+  it "recalculates overtime and clears the old reviewer when a manager explicitly resubmits an unchanged denied shift" do
     (0..3).each { |day| clock_shift(employee, monday + day, hours: 10, approval_status: "approved") }
     entry = clock_shift(employee, monday + 4, approval_status: "denied", overtime_status: "denied",
       overtime_approved_by: manager, overtime_approved_at: Time.current, overtime_note: "Earlier denial")
-    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { description: "Please review again" } }, headers: headers_for(employee), as: :json
+    employee.assigned_time_categories << review_category
+    patch "/api/v1/time_entries/#{entry.id}", params: { correction_reason: "Please review again", time_entry: { review_action: "resubmit_denied", expected_version: entry.lock_version } }, headers: headers_for(manager), as: :json
 
     expect(response).to have_http_status(:ok)
     expect(entry.reload).to have_attributes(approval_status: "pending", overtime_status: "pending",

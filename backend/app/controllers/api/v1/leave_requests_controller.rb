@@ -7,7 +7,7 @@ module Api
 
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :set_leave_request, only: [ :show, :approve, :decline, :cancel, :change_decision, :undo ]
+      before_action :set_leave_request, only: [ :show, :approve, :decline, :cancel, :change_decision, :undo, :undo_cancel ]
       before_action -> { require_capability!(:approve_leave) }, only: [ :approve, :decline, :change_decision, :undo ]
 
       def index
@@ -95,6 +95,24 @@ module Api
         change_saved_decision!(undo: false)
       end
 
+      def undo_cancel
+        @leave_request.user.with_lock(User::EMPLOYEE_ROW_LOCK) do
+          @leave_request.with_lock do
+            unless @leave_request.user_id == current_user.id && @leave_request.status == "cancelled" &&
+                   @leave_request.cancelled_by_id == current_user.id && @leave_request.cancelled_at &&
+                   @leave_request.cancelled_at > 1.minute.ago
+              return render json: { error: "This cancellation can no longer be undone. Request time off again." }, status: :unprocessable_entity
+            end
+            @leave_request.update!(status: "pending", cancelled_by: nil, cancelled_at: nil)
+            AuditLog.record!(action: "leave_request.cancellation_undone", auditable: @leave_request,
+                             actor: current_user, event_category: "leave")
+          end
+        end
+        render json: { leave_request: serialize_leave_request(@leave_request) }
+      rescue ActiveRecord::RecordInvalid => e
+        render json: { error: e.record.errors.full_messages.to_sentence }, status: :unprocessable_entity
+      end
+
       def cancel
         cancel_result = nil
         cancel_error = nil
@@ -128,7 +146,8 @@ module Api
           return render json: { error: cancel_error }, status: :forbidden
         end
 
-        render json: { leave_request: serialize_leave_request(cancel_result) }
+        render json: { leave_request: serialize_leave_request(cancel_result), server_time: Time.current.iso8601(6),
+                       undo_until: (cancel_result.cancelled_at + 1.minute).iso8601(6) }
       end
 
       private
