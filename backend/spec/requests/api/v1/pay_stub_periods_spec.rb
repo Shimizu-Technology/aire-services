@@ -80,12 +80,12 @@ RSpec.describe "Period pay stubs", type: :request do
     expect(cornerstone_requests).to be_empty
   end
 
-  it "includes a departed batch member but still refuses sending to them" do
+  it "includes a departed batch member but still refuses manager sends" do
     worker.update!(is_active: false, terminated_at: Time.current, termination_effective_on: period.end_date)
     read_period(admin)
     expect(response.parsed_body.fetch("workers").sole.fetch("inactive")).to be(true)
     post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ] },
-      headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+      headers: { "Authorization" => "Bearer test_token_#{manager.id}" }
     expect(response).to have_http_status(:not_found)
     expect(sent_mail).to be_empty
   end

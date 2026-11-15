@@ -71,10 +71,10 @@ module PayDocuments
       raise Error.new("This link isn't valid. Check that you opened the whole link from your email.", code: "link_not_found", status: :not_found)
     end
 
-    # A link for someone who no longer works here stops working, even if it
-    # wasn't revoked when they were terminated.
+    # Existing links stop working after termination. Only a new admin send
+    # explicitly issued for former staff may work while the worker is inactive.
     def current_state
-      return "inactive" unless delivery.user.reload.is_active?
+      return "inactive" unless delivery.user.reload.is_active? || delivery.former_staff_access?
 
       delivery.state(now)
     end

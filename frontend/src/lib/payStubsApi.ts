@@ -3,7 +3,8 @@ import { apiUrl } from './apiBase'
 import type { UserRole } from './roles'
 
 // Pay stub requests and secure links. Nothing here carries pay amounts: the
-// API returns pay dates and periods only, so managers can send stubs too.
+// JSON API returns pay dates and periods only, so managers can send stubs too.
+// Direct PDFs require the admin payroll capability.
 
 export type PayStubScope = 'latest' | 'pay_date' | 'year'
 export type PayStubRecipientKind = 'on_file' | 'typed'
@@ -132,8 +133,8 @@ async function call<T>(path: string, options: CallOptions = {}): Promise<T> {
   return await response.json() as T
 }
 
-async function callPdf(path: string, body: unknown, fallbackName: string): Promise<{ blob: Blob; filename: string }> {
-  const response = await send(path, { method: 'POST', body, auth: false })
+async function callPdf(path: string, body: unknown, fallbackName: string, auth = false): Promise<{ blob: Blob; filename: string }> {
+  const response = await send(path, { method: auth ? 'GET' : 'POST', body, auth })
   if (!response.ok) throw await failure(response)
   const disposition = response.headers.get('Content-Disposition') || ''
   const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || fallbackName
@@ -185,6 +186,7 @@ export interface SendPayStubInput {
 
 // Senders: owners, admins and managers (send_pay_statements).
 export const payStubsApi = {
+  download: (userId: number, statementId: string) => callPdf(`/api/v1/pay_stubs/workers/${id(userId)}/statements/${id(statementId)}/pdf`, undefined, 'AIRE-pay-stub.pdf', true),
   period: (startDate: string, signal?: AbortSignal) => call<{ workers: PeriodPayStubWorker[] }>(`/api/v1/pay_stubs/periods/${encodeURIComponent(startDate)}`, { signal }),
   workers: (signal?: AbortSignal) => call<{ workers: PayStubWorker[]; can_choose_recipient: boolean }>('/api/v1/pay_stubs/workers', { signal }),
   worker: async (userId: string | number, signal?: AbortSignal) => call<{ worker: PayStubWorker }>(`/api/v1/pay_stubs/workers/${id(userId)}`, { signal }),

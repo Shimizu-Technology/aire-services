@@ -41,6 +41,7 @@ Rails.application.routes.draw do
         resources :periods, only: [ :show ], param: :start_date
         resources :workers, only: [ :index, :show ] do
           get :statements, on: :member
+          get "statements/:statement_id/pdf", action: :pdf, on: :member
         end
         resources :requests, only: [ :index ] do
           post :dismiss, on: :member

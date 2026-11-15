@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
-import { PayStubError, payStubsApi, type PayStubLink, type PeriodPayStubWorker } from '../../lib/payStubsApi'
+import { PayStubError, payStubsApi, saveBlob, type PayStubLink, type PeriodPayStubWorker } from '../../lib/payStubsApi'
 import { useCapabilities } from '../../lib/useCapabilities'
 import SendPayStubDialog from '../pay-stubs/SendPayStubDialog'
 import { formatWhen, LINK_STATE } from '../pay-stubs/payStubCopy'
@@ -28,11 +28,23 @@ function PeriodStubs({ start, end }: { start: string; end: string }) {
   }, [])
   const [state, setState] = useState<State>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const download = async (workerId: number, statementId: string) => {
+    setDownloadError(null)
+    setDownloading(`${workerId}:${statementId}`)
+    try {
+      const result = await payStubsApi.download(workerId, statementId)
+      saveBlob(result.blob, result.filename)
+    } catch (error) {
+      setDownloadError(error instanceof PayStubError ? error.message : "The PDF couldn't be downloaded. Please try again.")
+    } finally { setDownloading(null) }
+  }
   const [sending, setSending] = useState<PeriodPayStubWorker | null>(null)
   const period = useMemo(() => {
     const request = sending?.open_requests?.find(request => request.recipient_kind === 'on_file' &&
       ['latest', 'pay_date'].includes(request.scope) && sending.statements.some(row => row.id === request.statement_id))
-    return { start, end, statementIds: sending?.statements.map(row => row.id) ?? [], requestId: request?.id, requestStatementId: request?.statement_id }
+    return { start, end, worker: sending?.worker, inactive: sending?.inactive, statementIds: sending?.statements.map(row => row.id) ?? [], requestId: request?.id, requestStatementId: request?.statement_id }
   }, [start, end, sending])
 
   useEffect(() => {
@@ -56,6 +68,7 @@ function PeriodStubs({ start, end }: { start: string; end: string }) {
   return <>
     <p className="mt-1 text-body-sm text-ink-muted">Send one person a secure link at a time. Check the recipient before sending.</p>
     <Link to="/admin/pay-stubs" className="text-body-sm text-primary underline underline-offset-2">Sent links and requests</Link>
+    {downloadError && <p role="alert" className="mt-3 text-body-sm text-danger">{downloadError}</p>}
     <ul className="mt-3 divide-y divide-line">
       {state.workers.map(row => {
         const { worker, links } = row
@@ -64,14 +77,19 @@ function PeriodStubs({ start, end }: { start: string; end: string }) {
         return <li key={worker.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-1">
             <Link to={`${ADMIN_PATHS.team}/${worker.id}`} className="break-words text-body font-semibold text-primary underline underline-offset-2">{worker.name}</Link>
-            {row.inactive ? <p className="text-body-sm text-ink-muted">{LINK_STATE.inactive.label} — stubs can't be emailed from here</p> : !worker.on_file_email && <p className="text-body-sm text-ink-muted">No email on file — <Link to={`${ADMIN_PATHS.team}/${worker.id}`} className="text-primary underline underline-offset-2">add one on their page</Link></p>}
+            {row.inactive ? <p className="text-body-sm text-ink-muted">{LINK_STATE.inactive.label}{!capabilities.manage_payroll && " — stubs can't be emailed from here"}</p> : !worker.on_file_email && <p className="text-body-sm text-ink-muted">No email on file — <Link to={`${ADMIN_PATHS.team}/${worker.id}`} className="text-primary underline underline-offset-2">add one on their page</Link></p>}
             {row.open_requests?.length > 0 && <p className="text-body-sm text-ink-muted">Asked for their stub{row.open_requests.some(request => request.recipient_kind === 'typed') && <> — asked for a different email; handle that request in <Link to="/admin/pay-stubs" className="text-primary underline underline-offset-2">Sent links and requests</Link></>}</p>}
             {row.lookup_failed ? <p className="text-body-sm text-ink-muted">Couldn't check this person's stubs — <button className="text-primary underline underline-offset-2" onClick={() => setAttempt(value => value + 1)}>Try again</button></p> : latest && <p className={`text-body-sm ${latest.state === 'failed' ? 'text-danger' : 'text-ink-muted'}`}>
               {latest.state === 'failed' ? 'The email failed. That link was cancelled; you can try again.' : latest.state === 'pending' ? (now - Date.parse(latest.sent_at) > 5 * 60_000 ? "Didn't finish — you can send again" : 'A send is still being confirmed. Refresh before sending again.') : `Link sent ${formatWhen(latest.sent_at)} · ${LINK_STATE[latest.state].label}`}
             </p>}
 
           </div>
-          {!row.inactive && !row.lookup_failed && worker.on_file_email && capabilities.send_pay_statements && <Button variant="secondary" size="sm" className="shrink-0" onClick={() => setSending(row)}>{previouslySent ? 'Send again' : 'Send pay stub'}<span className="sr-only"> to {worker.name}</span></Button>}
+          <div className="flex shrink-0 flex-wrap gap-2">
+          {(!row.inactive || capabilities.manage_payroll) && !row.lookup_failed && (worker.on_file_email || (row.inactive && capabilities.manage_payroll)) && capabilities.send_pay_statements && <Button variant="secondary" size="sm" className="shrink-0" onClick={() => setSending(row)}>{previouslySent ? 'Send again' : 'Send pay stub'}<span className="sr-only"> to {worker.name}</span></Button>}
+          {capabilities.manage_payroll && !row.lookup_failed && row.statements.map(statement => <Button key={statement.id} variant="secondary" size="sm" disabled={downloading !== null} aria-busy={downloading === `${worker.id}:${statement.id}`} onClick={() => void download(worker.id, statement.id)}>
+            {downloading === `${worker.id}:${statement.id}` ? 'Downloading…' : 'Download PDF'}{row.statements.length > 1 && ` (${statement.pay_date})`}<span className="sr-only"> for {worker.name}</span>
+          </Button>)}
+          </div>
         </li>
       })}
     </ul>

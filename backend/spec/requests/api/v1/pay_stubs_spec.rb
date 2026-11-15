@@ -43,6 +43,76 @@ RSpec.describe "Pay stub sending", type: :request do
     end
   end
 
+  describe "former staff admin access" do
+    before { worker.update_columns(is_active: false, terminated_at: Time.current) }
+
+    it "lets admins send on-file and confirmed typed links that the former worker can open" do
+      [ {}, { email: "home@example.com", email_confirmation: "home@example.com" } ].each do |recipient|
+        post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ] }.merge(recipient), headers: auth(admin)
+        expect(response).to have_http_status(:created)
+        delivery = PayDocumentDelivery.last
+        expect(delivery.former_staff_access).to be(true)
+        expect(delivery.recipient_email).to eq(recipient[:email] || worker.email)
+        token = sent_mail.last[:text][%r{/stubs#t=([A-Za-z0-9_-]{43})}, 1]
+        post "/api/v1/pay_stub_links/lookup", params: { token: token }
+        expect(response.parsed_body["state"]).to eq("active")
+        post "/api/v1/pay_stub_links/download", params: { token: token, document_id: delivery.pay_document_items.sole.id }
+        expect(response).to have_http_status(:ok)
+        expect(response.body).to start_with("%PDF")
+      end
+    end
+
+    it "refuses managers and preserves the non-admin service paths" do
+      post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ] }, headers: auth(manager)
+      expect(response).to have_http_status(:not_found)
+      expect { PayDocuments::LinkSender.send!(worker: worker, actor: admin, statement_ids: [ "42" ]) }
+        .to raise_error(PayDocuments::Error, /active team members/)
+      expect(PayDocumentDelivery.count).to eq(0)
+    end
+
+    it "validates typed addresses and cancels a failed admin send" do
+      post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ], email: "bad", email_confirmation: "bad" }, headers: auth(admin)
+      expect(response).to have_http_status(:unprocessable_entity)
+      allow(StagingMailTransport).to receive(:deliver).and_raise(StandardError, "captured then failed")
+      post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ] }, headers: auth(admin)
+      expect(response).to have_http_status(:bad_gateway)
+      expect(PayDocumentDelivery.last.email_status).to eq("failed")
+    end
+  end
+
+  describe "admin PDF download" do
+    it "downloads current and former workers' PDFs, no-store and audited" do
+      [ true, false ].each do |active|
+        worker.update_columns(is_active: active)
+        get "/api/v1/pay_stubs/workers/#{worker.id}/statements/42/pdf", headers: auth(admin)
+        expect(response).to have_http_status(:ok)
+        expect(response.media_type).to eq("application/pdf")
+        expect(response.body).to start_with("%PDF")
+        expect(response.headers["Cache-Control"]).to include("no-store")
+        audit = AuditLog.where(action: "pay_documents.link_downloaded", auditable: worker).last
+        expect(audit).to have_attributes(user_id: admin.id, subject_name: worker.full_name, outcome: "succeeded")
+        expect(audit.metadata).to include("statement_id" => "42", "accessed_by" => "admin")
+      end
+    end
+
+    it "refuses managers and employees before fetching any payroll data" do
+      [ manager, employee ].each do |actor|
+        get "/api/v1/pay_stubs/workers/#{worker.id}/statements/42/pdf", headers: auth(actor)
+        expect(response).to have_http_status(:forbidden)
+        expect(response.headers["Cache-Control"]).to include("no-store")
+      end
+      expect(cornerstone_requests).to be_empty
+    end
+
+    it "refuses unowned and voided statements" do
+      %w[999 40].each do |id|
+        get "/api/v1/pay_stubs/workers/#{worker.id}/statements/#{id}/pdf", headers: auth(admin)
+        expect(response).to have_http_status(:not_found)
+      end
+      expect(cornerstone_requests.grep(%r{/pdf$})).to be_empty
+    end
+  end
+
   describe "picking stubs" do
     it "shows a manager check dates and periods but no amounts, identifiers or run purpose" do
       get "/api/v1/pay_stubs/workers/#{worker.id}/statements", headers: auth(manager)

@@ -18,7 +18,7 @@ interface Props {
   /** Start with this person chosen (from a person's page). */
   workerId?: number | null
   /** Keep a period-page send on this person and their issued checks for this period. */
-  period?: { start: string; end: string; statementIds: string[]; requestId?: number; requestStatementId?: string | null }
+  period?: { start: string; end: string; statementIds: string[]; worker?: PayStubWorker; inactive?: boolean; requestId?: number; requestStatementId?: string | null }
   /** Owners and admins (preview_pay): may send to an address that isn't on file. */
   canChooseRecipient: boolean
   onClose: () => void
@@ -53,7 +53,7 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
   const dialogRef = useRef<HTMLDivElement>(null)
   useDialogFocus(true, dialogRef, onClose)
 
-  const fixedWorker = request?.worker ?? null
+  const fixedWorker = request?.worker ?? period?.worker ?? null
   const [workers, setWorkers] = useState<Loadable<PayStubWorker[]>>(fixedWorker ? { status: 'ready', value: [fixedWorker] } : { status: 'loading' })
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(fixedWorker?.id ?? workerId ?? null)
   const [statements, setStatements] = useState<Loadable<PayStubDate[]> | null>(null)
@@ -221,6 +221,7 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
           <div className="min-w-0">
             <h2 id={`${ids}-title`} className="text-lg font-semibold text-slate-950">{sent ? 'Link sent' : 'Send a pay stub'}</h2>
+            {period?.worker && !sent && <p className="mt-0.5 break-words text-sm text-slate-600">{period.worker.name}</p>}
             {request && !sent && <p className="mt-0.5 text-sm text-slate-600">{request.worker.name} asked for: {describeRequest(request)}</p>}
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-600">
@@ -304,6 +305,7 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
                 </fieldset>
               )}
 
+              {period?.inactive && worker && <p className="text-sm text-slate-700">{worker.name} no longer works here. Check the address before sending.</p>}
               {worker && recipientSection}
 
               {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}

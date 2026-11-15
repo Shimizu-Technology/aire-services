@@ -14,11 +14,12 @@ module Api
 
         # POST /api/v1/pay_stubs/links
         def create
-          worker = find_worker!(params[:user_id])
+          worker = find_worker!(params[:user_id], include_former: true)
           request = params[:request_id].present? ? PayDocumentRequest.find(params[:request_id]) : nil
           result = ::PayDocuments::LinkSender.send!(
             worker: worker,
             actor: current_user,
+            allow_former_staff: current_user.can_manage_payroll?,
             statement_ids: Array(params[:statement_ids]),
             email: params[:email],
             email_confirmation: params[:email_confirmation],

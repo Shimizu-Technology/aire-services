@@ -4,8 +4,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { PayStubsStep } from './PayStubsStep'
 import type { PayStubLink } from '../../lib/payStubsApi'
-const mocks = vi.hoisted(() => ({ period: vi.fn(), workers: vi.fn(), statements: vi.fn(), send: vi.fn() }))
-vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: 'admin', isClerkEnabled: true }) }))
+const mocks = vi.hoisted(() => ({ period: vi.fn(), workers: vi.fn(), statements: vi.fn(), send: vi.fn(), download: vi.fn(), role: 'admin' }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: mocks.role, isClerkEnabled: true }) }))
 vi.mock('../../lib/payStubsApi', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/payStubsApi')>(), payStubsApi: mocks }))
 const worker = { id: 7, name: 'Mindy Cruz', first_name: 'Mindy', role: 'employee', on_file_email: 'm•••@example.test' }
 const statement = { id: '42', pay_date: '2026-11-10', period_start: '2026-10-16', period_end: '2026-10-31', voided: false }
@@ -14,6 +14,7 @@ const props = { start: '2026-10-16', end: '2026-10-31', paid: true, payDate: '20
 const open = (extra = {}) => render(<MemoryRouter><PayStubsStep {...props} {...extra} /></MemoryRouter>)
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.role = 'admin'
   mocks.period.mockResolvedValue({ workers: [{ worker, statements: [statement], links: [] }, { worker: { ...worker, id: 8, name: 'No Email', on_file_email: null }, statements: [statement], links: [] }] })
   mocks.workers.mockResolvedValue({ workers: [worker], can_choose_recipient: false })
   mocks.statements.mockResolvedValue({ statements: [statement, { ...statement, id: '99', period_start: '2026-11-01', period_end: '2026-11-15', pay_date: '2026-11-25' }] })
@@ -32,14 +33,14 @@ it('lists missing email with a person link and no send button', async () => {
   expect(person).toHaveAttribute('href', '/admin/users/8')
   const row = within(person.closest('li')!)
   expect(row.getByRole('link', { name: 'add one on their page' })).toHaveAttribute('href', '/admin/users/8')
-  expect(row.queryByRole('button')).not.toBeInTheDocument()
+  expect(row.queryByRole('button', { name: /Send pay stub/ })).not.toBeInTheDocument()
 })
 it('sends only this person and period and updates history, without pay amounts', async () => {
   open()
   fireEvent.click(await screen.findByRole('button', { name: /Send pay stub to Mindy/ }))
   const dialog = within(await screen.findByRole('dialog'))
   await waitFor(() => expect(dialog.getByRole('button', { name: 'Send secure link' })).toBeEnabled())
-  expect(dialog.getByRole('combobox')).toBeDisabled()
+  expect(dialog.queryByRole('combobox')).not.toBeInTheDocument()
   expect(dialog.getAllByRole('checkbox')).toHaveLength(1)
 
   fireEvent.click(dialog.getByRole('button', { name: 'Send secure link' }))
@@ -74,7 +75,23 @@ it('retries a list failure and displays historical sends and failed attempts', a
   expect(screen.getByRole('button', { name: /Send again to Mindy/ })).toBeInTheDocument()
 })
 
-it('lists departed people without a send button', async () => {
+it('lets admins send and download for former staff with an address-check note', async () => {
+  mocks.period.mockResolvedValue({ workers: [{ worker, inactive: true, statements: [statement], links: [], open_requests: [] }] })
+  open()
+  expect(await screen.findByText('No longer works here')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Download PDF for Mindy/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Send pay stub to Mindy/ }))
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('Mindy Cruz no longer works here. Check the address before sending.')).toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('radio', { name: 'Another email' }))
+  fireEvent.change(dialog.getByLabelText('Email'), { target: { value: 'home@example.test' } })
+  fireEvent.change(dialog.getByLabelText('Type it again'), { target: { value: 'home@example.test' } })
+  await waitFor(() => expect(dialog.getByRole('button', { name: 'Send secure link' })).toBeEnabled())
+  fireEvent.click(dialog.getByRole('button', { name: 'Send secure link' }))
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith({ userId: 7, statementIds: ['42'], requestId: null, email: 'home@example.test', emailConfirmation: 'home@example.test' }))
+})
+it('keeps former-staff send and all PDF controls out of manager rows', async () => {
+  mocks.role = 'manager'
   mocks.period.mockResolvedValue({ workers: [{ worker, inactive: true, statements: [statement], links: [], open_requests: [] }] })
   open()
   expect(await screen.findByText("No longer works here — stubs can't be emailed from here")).toBeInTheDocument()

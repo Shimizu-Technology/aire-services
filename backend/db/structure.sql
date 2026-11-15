@@ -611,6 +611,7 @@ CREATE TABLE public.pay_document_deliveries (
     emailed_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    former_staff_access boolean DEFAULT false NOT NULL,
     CONSTRAINT pay_document_deliveries_download_cap CHECK ((max_downloads_per_document > 0)),
     CONSTRAINT pay_document_deliveries_email_status CHECK (((email_status)::text = ANY ((ARRAY['pending'::character varying, 'sent'::character varying, 'captured'::character varying, 'failed'::character varying])::text[]))),
     CONSTRAINT pay_document_deliveries_origin CHECK (((origin)::text = ANY ((ARRAY['sender'::character varying, 'self'::character varying])::text[]))),
@@ -6139,7 +6140,8 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
-('20261115010000'),
+('20261115020100'),
+('20261115020000'),
 ('20261114010000'),
 ('20261111120000'),
 ('20261111000000'),
