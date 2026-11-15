@@ -12,7 +12,7 @@ class LeaveDecisionChange
     @actor = actor
   end
 
-  def call!(version:, status:, reason:, undo: false)
+  def call!(version:, status:, reason:, employee_note: nil, undo: false)
     raise Invalid, "Only managers and admins can change leave decisions" unless @actor.can_approve_leave?
     raise Invalid, "Another manager or admin must change your own leave decision" if @request.user_id == @actor.id
 
@@ -40,9 +40,15 @@ class LeaveDecisionChange
           raise Invalid, "This employee is inactive or terminated. Their time off cannot be approved or moved to waiting."
         end
 
+        employee_note = employee_note.to_s.strip
+        if !undo && @request.status == "approved" && status != "approved"
+          raise Invalid, "Write a short employee-facing note (1–500 characters)" unless employee_note.length.between?(1, 500)
+        end
+
         previous_status = @request.status
         attributes = { status: status, reviewed_by: status == "pending" ? nil : @actor,
                          reviewed_at: status == "pending" ? nil : Time.current }
+        attributes[:review_note] = "Changed by #{@actor.full_name}: #{employee_note}" if previous_status == "approved" && !undo
         attributes[:review_note] = nil if undo
         @request.update!(attributes)
         AuditLog.record!(action: undo ? "leave_request.decision_undone" : "leave_request.decision_changed",

@@ -159,7 +159,7 @@ module Api
 
       def change_saved_decision!(undo:)
         LeaveDecisionChange.new(@leave_request, current_user).call!(
-          version: params[:version], status: params[:status], reason: params[:reason], undo: undo
+          version: params[:version], status: params[:status], reason: params[:reason], employee_note: params[:employee_note], undo: undo
         )
         render json: { leave_request: serialize_leave_request(@leave_request) }
       rescue LeaveDecisionChange::Conflict => e
