@@ -11,7 +11,7 @@ module Api
       before_action -> { require_capability!(:approve_leave) }, only: [ :approve, :decline, :change_decision, :undo ]
 
       def index
-        requests = current_user.can_approve_leave? ? LeaveRequest.all : current_user.leave_requests
+        requests = current_user.can_approve_leave? && params[:scope] != "mine" ? LeaveRequest.all : current_user.leave_requests
         requests = requests.includes(:decision_events, :reviewed_by, :cancelled_by, user: :user_approval_groups)
         if params[:status].present?
           requests = if params[:status] == "reviewed"

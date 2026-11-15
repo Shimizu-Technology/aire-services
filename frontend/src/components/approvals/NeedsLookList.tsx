@@ -32,10 +32,6 @@ export default function NeedsLookList({
               !entry.needs_another_approver &&
               !entry.exceptions.some((reason) => reason.key === 'needs_another_approver'),
           )
-          const overtime = entries.some(
-            (entry) =>
-              entry.approval_status !== 'pending' && entry.overtime_status === 'pending',
-          )
           const overtimeHours = entries.reduce(
             (sum, entry) => sum + (entry.approval_status !== 'pending' && entry.overtime_status === 'pending' ? (entry.pending_overtime_hours ?? 0) : 0),
             0,
@@ -59,10 +55,7 @@ export default function NeedsLookList({
                     ? `${formatApprovalDate(row.work_date)} · ${row.hours.toFixed(1)}h`
                     : `${entries.length} shifts this week · ${formatApprovalDateRange(entries.map((entry) => entry.work_date))}`}
                   {timeHours > 0 && ` · ${timeHours.toFixed(1)}h time waiting`}
-                  {overtime &&
-                    (overtimeHours > 0
-                      ? ` · ${overtimeHours.toFixed(1)}h overtime waiting`
-                      : ` · ${overtimeHours.toFixed(1)}h overtime to review`)}
+                  {overtimeHours > 0 && ` · ${overtimeHours.toFixed(1)}h overtime waiting`}
                   {entries.some(isTinyShift) && (
                     <span className="block font-medium text-amber-800">
                       Under 1 minute, probably a mis-tap

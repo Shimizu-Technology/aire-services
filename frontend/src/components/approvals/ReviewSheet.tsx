@@ -492,7 +492,7 @@ export default function ReviewSheet({
                       ? entry.approval_status === 'pending'
                         ? `Would add ${entry.pending_overtime_hours!.toFixed(1)}h overtime`
                         : `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
-                      : `${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime to review`}
+                      : 'No overtime waiting on this shift'}
                   </p>
                   <ul className="divide-y divide-line text-body-sm">
                     {week.map((row) => (

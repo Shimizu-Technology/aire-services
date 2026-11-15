@@ -245,6 +245,21 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     expect(response.parsed_body.fetch("preview")).to include("waiting_shifts" => 0, "waiting_hours" => 0.0, "waiting_overtime_hours" => 0.0)
   end
 
+  it "counts two pending shifts beyond 40 hours as time waiting in the employment preview" do
+    zone = ActiveSupport::TimeZone["Pacific/Guam"]
+    [ 10, 10, 10, 10, 10, 6.33 ].each_with_index do |hours, index|
+      start = zone.local(2026, 11, 8 + index, 7)
+      create(:time_entry, user: worker, status: "completed", entry_method: "clock", work_date: start.to_date,
+        start_time: start, end_time: start + hours.hours, clock_in_at: start, clock_out_at: start + hours.hours,
+        hours: hours, approval_status: index >= 4 ? "pending" : "approved", overtime_status: index >= 4 ? "pending" : "none")
+    end
+
+    get "/api/v1/admin/users/#{worker.id}/termination_preview", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.fetch("preview")).to include("waiting_shifts" => 2, "waiting_hours" => 16.33, "waiting_overtime_hours" => 0.0)
+  end
+
   it "previews waiting time separately from overtime, open clocks, live links and open leave" do
     zone = ActiveSupport::TimeZone["Pacific/Guam"]
     [ 10, 10, 10, 7, 5 ].each_with_index do |hours, index|

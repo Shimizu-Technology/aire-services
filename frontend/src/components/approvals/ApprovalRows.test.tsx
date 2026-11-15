@@ -100,7 +100,7 @@ it('groups exceptional shifts by person and Sun–Sat week, with totals, tiny-sh
   expect(screen.getAllByText('Edited by Ethan')).toHaveLength(2)
   expect(screen.queryByText('After the lock')).not.toBeInTheDocument()
   expect(screen.getByText('Under 1 minute, probably a mis-tap')).toBeInTheDocument()
-  expect(screen.getByText(/0.0h overtime to review/)).toBeInTheDocument()
+  expect(screen.queryByText(/0.0h overtime to review/)).not.toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: /^Review Marcus/ })).toHaveLength(2)
   fireEvent.click(
     screen.getByRole('button', { name: 'Review Marcus Quinata, week of Sun, Nov 8' }),
