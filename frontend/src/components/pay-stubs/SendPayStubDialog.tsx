@@ -17,8 +17,9 @@ interface Props {
   request?: PayStubRequest | null
   /** Start with this person chosen (from a person's page). */
   workerId?: number | null
-  /** Owners and admins (preview_pay): may send to an address that isn't on file. */
+  /** Keep a period-page send on this person and their issued checks for this period. */
   period?: { start: string; end: string; statementIds: string[] }
+  /** Owners and admins (preview_pay): may send to an address that isn't on file. */
   canChooseRecipient: boolean
   onClose: () => void
   onSent: (link: PayStubLink) => void
