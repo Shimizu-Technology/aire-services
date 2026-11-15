@@ -661,7 +661,7 @@ describe('clock-out confirms', () => {
     )
     expect(
       await within(stopped).findByText(
-        'Pick a time after you clocked in at 7:00 PM and before now.',
+        'Pick a time after 7:00 PM on the clock-in day and before now, within 12 hours of clock-in. For an overnight or longer shift, ask your manager to fix the date and time.',
       ),
     ).toBeInTheDocument()
     expect(myTimeApi.clockOut).not.toHaveBeenCalled()

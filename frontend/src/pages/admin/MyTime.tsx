@@ -332,7 +332,7 @@ export default function MyTime() {
     if (!segmentStart || !stop) {
       setStopError(
         segmentStart
-          ? `Pick a time after you clocked in at ${clockTime(segmentStart)} and before now.`
+          ? `Pick a time after ${clockTime(segmentStart)} on the clock-in day and before now, within 12 hours of clock-in. For an overnight or longer shift, ask your manager to fix the date and time.`
           : 'Enter the time you stopped working.',
       )
       return
@@ -527,7 +527,7 @@ export default function MyTime() {
                 <p className="text-body-sm text-ink-muted">
                   {status.active_break && status.active_break_started_at
                     ? `Break started ${clockTime(status.active_break_started_at)} · on the clock since ${since ? clockTime(since) : '—'}`
-                    : `Since ${since ? clockTime(since) : '—'} · ${
+                    : `Since ${since ? `${guamDate(since) !== guamDate(new Date()) ? new Date(since).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'short' }) + ' ' : ''}${clockTime(since)}` : '—'} · ${
                         recordedBreak ||
                         (status.session?.total_break_minutes ??
                           status.break_minutes) > 0
@@ -564,7 +564,7 @@ export default function MyTime() {
                 {lastOutDate ? (
                   <p role="status" className="text-body text-ink">
                     Clocked out at {clockTime(lastOutDate)} ·{' '}
-                    {formatElapsed(todayHours * 3_600_000, 'short')} today ·{' '}
+                    {formatElapsed(todayHours * 3_600_000, 'short')} {lastOutDate && guamDate(lastOutDate) !== guamDate(new Date()) ? `on ${new Date(lastOutDate).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric' })}` : 'today'} ·{' '}
                     {lastOut?.approval_status === 'approved'
                       ? 'approved'
                       : 'waiting for approval'}
@@ -789,12 +789,12 @@ export default function MyTime() {
               type="time"
               enterKeyHint="done"
               value={stopTime}
-              onChange={(event) => setStopTime(event.target.value)}
+              onChange={(event) => { setStopTime(event.target.value); setStopError(null) }}
             />
           </Field>
           {status?.clock_in_at && (
             <p className="text-body-sm text-ink-muted">
-              You clocked in at {clockTime(status.clock_in_at)}.
+              You clocked in on {new Date(status.clock_in_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric' })} at {clockTime(status.clock_in_at)}.
             </p>
           )}
         </form>

@@ -4,7 +4,7 @@ export interface ToastOptions {
   /** One sentence saying what happened: "Approved 2 shifts for Marcus Quinata". */
   message: ReactNode
   /** At most one action, usually Undo. The toast closes after it runs. */
-  action?: { label: string; onAction: () => void }
+  action?: { label: string; onAction: () => void; expiresAt?: number }
   /** How long it stays, in ms. Paused while hovered, focused, the tab is hidden or a modal is open. */
   duration?: number
   /** `danger` adds a warning icon for refusals ("Can't undo 1 of 2…"). */

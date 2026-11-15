@@ -106,6 +106,14 @@ function Toaster({ toast, reducedMotion, onDismiss }: { toast: ToastRecord | nul
 
 function ToastView({ toast, reducedMotion, paused: modalOpen, onDismiss }: { toast: ToastRecord; reducedMotion: boolean; paused: boolean; onDismiss: () => void }) {
   const { message, action, tone = 'default', duration = TOAST_DEFAULT_DURATION } = toast.options
+  const [actionExpired, setActionExpired] = useState(() => action?.expiresAt !== undefined && Date.now() >= action.expiresAt)
+  useEffect(() => {
+    if (action?.expiresAt === undefined) return
+    const check = () => setActionExpired(Date.now() >= action.expiresAt!)
+    const timer = window.setTimeout(check, Math.max(0, action.expiresAt - Date.now()))
+    document.addEventListener('visibilitychange', check)
+    return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', check) }
+  }, [action?.expiresAt])
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden')
@@ -169,11 +177,11 @@ function ToastView({ toast, reducedMotion, paused: modalOpen, onDismiss }: { toa
     >
       {tone === 'danger' && <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-red-300" />}
       <p className="min-w-0 flex-1 py-2 [overflow-wrap:anywhere]">{message}</p>
-      {action && (
+      {action && !actionExpired && (
         <button
           type="button"
           data-toast-action
-          onClick={() => { close(); action.onAction() }}
+          onClick={() => { close(); if (action.expiresAt === undefined || Date.now() < action.expiresAt) action.onAction() }}
           className="inline-flex min-h-11 shrink-0 items-center rounded-control px-3 font-semibold text-sky-300 transition-colors duration-150 hover:bg-white/10 focus-visible:outline-white"
         >
           {action.label}
