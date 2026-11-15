@@ -13,6 +13,22 @@ RSpec.describe TimeClockService, type: :service do
     travel_to(frozen_time) { example.run }
   end
 
+  it "preserves an audited sub-minute clock-in without completing a shift or switching work" do
+    Setting.set("schedule_required_for_clock_in", "false")
+    category = create(:time_category)
+    other = create(:time_category)
+    [ category, other ].each { |item| user.user_time_categories.create!(time_category: item) }
+    entry = described_class.clock_in(user: user, time_category_id: category.id, clock_source: "kiosk")
+    travel 30.seconds
+    expect { described_class.clock_out(user: user) }.to raise_error(described_class::ClockError, /less than a minute/)
+    expect { described_class.switch_category(user: user, time_category_id: other.id) }.to raise_error(described_class::ClockError, /less than a minute/)
+    expect(entry.reload).to have_attributes(status: "clocked_in", approval_status: nil, clock_out_at: nil)
+    expect(user.time_entries.count).to eq(1)
+    expect(AuditLog.where(auditable: entry, action: "time_entry.clocked_in").count).to eq(1)
+    travel 31.seconds
+    expect(described_class.clock_out(user: user).status).to eq("completed")
+  end
+
   describe ".clock_in" do
     it "rejects inactive employees even when an admin supplies the override" do
       Setting.set("schedule_required_for_clock_in", "false")

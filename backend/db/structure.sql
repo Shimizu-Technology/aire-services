@@ -2580,7 +2580,8 @@ CREATE TABLE public.time_entries (
     overtime_allocation_signature jsonb,
     allocation_contract_version character varying,
     original_employee_change jsonb,
-    rejected_employee_change jsonb
+    rejected_employee_change jsonb,
+    employee_corrected_clock_out boolean DEFAULT false NOT NULL
 );
 
 
@@ -6206,6 +6207,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261115050100'),
 ('20261115040000'),
 ('20261115020100'),
 ('20261115020000'),

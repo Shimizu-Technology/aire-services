@@ -3,7 +3,7 @@
 class EmployeeTimeChange
   class Stale < StandardError; end
   RESTORATION_ERROR = "The original clock-out was missing, so there's nothing to go back to. Approve the employee's fix or edit the shift.".freeze
-  FIELDS = %w[work_date start_time end_time clock_in_at clock_out_at hours break_minutes description time_category_id status approval_status approved_by_id approved_at approval_note overtime_status overtime_approved_by_id overtime_approved_at overtime_note].freeze
+  FIELDS = %w[employee_corrected_clock_out work_date start_time end_time clock_in_at clock_out_at hours break_minutes description time_category_id status approval_status approved_by_id approved_at approval_note overtime_status overtime_approved_by_id overtime_approved_at overtime_note].freeze
 
   def self.capture(entry)
     return unless entry.clock_entry?
@@ -48,6 +48,7 @@ class EmployeeTimeChange
       Payroll::AffectedOvertimeReview.around(entry, force: true) do
         before = capture(entry)
         entry.assign_attributes(original.slice(*FIELDS))
+        entry.employee_corrected_clock_out = original.fetch("employee_corrected_clock_out", false)
         entry.calculate_hours_from_times
         if entry.needs_administrator_correction? || entry.clock_in_at.nil? || entry.clock_out_at.nil? || entry.hours.to_f <= 0 || !entry.valid?
           raise TimeClockService::ClockError, RESTORATION_ERROR

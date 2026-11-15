@@ -34,10 +34,18 @@ class AireKioskService
       response_payload(user, entry)
     end
 
-    def clock_out(kiosk_access_token:, kiosk_token:)
+    def clock_out(kiosk_access_token:, kiosk_token:, corrected_end_time: nil)
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
-      entry = TimeClockService.clock_out(user: user)
+      if corrected_end_time.present?
+        start = user.time_entries.clocked_in.first&.clock_in_at
+        stop = Time.iso8601(corrected_end_time.to_s) rescue nil
+        unless start && stop && stop > start && stop <= Time.current && stop - start <= 12.hours &&
+               stop.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date == start.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date
+          raise KioskError, "Pick a time after clock-in on the clock-in day and before now, within 12 hours of clock-in. Ask a manager to fix an overnight or longer shift."
+        end
+      end
+      entry = TimeClockService.clock_out(user: user, corrected_end_time: corrected_end_time)
       response_payload(user, entry)
     end
 

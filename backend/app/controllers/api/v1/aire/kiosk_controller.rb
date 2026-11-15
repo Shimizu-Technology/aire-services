@@ -106,7 +106,8 @@ module Api
         def clock_out
           result = AireKioskService.clock_out(
             kiosk_access_token: params[:kiosk_access_token].to_s,
-            kiosk_token: params[:kiosk_token].to_s
+            kiosk_token: params[:kiosk_token].to_s,
+            corrected_end_time: params[:corrected_end_time]
           )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e

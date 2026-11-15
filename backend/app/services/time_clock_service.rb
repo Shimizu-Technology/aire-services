@@ -85,6 +85,7 @@ class TimeClockService
       entry = active_entry_for(user)
       raise ClockError, "Not currently clocked in" unless entry
 
+      reject_short_segment!(entry) unless corrected_end_time.present?
       clock_write_transaction do
         if entry.status == "on_break"
           active_break = entry.active_break
@@ -106,6 +107,10 @@ class TimeClockService
           if parsed > guam_now
             raise ClockError, "Corrected time (#{parsed.strftime('%I:%M %p')}) cannot be in the future"
           end
+          if parsed - (entry.clock_in_at || entry.start_time) < 60
+            raise ClockError, "That was less than a minute, so no shift was saved. You are still clocked in; ask a manager to correct this clock-in."
+          end
+          entry.employee_corrected_clock_out = true unless admin_override_by
           entry.end_time = parsed
           entry.clock_out_at = now
           entry.approval_status = "pending"
@@ -204,6 +209,7 @@ class TimeClockService
         raise ClockError, "Already tracking time under #{new_category.name}"
       end
 
+      reject_short_segment!(entry)
       now = Time.current
       guam_now = now.in_time_zone(business_timezone)
       today = guam_now.to_date
@@ -263,6 +269,12 @@ class TimeClockService
 
       broadcast_time_clock_update("switch_category", user)
       new_entry
+    end
+
+    def reject_short_segment!(entry)
+      return unless entry.clock_in_at && Time.current - entry.clock_in_at < 60
+
+      raise ClockError, "That was less than a minute, so no shift was saved. You are still clocked in; wait a minute before clocking out or switching work."
     end
 
     # ── Current Status ──

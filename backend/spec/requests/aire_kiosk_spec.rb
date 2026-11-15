@@ -46,6 +46,23 @@ RSpec.describe "AIRE kiosk", type: :request do
     )
   end
 
+  it "validates an earlier stop and saves its effective time, hours and correction source" do
+    entry = create(:time_entry, user: employee, time_category: time_category, work_date: frozen_time.to_date,
+                   start_time: frozen_time - 2.hours, clock_in_at: frozen_time - 2.hours, end_time: nil,
+                   status: "clocked_in", entry_method: "clock", clock_source: "kiosk", hours: 0)
+    token = AireKioskToken.issue_for(employee)
+    [ frozen_time - 3.hours, frozen_time + 1.hour, frozen_time - 1.day, "invalid" ].each do |stop|
+      post "/api/v1/aire/kiosk/clock_out", params: { kiosk_access_token: kiosk_access_token, kiosk_token: token, corrected_end_time: stop.respond_to?(:iso8601) ? stop.iso8601 : stop }
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(entry.reload.status).to eq("clocked_in")
+    end
+    post "/api/v1/aire/kiosk/clock_out", params: { kiosk_access_token: kiosk_access_token, kiosk_token: token, corrected_end_time: (frozen_time - 30.minutes).iso8601 }
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(status: "completed", approval_status: "pending", employee_corrected_clock_out: true, hours: 1.5)
+    expect(entry.end_time.in_time_zone("Guam").strftime("%H:%M")).to eq("08:30")
+    expect(AuditLog.where(auditable: entry, action: "time_entry.clocked_out")).to exist
+  end
+
   it "verifies a PIN and returns a kiosk token" do
     post "/api/v1/aire/kiosk/verify", params: { pin: employee_pin, kiosk_access_token: kiosk_access_token }
 
