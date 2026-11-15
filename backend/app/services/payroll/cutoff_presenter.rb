@@ -61,6 +61,21 @@ module Payroll
       }
     end
 
+    # The soonest scheduled lock still ahead. The headline period can be one that
+    # already locked; staff working in the current period still need its lock time.
+    def self.next_lock(now: Time.current)
+      return unless ConnectedPayrollMode.enabled?
+
+      period = PayrollCalendarPeriod.scheduled_locks.where.not(status: "finalized")
+        .where(cutoff_at: (now + 1.second)..).order(:cutoff_at, :id).first
+      return unless period
+
+      {
+        period: { id: period.id, start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 },
+        cutoff_at: period.cutoff_at.in_time_zone(PayrollCalendarPeriod::BUSINESS_TIME_ZONE).iso8601
+      }
+    end
+
     # Called only by the authenticated admin response, never staff/kiosk discovery.
     def self.attention(now: Time.current)
       overdue = PayrollCalendarPeriod.scheduled_locks.where(status: "scheduled", cutoff_at: ..now)

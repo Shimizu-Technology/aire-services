@@ -453,14 +453,8 @@ module Payroll
       end
       return [ zero_hours, [] ] unless base_approved?(entry)
 
-      review_matches = AffectedOvertimeReview.approval_valid?(entry, allocation, legacy_allocation: @legacy_allocations[entry.id])
-      overtime_reason = if !review_matches && entry.overtime_status != "denied"
-        "pending_overtime"
-      elsif entry.overtime_status == "denied"
-        "denied_overtime"
-      elsif entry.overtime_status == "approved" && entry.overtime_approved_at.present? && entry.overtime_approved_at > cutoff_at
-        "overtime_approved_after_cutoff"
-      end
+      overtime_reason = ApprovalHours.overtime_reason(entry, allocation,
+        legacy_allocation: @legacy_allocations[entry.id], cutoff_at: cutoff_at)
       included_overtime = overtime_reason ? 0.to_d : overtime
       exclusions = if overtime_reason && overtime.positive?
         [ exclusion_for(entry, overtime_reason, overtime, 0, overtime, snapshot) ]
@@ -475,9 +469,7 @@ module Payroll
     end
 
     def base_approved?(entry)
-      return false unless entry.status == "completed"
-
-      entry.clock_entry? ? entry.approval_status.in?([ nil, "approved" ]) : entry.approval_status == "approved"
+      ApprovalHours.base_approved?(entry)
     end
 
     def zero_hours

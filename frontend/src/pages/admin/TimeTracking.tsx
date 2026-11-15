@@ -23,6 +23,8 @@ import TimePayrollWorkspaceHeader, { type TimePayrollSection } from '../../compo
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor, isUserRole, ROLE_DETAILS, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { payPeriodContaining } from '../../lib/payPeriods'
+import { SHIFT_GONE_MESSAGE, useShiftReturn } from '../../lib/useShiftReturn'
 import { currentPayrollPeriod, isIsoDate, withPayrollPeriod, type PayrollPeriod } from '../../lib/payrollPeriods'
 
 // Local types to avoid Vite caching issues
@@ -329,19 +331,11 @@ function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecy
 }
 
 function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
-  if (employee.issues.uncategorized_count > 0) {
-    return <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">Missing category</span>
+  if (employee.ready && employee.approval_complete) {
+    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Complete</span>
   }
 
-  if (employee.issues.pending_count + employee.issues.denied_count + employee.issues.pending_overtime_count + employee.issues.denied_overtime_count + employee.issues.open_clock_count > 0) {
-    return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Excluded work</span>
-  }
-
-  if (employee.ready) {
-    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
-  }
-
-  return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
+  return <span title={employee.issues.uncategorized_count > 0 ? 'Missing category' : undefined} className="inline-flex rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Draft - needs review</span>
 }
 
 function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) {
@@ -450,6 +444,25 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
   const [error, setError] = useState<string | null>(null)
   
   const activeTab: TimeTab = section ?? timeTabFromSearchParams(searchParams)
+
+  // Back from a shift's history: show the week (or pay period) the shift is in now, then
+  // reopen Edit shift on it. In the approvals queue the sheet opens over whatever it lists.
+  const shiftReturn = useShiftReturn('entry_id')
+  const returning = shiftReturn.state.status === 'ready' ? shiftReturn.state.entry : null
+  useEffect(() => {
+    if (!returning || activeTab === 'approvals') return
+    const next = new URLSearchParams(searchParams)
+    next.set('date', returning.work_date)
+    next.delete('entries_page')
+    if (next.has('user_id')) next.set('user_id', String(returning.user.id))
+    const own = payPeriodContaining(returning.work_date)
+    const named = linkedPayrollPeriod(searchParams)
+    if (named && !(named.start <= returning.work_date && returning.work_date <= named.end)) {
+      next.set('start_date', own.start)
+      next.set('end_date', own.end)
+    }
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [returning, activeTab, searchParams, setSearchParams])
   
   // View mode: 'day' or 'week'
   const viewMode = routedView
@@ -970,6 +983,15 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
     setShowEditModal(true)
   }
 
+  const reopenShift = useEffectEvent((entry: TimeEntryItem) => {
+    openEditEntry(entry)
+    shiftReturn.finish()
+  })
+  useEffect(() => {
+    // Wait for the URL to have moved to the shift's week, so clearing the request can't undo that.
+    if (returning && activeTab !== 'approvals' && categories.length > 0 && routedDate === returning.work_date) reopenShift(returning as unknown as TimeEntryItem)
+  }, [returning, activeTab, categories.length, routedDate])
+
   const reopenPersonDayAfterLoad = useRef<{ name: string; date: string; userId: number } | null>(null)
 
   useEffect(() => {
@@ -1142,6 +1164,9 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
     : visibleTotalHours
 
   const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, payroll_statuses: {} }
+  const reportHasWaiting = (reportSummary.payroll_hours?.time_waiting_hours ?? 0) > 0
+    || (reportSummary.payroll_hours?.overtime_waiting_hours ?? 0) > 0
+    || reportSummary.open_clock_count > 0
   const hoursSummaryRows = hoursReport?.employees ?? []
   const reportByCategory = hoursReport?.breakdowns?.by_category ?? []
   const reportBySource = hoursReport?.breakdowns?.by_source ?? []
@@ -1206,7 +1231,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
       if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
         const confirmed = await confirm({
           title: 'Download a clearly marked draft anyway?',
-          description: 'This report includes approved entries without work categories.',
+          description: 'Time or overtime is still waiting, a clock is open, or a work category needs review. Waiting hours are not included in payroll totals.',
           confirmLabel: 'Download draft',
         })
         if (confirmed) await downloadReport(type, true)
@@ -1225,6 +1250,12 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
   return (
     <div className="space-y-6">
       <PayrollCutoffNotice />
+      {shiftReturn.state.status === 'gone' && (
+        <p role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-warm bg-white px-4 py-3 text-sm text-primary-dark">
+          {SHIFT_GONE_MESSAGE}
+          <button type="button" onClick={shiftReturn.finish} className="font-semibold underline">Dismiss</button>
+        </p>
+      )}
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
@@ -1279,6 +1310,8 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               : undefined}
           onUpdate={refreshEntryViews}
           canDeleteEntry={canDeleteEntry}
+          reopenEntry={returning}
+          onReopened={shiftReturn.finish}
         />
       )}
 
@@ -2102,25 +2135,28 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
 
           {!reportError && (
           <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize />
-            <ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} />
-            <ReportMetric label="Overtime" value={reportLoading ? '…' : formatHours(reportSummary.overtime_hours)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} />
-            <ReportMetric label="Break Hours" value={reportLoading ? '…' : formatHours(reportSummary.break_hours)} />
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <ReportMetric label="Approved for payroll" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_hours) : 'Unavailable'} emphasize />
+            <ReportMetric label="Approved regular" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_regular_hours) : 'Unavailable'} />
+            <ReportMetric label="Approved overtime" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_overtime_hours) : 'Unavailable'} />
+            <ReportMetric label="Time waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.time_waiting_hours) : 'Unavailable'} />
+            <ReportMetric label="Overtime waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.overtime_waiting_hours) : 'Unavailable'} tone="warning" />
             <ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} />
           </div>
+          <p className="text-sm text-text-muted">Waiting hours are not included in payroll totals. Approval totals include all approval statuses; status filters narrow the worked-hour details below.</p>
 
           {hoursReport && (
             <div className={`rounded-xl border px-4 py-3 ${
               !hoursReport.ready
                 ? 'border-red-200 bg-red-50 text-red-900'
-                : excludedEntryCount > 0
+                : reportHasWaiting || excludedEntryCount > 0
                   ? 'border-amber-200 bg-amber-50 text-amber-900'
                   : 'border-emerald-200 bg-emerald-50 text-emerald-900'
             }`}>
               <div className="font-semibold">
-                {!hoursReport.ready ? 'Action required before cutoff' : excludedEntryCount > 0 ? 'Ready for cutoff with excluded entries' : 'Ready for cutoff'}
+                {!hoursReport.ready || reportHasWaiting ? 'Draft - needs review' : 'Complete - approved hours ready'}
               </div>
+              {reportHasWaiting && <p className="mt-1 text-sm">Time or overtime is still waiting for approval, or a clock is still open. Only approved hours are included in payroll totals.</p>}
               <p className="mt-1 text-sm leading-relaxed">
                 {!hoursReport.ready
                   ? [
@@ -2134,7 +2170,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       reportSummary.pending_overtime_count > 0 ? `${reportSummary.pending_overtime_count} pending overtime` : null,
                       reportSummary.denied_overtime_count > 0 ? `${reportSummary.denied_overtime_count} denied overtime` : null,
                       reportSummary.open_clock_count > 0 ? `${reportSummary.open_clock_count} open clock` : null,
-                    ].filter(Boolean).join(', ') + '. These entries remain tracked but are not included in this cutoff; later approvals carry into the next cutoff.'
+                    ].filter(Boolean).join(', ') + '. Hours waiting for approval, denied hours and open clocks are not included in this cutoff. Approved regular hours on a shift with waiting overtime are included; the waiting overtime and later approvals carry into the next cutoff.'
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
               {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (
@@ -2200,9 +2236,10 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect entries, work categories and weekly overtime.</p>
             </div>
-            <div className="divide-y divide-neutral-warm sm:hidden">
+            {/* Eight columns need the full desktop width; narrower screens get the person cards. */}
+            <div className="divide-y divide-neutral-warm xl:hidden">
               {reportLoading ? (
                 <p className="px-4 py-8 text-center text-sm text-text-muted">Loading payroll report...</p>
               ) : hoursSummaryRows.length === 0 ? (
@@ -2231,18 +2268,19 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                   </span>
                   <span className="mt-3 grid grid-cols-3 gap-2">
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Regular</span>
-                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.regular_hours.toFixed(2)}h</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved regular</span>
+                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">OT</span>
-                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.overtime_hours.toFixed(2)}h</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved overtime</span>
+                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Total</span>
-                      <span className="mt-0.5 block text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}h</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved for payroll</span>
+                      <span className="mt-0.5 block text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                   </span>
+                  <span className="mt-3 block text-xs text-amber-900">Time waiting for approval: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h · Overtime waiting for approval: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</span>
                   <span className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-text-muted">{employee.entries_count} {employee.entries_count === 1 ? 'entry' : 'entries'} · {formatHours(employee.break_hours)} break hours</span>
                     <EmployeeReviewBadge employee={employee} />
@@ -2250,31 +2288,38 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                 </button>
               ))}
             </div>
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-[980px]">
+            <div className="hidden xl:block">
+              <table aria-label="Hours by employee" className="w-full table-fixed">
+                <colgroup>
+                  <col style={{ width: '19%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '16%' }} />
+                </colgroup>
                 <thead className="bg-neutral-warm/40">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Departments</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium uppercase text-text-muted">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Hour Types</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Regular</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">OT</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Total</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Breaks</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Entries</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Review</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Payroll</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Employee</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Departments</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Approved regular</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Approved overtime</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Approved for payroll</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Waiting for approval</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Review</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Payroll</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
                   {reportLoading ? (
-                    <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
                   ) : hoursSummaryRows.length === 0 ? (
-                    <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">No hours match this range.</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-text-muted">No hours match this range.</td></tr>
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
-                      <td className="px-4 py-3 text-sm font-semibold text-primary-dark">
+                      <td className="break-words px-2 py-3 align-top text-sm font-semibold text-primary-dark">
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
@@ -2284,57 +2329,42 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                               event.stopPropagation()
                               setSelectedReportEmployee(employee)
                             }}
-                            className="min-h-11 rounded-lg px-2 py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                            className="min-h-11 max-w-full break-words rounded-lg py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
                           >
                             {employee.full_name}
                           </button>
                           <EmploymentStatusBadge employee={employee} />
                         </div>
                         <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
+                        <div className="mt-1 text-xs font-normal text-text-muted">{employee.is_intern ? 'Intern' : 'Staff'} · {employee.entries_count} {employee.entries_count === 1 ? 'entry' : 'entries'} · {formatHours(employee.break_hours)}h breaks</div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
-                      <td className="px-4 py-3 text-center text-sm">
-                        {employee.is_intern ? (
-                          <span className="inline-flex min-w-[4.25rem] justify-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Intern</span>
-                        ) : (
-                          <span className="inline-flex min-w-[4.25rem] justify-center text-xs text-text-muted">Staff</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-text-muted">
-                        {employee.categories.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {employee.categories.map((category) => (
-                              <span key={`${employee.id}-${category.id ?? category.name}`} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
-                                {category.name}: <span className="ml-1 font-semibold text-primary-dark">{category.total_hours.toFixed(2)}h</span>
-                              </span>
-                            ))}
-                          </div>
-                        ) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.regular_hours.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold">
-                        {employee.overtime_hours > 0 ? (
+                      <td className="break-words px-2 py-3 align-top text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
+                      <td className="break-words px-2 py-3 align-top text-right text-sm text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}</td>
+                      <td className="break-words px-2 py-3 align-top text-right text-sm font-semibold">
+                        {(employee.payroll_hours?.approved_overtime_hours ?? 0) > 0 ? (
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation()
                               setSelectedReportEmployee(employee)
                             }}
-                            className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                            className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-1.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
                             title="View weekly overtime breakdown"
                           >
-                            <span>{employee.overtime_hours.toFixed(2)}</span>
+                            <span>{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
                             <span className="text-[10px] uppercase tracking-[0.12em]">OT</span>
                           </button>
                         ) : (
-                          <span className="text-text-muted">{employee.overtime_hours.toFixed(2)}</span>
+                          <span className="text-text-muted">{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right text-sm text-text-muted">{formatHours(employee.break_hours)}</td>
-                      <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
-                      <td className="px-4 py-3 text-sm"><EmployeeReviewBadge employee={employee} /></td>
-                      <td className="px-4 py-3 text-sm"><PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} /></td>
+                      <td className="break-words px-2 py-3 align-top text-right text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}</td>
+                      <td className="break-words px-2 py-3 align-top text-right text-xs text-amber-900">
+                        <div>Time: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h</div>
+                        <div className="mt-1">Overtime: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</div>
+                      </td>
+                      <td className="break-words px-2 py-3 align-top text-sm"><EmployeeReviewBadge employee={employee} /></td>
+                      <td className="break-words px-2 py-3 align-top text-sm [&>span]:inline-block [&>span]:max-w-full [&>span]:break-words"><PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} /></td>
                     </tr>
                   ))}
                 </tbody>

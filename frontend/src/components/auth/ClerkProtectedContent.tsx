@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { useAuth, useUser, RedirectToSignIn } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { Link, useInRouterContext } from 'react-router-dom'
+import { workAreaFor } from '../../lib/workArea'
 import { capabilitiesFor, type Capability } from '../../lib/roles'
 
 interface ClerkProtectedContentProps {
@@ -21,6 +23,7 @@ export default function ClerkProtectedContent({ children, requiredRole, required
     refreshCurrentUser,
   } = useAuthContext()
 
+  const inRouter = useInRouterContext()
   const authStatus = useMemo(() => {
     if (!isLoaded || authLoading) return 'loading' as const
 
@@ -79,6 +82,7 @@ export default function ClerkProtectedContent({ children, requiredRole, required
   }
 
   if (authStatus === 'access_denied') {
+    const workArea = workAreaFor(userRole)
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md mx-auto text-center p-8">
@@ -95,12 +99,31 @@ export default function ClerkProtectedContent({ children, requiredRole, required
           <p className="text-sm text-gray-500">
             Signed in as: {clerkUser?.primaryEmailAddress?.emailAddress}
           </p>
-          <a
-            href="/"
-            className="mt-6 inline-block px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
-          >
-            Return to Home
-          </a>
+          {workArea ? (
+            <>
+              {inRouter ? (
+                <Link to={workArea.href} className="mt-6 inline-flex min-h-11 items-center px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors">
+                  {workArea.label}
+                </Link>
+              ) : (
+                <a href={workArea.href} className="mt-6 inline-flex min-h-11 items-center px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors">
+                  {workArea.label}
+                </a>
+              )}
+              <div>
+                <a href="/" className="mt-3 inline-flex min-h-11 items-center text-sm text-gray-600 underline hover:text-gray-900">
+                  View public website
+                </a>
+              </div>
+            </>
+          ) : (
+            <a
+              href="/"
+              className="mt-6 inline-block px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+            >
+              View public website
+            </a>
+          )}
         </div>
       </div>
     )

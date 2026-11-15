@@ -6,7 +6,7 @@ import type { PayPeriod } from '../payPeriods'
 // Timecards' reads and writes. Every call goes through the shared `api`
 // client; this module only shapes the parameters the page needs.
 
-/** A person's hours report row without its per-entry rows (`summary_only=1`). */
+/** Scalar totals and flags; detail collections are empty (`summary_only=1`). */
 export type TimecardSummaryEmployee = Omit<HoursReportEmployee, 'days' | 'excluded_entries'> & {
   days: Array<Omit<HoursReportDay, 'entries'>>
   /**

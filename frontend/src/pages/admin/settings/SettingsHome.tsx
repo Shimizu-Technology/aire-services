@@ -3,6 +3,7 @@ import { useNavigate, Navigate, useLocation } from 'react-router-dom'
 import { api, type AdminAppSettingsResponse } from '../../../lib/api'
 import { ListGroup, ListRow, PageHeader } from '../../../components/ui'
 import { settingsApi } from '../../../lib/api/settings'
+import { payrollConnectionCopy } from '../../../lib/payrollConnection'
 import { settingsAnchorPaths } from '../AdminRedirects'
 
 const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
@@ -29,7 +30,7 @@ export default function SettingsHome() {
       .catch(() => {})
     void settingsApi
       .connection()
-      .then((result) => setConnection(sentence(result.data?.state.replaceAll('_', ' ') ?? 'unavailable')))
+      .then((result) => setConnection(result.data ? payrollConnectionCopy(result.data).title : 'Unavailable'))
       .catch(() => setConnection('Unavailable'))
   }, [])
   const redirect = settingsAnchorPaths[location.hash]
@@ -60,7 +61,7 @@ export default function SettingsHome() {
       'Pay stubs',
       `Kiosk requests ${on('pay_stub_kiosk_requests_enabled')} · self-email ${on('pay_stub_self_email_enabled')}`,
     ],
-    ['kiosk', 'Kiosk', `Pay stub requests ${on('pay_stub_kiosk_requests_enabled')}`],
+    ['kiosk', 'Kiosk', `Open and unlock the office kiosk · pay stub requests ${on('pay_stub_kiosk_requests_enabled')}`],
     ['payroll-connection', 'Payroll connection', connection],
     ['schedules', 'Schedules', sentence(on('schedules_enabled'))],
     ['roles', 'Roles & access', 'View permissions by role'],

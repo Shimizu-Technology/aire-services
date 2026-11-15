@@ -203,6 +203,22 @@ describe("Cornerstone Payroll's evidence link", () => {
     await waitFor(() => expect(document.getElementById('timecard-entry-20')).toHaveClass('ring-cyan-400'))
   })
 
+  it("reopens Edit shift on the shift's current period when coming back from its history", async () => {
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: makeEntry({ id: 20, work_date: '2026-10-20' }) } })
+    open('/admin/users/7?tab=time&period=2026-11-01&entry=20&return=edit')
+    expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+    await waitFor(() => expect(address().searchParams.get('period')).toBe('2026-10-16'))
+    await waitFor(() => expect(address().searchParams.has('return')).toBe(false))
+    expect(address().searchParams.get('entry')).toBe('20')
+  })
+
+  it('says so, and opens nothing, when the shift was deleted', async () => {
+    apiMock.getTimeEntry.mockResolvedValue({ error: 'Not found', status: 404 })
+    open('/admin/users/7?tab=time&period=2026-11-01&entry=20&return=edit')
+    expect((await screen.findAllByText(/deleted or can't be edited any more/)).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
+  })
+
   it('opens the linked period without a shift', async () => {
     open('/admin/users/7?period=2026-10-16&tab=hours')
     await screen.findByRole('heading', { level: 1, name: 'Casey Cruz' })
@@ -512,7 +528,7 @@ describe('one meaning of Approved: approved for pay', () => {
       makeEntry({ id: 40, work_date: '2026-11-11', hours: 11.5, approval_status: 'pending', clock_in_at: '2026-11-11T08:00:00+10:00', clock_out_at: '2026-11-11T19:30:00+10:00' }),
     ], pagination: { total_pages: 1 } } })
     apiMock.getHoursReport.mockResolvedValue({ data: { employees: [{
-      id: 7, total_hours: 57.5, overtime_hours: 6,
+      id: 7, payroll_hours: { approved_regular_hours: 51.5, approved_overtime_hours: 0, approved_hours: 51.5, time_waiting_hours: 11.5, overtime_waiting_hours: 6 }, total_hours: 57.5, overtime_hours: 6,
       days: days.map((date, index) => ({ work_date: date, entries: [reportShift(30 + index, date, date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {})] })),
       excluded_entries: [reportShift(40, '2026-11-11', { approval_status: 'pending' })],
     }] } })

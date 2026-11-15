@@ -251,14 +251,51 @@ describe('ApprovalQueue review workflow', () => {
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Deny OT' }))
-    expect(await screen.findByText(/Add a reason in the note box/)).toBeVisible()
+    expect(await screen.findByText('Add a reason, then press Deny OT again.')).toBeVisible()
     expect(apiMock.denyOvertime).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByPlaceholderText('Add a note (optional)...'), { target: { value: 'Hours were not worked' } })
+    fireEvent.change(screen.getByLabelText('Reason for denying'), { target: { value: 'Hours were not worked' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny OT' }))
 
     await waitFor(() => expect(apiMock.denyOvertime).toHaveBeenCalledWith(74, 'Hours were not worked'))
     expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
+  })
+
+  it('asks for a denial reason beside that row\'s note box, focuses it, and sends nothing until it is given', async () => {
+    const scrollIntoView = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    const entry = makeEntry({ id: 75 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.denyTimeEntry.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Deny' }))
+    const reason = await screen.findByLabelText('Reason for denying')
+    await waitFor(() => expect(reason).toHaveFocus())
+    expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
+    expect(reason).toHaveAttribute('aria-invalid', 'true')
+    expect(reason).toHaveAccessibleDescription('Add a reason, then press Deny again.')
+    expect(scrollIntoView.mock.contexts).toContain(reason)
+    // Not up in the banner.
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    fireEvent.change(reason, { target: { value: 'Duplicate paper timesheet' } })
+    expect(reason).not.toHaveAttribute('aria-invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+    await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalledWith(75, 'Duplicate paper timesheet'))
+  })
+
+  it('puts a server "reason is required" refusal beside the note box too', async () => {
+    const entry = makeEntry({ id: 76 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.denyTimeEntry.mockResolvedValue({ error: 'A denial reason is required' })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note' }))
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: '   x   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+    await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalled())
+    expect(await screen.findByText('A denial reason is required')).toBeVisible()
+    expect(screen.getByLabelText('Reason for denying')).toHaveFocus()
   })
 
   it('keeps reversed-range inputs correctable without stale approvals and resumes the selected scope', async () => {

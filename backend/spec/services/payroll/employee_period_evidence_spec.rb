@@ -51,6 +51,13 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect(result).to include(amount_owed: nil, actual_check_components: nil)
   end
 
+  it "keeps denied overtime numeric when waiting time has no payable allocation" do
+    row = entry(3, Date.new(2026, 9, 9), "pending")
+    row.update_columns(overtime_status: "denied")
+    detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+    expect(detail[:entries].first[:denied_hours]).to eq(0.0)
+  end
+
   it "preserves frozen classification and signed corrections under original work dates" do
     row = entry(10)
     original = create(:payroll_batch)
