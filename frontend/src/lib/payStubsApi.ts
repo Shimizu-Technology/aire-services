@@ -159,6 +159,12 @@ function id(value: string | number): string {
   return text
 }
 
+export interface PeriodPayStubWorker {
+  worker: PayStubWorker
+  statements: PayStubDate[]
+  links: PayStubLink[]
+}
+
 export interface SendPayStubInput {
   userId: number
   statementIds: string[]
@@ -169,6 +175,7 @@ export interface SendPayStubInput {
 
 // Senders: owners, admins and managers (send_pay_statements).
 export const payStubsApi = {
+  period: (startDate: string, signal?: AbortSignal) => call<{ workers: PeriodPayStubWorker[] }>(`/api/v1/pay_stubs/periods/${encodeURIComponent(startDate)}`, { signal }),
   workers: (signal?: AbortSignal) => call<{ workers: PayStubWorker[]; can_choose_recipient: boolean }>('/api/v1/pay_stubs/workers', { signal }),
   worker: async (userId: string | number, signal?: AbortSignal) => call<{ worker: PayStubWorker }>(`/api/v1/pay_stubs/workers/${id(userId)}`, { signal }),
   statements: async (userId: string | number, signal?: AbortSignal) => call<{ statements: PayStubDate[] }>(`/api/v1/pay_stubs/workers/${id(userId)}/statements`, { signal }),

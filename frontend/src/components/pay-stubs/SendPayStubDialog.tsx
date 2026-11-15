@@ -18,6 +18,7 @@ interface Props {
   /** Start with this person chosen (from a person's page). */
   workerId?: number | null
   /** Owners and admins (preview_pay): may send to an address that isn't on file. */
+  period?: { start: string; end: string; statementIds: string[] }
   canChooseRecipient: boolean
   onClose: () => void
   onSent: (link: PayStubLink) => void
@@ -46,7 +47,7 @@ const field = 'mt-1 block w-full rounded-xl border border-slate-300 bg-white px-
 const secondary = 'inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 disabled:opacity-60'
 const primary = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 
-export default function SendPayStubDialog({ request, workerId, canChooseRecipient, onClose, onSent }: Props) {
+export default function SendPayStubDialog({ request, workerId, period, canChooseRecipient, onClose, onSent }: Props) {
   const ids = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   useDialogFocus(true, dialogRef, onClose)
@@ -83,14 +84,15 @@ export default function SendPayStubDialog({ request, workerId, canChooseRecipien
     const controller = new AbortController()
     payStubsApi.statements(selectedWorkerId, controller.signal)
       .then((data) => {
-        setStatements({ status: 'ready', value: data.statements })
-        setSelected(initialSelection(data.statements, request))
+        const rows = period ? data.statements.filter(row => period.statementIds.includes(row.id) && row.period_start === period.start && row.period_end === period.end) : data.statements
+        setStatements({ status: 'ready', value: rows })
+        setSelected(period ? new Set(rows.filter(row => !row.voided).map(row => row.id)) : initialSelection(rows, request))
       })
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) setStatements({ status: 'error', message: caught instanceof PayStubError ? caught.message : "Pay dates couldn't be loaded." })
       })
     return () => controller.abort()
-  }, [selectedWorkerId, request])
+  }, [selectedWorkerId, request, period])
 
   const worker = workers.status === 'ready' ? workers.value.find((candidate) => candidate.id === selectedWorkerId) ?? null : null
   const onFile = worker?.on_file_email ?? null
@@ -249,7 +251,7 @@ export default function SendPayStubDialog({ request, workerId, canChooseRecipien
                   {workers.status === 'loading' && <p role="status" className="mt-1 text-sm text-slate-500">Loading people…</p>}
                   {workers.status === 'error' && <p role="alert" className="mt-1 text-sm text-red-700">{workers.message}</p>}
                   {workers.status === 'ready' && (
-                    <select id={`${ids}-worker`} value={selectedWorkerId ?? ''} onChange={(event) => chooseWorker(event.target.value)} className={field}>
+                    <select disabled={Boolean(period)} id={`${ids}-worker`} value={selectedWorkerId ?? ''} onChange={(event) => chooseWorker(event.target.value)} className={field}>
                       <option value="">Choose a person</option>
                       {workers.value.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
                     </select>

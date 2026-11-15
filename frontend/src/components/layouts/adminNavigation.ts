@@ -101,9 +101,9 @@ export function navigationGroups({ capabilities, myPayEnabled, schedulesEnabled,
         // Admins edit schedules, so it sits with Timecards rather than under Me.
         ...when(schedulesEnabled && capabilities.manage_schedules, item.schedule),
         ...when(capabilities.manage_payroll, item.payroll),
+        ...when(capabilities.send_pay_statements, item.payStubs),
         ...when(capabilities.manage_users, item.team),
         item.reports,
-        ...when(capabilities.send_pay_statements, item.payStubs),
       ],
     })
     groups.push({

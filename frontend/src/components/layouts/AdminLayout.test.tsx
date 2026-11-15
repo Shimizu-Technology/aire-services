@@ -123,7 +123,7 @@ describe('AdminLayout sidebar by role', () => {
     for (const role of ['owner', 'admin'] as const) {
       signIn(role)
       const view = renderLayout()
-      expect(groupNames('Workspace')).toEqual(['Today', 'Approvals', 'Timecards', 'Payroll', 'Team', 'Reports', 'Pay stubs'])
+      expect(groupNames('Workspace')).toEqual(['Today', 'Approvals', 'Timecards', 'Payroll', 'Pay stubs', 'Team', 'Reports'])
       expect(groupNames('Admin')).toEqual(['Settings', 'Website', 'Activity'])
       expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
       view.unmount()
@@ -213,7 +213,7 @@ describe('"Use schedules"', () => {
   })
 
   it.each([
-    ['admin', 'Workspace', ['Today', 'Approvals', 'Timecards', 'Schedule', 'Payroll', 'Team', 'Reports', 'Pay stubs']],
+    ['admin', 'Workspace', ['Today', 'Approvals', 'Timecards', 'Schedule', 'Payroll', 'Pay stubs', 'Team', 'Reports']],
     ['manager', 'Me', ['My Time', 'My Pay', 'Schedule', 'Unlock kiosk', 'What can I do?']],
     ['employee', 'Workspace', ['Clock', 'My Hours', 'Leave', 'My Pay', 'Schedule']],
   ] as const)('shows Schedule to a %s when it is on', (role, group, expected) => {
@@ -296,7 +296,7 @@ describe('AdminLayout phone tab bar', () => {
     expect(more).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(more)
     const sheet = screen.getByRole('dialog', { name: 'More' })
-    expect(names(within(sheet).getByRole('region', { name: 'Pages' }))).toEqual(['Team', 'Reports', 'Pay stubs'])
+    expect(names(within(sheet).getByRole('region', { name: 'Pages' }))).toEqual(['Pay stubs', 'Team', 'Reports'])
     expect(names(within(sheet).getByRole('region', { name: 'Admin' }))).toEqual(['Settings', 'Website', 'Activity'])
     expect(names(within(sheet).getByRole('region', { name: 'Me' }))).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
     expect(within(sheet).getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page')
