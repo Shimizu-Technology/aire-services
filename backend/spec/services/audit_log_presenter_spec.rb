@@ -91,6 +91,7 @@ RSpec.describe AuditLogPresenter do
   end
 
   it "describes pay stub sends and downloads" do
+    expect(summary_for("pay_documents.admin_pdf_downloaded")).to eq("Roke Reyes downloaded Ethan Cruz's pay stub")
     expect(summary_for("pay_documents.link_sent")).to eq("Roke Reyes sent a pay stub link to Ethan Cruz")
     expect(summary_for("pay_documents.link_downloaded", actor: nil, metadata: { accessed_by: "link_recipient" })).to eq("Link recipient downloaded a pay stub for Ethan Cruz")
   end

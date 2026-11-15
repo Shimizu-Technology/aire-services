@@ -62,6 +62,16 @@ RSpec.describe "Pay stub sending", type: :request do
       end
     end
 
+    it "lets only admins filter link history for former workers" do
+      post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ] }, headers: auth(admin)
+      delivery = PayDocumentDelivery.last
+      get "/api/v1/pay_stubs/links", params: { user_id: worker.id }, headers: auth(admin)
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.fetch("links").map { |link| link["id"] }).to eq([ delivery.id ])
+      get "/api/v1/pay_stubs/links", params: { user_id: worker.id }, headers: auth(manager)
+      expect(response).to have_http_status(:not_found)
+    end
+
     it "refuses managers and preserves the non-admin service paths" do
       post "/api/v1/pay_stubs/links", params: { user_id: worker.id, statement_ids: [ "42" ] }, headers: auth(manager)
       expect(response).to have_http_status(:not_found)
@@ -89,7 +99,7 @@ RSpec.describe "Pay stub sending", type: :request do
         expect(response.media_type).to eq("application/pdf")
         expect(response.body).to start_with("%PDF")
         expect(response.headers["Cache-Control"]).to include("no-store")
-        audit = AuditLog.where(action: "pay_documents.link_downloaded", auditable: worker).last
+        audit = AuditLog.where(action: "pay_documents.admin_pdf_downloaded", auditable: worker).last
         expect(audit).to have_attributes(user_id: admin.id, subject_name: worker.full_name, outcome: "succeeded")
         expect(audit.metadata).to include("statement_id" => "42", "accessed_by" => "admin")
       end
@@ -104,10 +114,48 @@ RSpec.describe "Pay stub sending", type: :request do
       expect(cornerstone_requests).to be_empty
     end
 
+    it "audits a missing worker denial" do
+      get "/api/v1/pay_stubs/workers/0/statements/42/pdf", headers: auth(admin)
+      expect(response).to have_http_status(:not_found)
+      expect(AuditLog.where(action: "pay_documents.admin_pdf_downloaded").last.metadata).to include("reason" => "worker_not_found")
+    end
+
+    it "uses download wording for an unlinked worker" do
+      allow(Payroll::WorkerStatementsClient).to receive(:new).and_return(
+        instance_double(Payroll::WorkerStatementsClient, statements: nil))
+      allow(Payroll::WorkerStatementsClient.new).to receive(:statements).and_raise(Payroll::WorkerStatementsClient::NotLinked)
+      get "/api/v1/pay_stubs/workers/#{worker.id}/statements/42/pdf", headers: auth(admin)
+      expect(response.parsed_body["error"]).to eq("Mindy Cruz isn't connected to payroll yet, so there are no pay stubs to download.")
+    end
+
+    it "fails closed with a plain message when auditing fails" do
+      allow(AuditLog).to receive(:record!).and_raise(ActiveRecord::StatementInvalid, "audit db failed")
+      get "/api/v1/pay_stubs/workers/#{worker.id}/statements/42/pdf", headers: auth(admin)
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.parsed_body).to include("code" => "audit_unavailable", "error" => /access log couldn't be written/)
+      expect(response.body).not_to include("%PDF")
+    end
+
+    context "when payroll is unavailable" do
+      let(:cornerstone_down) { true }
+
+      it "records a failed download and keeps the plain payroll error" do
+        get "/api/v1/pay_stubs/workers/#{worker.id}/statements/42/pdf", headers: auth(admin)
+        expect(response).to have_http_status(:service_unavailable)
+        expect(response.parsed_body["code"]).to eq("payroll_unavailable")
+        audit = AuditLog.where(action: "pay_documents.admin_pdf_downloaded").last
+        expect(audit).to have_attributes(outcome: "failed", auditable: worker, user_id: admin.id)
+        expect(audit.metadata).to include("reason" => "payroll_unavailable", "statement_id" => "42")
+      end
+    end
+
     it "refuses unowned and voided statements" do
-      %w[999 40].each do |id|
+      [ "999", "40", "9" * 80 ].each do |id|
         get "/api/v1/pay_stubs/workers/#{worker.id}/statements/#{id}/pdf", headers: auth(admin)
         expect(response).to have_http_status(:not_found)
+        audit = AuditLog.where(action: "pay_documents.admin_pdf_downloaded").last
+        expect(audit).to have_attributes(outcome: "denied", auditable: worker, user_id: admin.id)
+        expect(audit.metadata).to include("reason" => "statement_not_found", "statement_id" => id.first(40))
       end
       expect(cornerstone_requests.grep(%r{/pdf$})).to be_empty
     end
