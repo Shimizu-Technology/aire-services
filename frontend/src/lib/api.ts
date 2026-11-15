@@ -85,6 +85,7 @@ export async function fetchApi<T>(
       if (response.status === 401) {
         return {
           error: data.error || 'Authentication required',
+          code: data.code,
           errors: data.errors || ['Please sign in to continue'],
           status: response.status,
         };
@@ -92,6 +93,7 @@ export async function fetchApi<T>(
       if (response.status === 403) {
         return {
           error: data.error || 'Access denied',
+          code: data.code,
           errors: data.errors || ['You do not have permission to perform this action'],
           status: response.status,
         };

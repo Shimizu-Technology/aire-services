@@ -2,6 +2,8 @@
 
 class AireKioskService
   class KioskError < StandardError; end
+  class DeviceRevoked < KioskError; end
+  class EmployeeSessionRefused < KioskError; end
   INVALID_PIN_MESSAGE = "Invalid PIN"
 
   class << self
@@ -37,14 +39,6 @@ class AireKioskService
     def clock_out(kiosk_access_token:, kiosk_token:, corrected_end_time: nil)
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
-      if corrected_end_time.present?
-        start = user.time_entries.clocked_in.first&.clock_in_at
-        stop = Time.iso8601(corrected_end_time.to_s) rescue nil
-        unless start && stop && stop > start && stop <= Time.current && stop - start <= 12.hours &&
-               stop.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date == start.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date
-          raise KioskError, "Pick a time after clock-in on the clock-in day and before now, within 12 hours of clock-in. Ask a manager to fix an overnight or longer shift."
-        end
-      end
       entry = TimeClockService.clock_out(user: user, corrected_end_time: corrected_end_time)
       response_payload(user, entry)
     end
@@ -90,8 +84,8 @@ class AireKioskService
 
     def user_from_token!(kiosk_token)
       user = AireKioskToken.user_from_token(kiosk_token)
-      raise KioskError, "Kiosk session expired. Please enter your PIN again." unless user
-      raise KioskError, "Kiosk access is unavailable for this employee." unless user.kiosk_access_enabled?
+      raise EmployeeSessionRefused, "Kiosk session expired. Please enter your PIN again." unless user
+      raise EmployeeSessionRefused, "Kiosk access is unavailable for this employee." unless user.kiosk_access_enabled?
 
       user
     end
@@ -100,7 +94,7 @@ class AireKioskService
       return true if Rails.env.development? && kiosk_access_token.blank?
 
       admin = AireKioskAccessToken.admin_from_token(kiosk_access_token)
-      raise KioskError, "Kiosk is locked. Ask an admin to unlock it before use." unless admin
+      raise DeviceRevoked, "Kiosk is locked. Ask an admin to unlock it before use." unless admin
 
       admin
     end

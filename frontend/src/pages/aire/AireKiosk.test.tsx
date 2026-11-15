@@ -271,7 +271,7 @@ it('removes the supervisor unlock when reconciliation says the kiosk is locked',
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   await verifyEmployee()
   mocks.aireKioskClockIn.mockResolvedValue({ error: 'Lost', status: 500 })
-  mocks.aireKioskVerify.mockResolvedValue({ error: 'Kiosk is locked. Ask an admin to unlock it before use.' })
+  mocks.aireKioskVerify.mockResolvedValue({ code: 'kiosk_device_revoked', error: 'Kiosk is locked. Ask an admin to unlock it before use.' })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
   await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
   expect(screen.getByText('Kiosk locked')).toBeInTheDocument()
@@ -554,7 +554,7 @@ it('disables Switch work confirmation and controls while switching, then cools a
  it('clears a remotely revoked device when Lock returns 401', async () => {
   authMock.isSignedIn = false
   authMock.userRole = null
-  mocks.lockKiosk.mockResolvedValue({ error: 'Kiosk session expired', status: 401 })
+  mocks.lockKiosk.mockResolvedValue({ code: 'kiosk_device_revoked', error: 'Kiosk session expired', status: 401 })
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
@@ -592,11 +592,35 @@ it('keeps a wrong manager PIN inside the lock dialog and refuses an empty PIN lo
 it('clears revoked device access and explains that a refused clock-in was not saved', async () => {
   authMock.isSignedIn = false
   authMock.userRole = null
-  mocks.aireKioskClockIn.mockResolvedValue({ error: 'Kiosk is locked. Ask an admin to unlock it before use.', status: 422 })
+  mocks.aireKioskClockIn.mockResolvedValue({ code: 'kiosk_device_revoked', error: 'Kiosk is locked. Ask an admin to unlock it before use.', status: 422 })
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   await verifyEmployee()
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
   expect(screen.getByRole('alert')).toHaveTextContent("This kiosk was locked by an admin. Your clock-in wasn't saved.")
   expect(screen.queryByRole('button', { name: 'Supervisor' })).not.toBeInTheDocument()
   expect(localStorage.getItem('aire_kiosk_access_session')).toBeNull()
+})
+
+it.each([
+  { status: 422, code: 'kiosk_employee_session_refused', error: 'Kiosk session expired. Please enter your PIN again.' },
+  { status: 401, code: 'kiosk_employee_session_refused', error: 'Kiosk access is unavailable for this employee.' },
+])('ends only the employee session on $error', async result => {
+  mocks.aireKioskClockIn.mockResolvedValue(result)
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
+  expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('Please enter your PIN again.')
+  expect(screen.getByRole('button', { name: 'Supervisor' })).toBeInTheDocument()
+  expect(sessionStorage.getItem('aire_kiosk_access_session')).not.toBeNull()
+})
+
+it('shows the manager PIN lockout message', async () => {
+  const error = 'Your PIN is locked for now. Ask a manager to reset it, or try again after 4:00 PM.'
+  mocks.lockKiosk.mockResolvedValue({ error, status: 422 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' })) })
+  expect(within(screen.getByRole('alertdialog')).getByRole('alert')).toHaveTextContent(error)
 })

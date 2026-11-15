@@ -214,6 +214,7 @@ module Api
             update_params[:employee_corrected_clock_out] = true
           end
         elsif supervisor_edit && pay_changed
+          update_params[:employee_corrected_clock_out] = false if @time_entry.will_save_change_to_end_time? || @time_entry.will_save_change_to_clock_out_at?
           update_params[:original_employee_change] = nil
           update_params[:rejected_employee_change] = nil
         end

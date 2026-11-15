@@ -47,3 +47,9 @@ it('keeps the employee correction source and effective clock-out visible after a
   expect(screen.getByText(`Clock-out · fixed by ${entry.user.full_name}`)).toBeInTheDocument()
   expect(screen.getByText('2:25 PM')).toBeInTheDocument()
 })
+
+it('does not label a manager-edited end as fixed by the employee because an old approval note remains', () => {
+  const entry = shift({ employee_corrected_clock_out: false, approval_note: 'Employee corrected clock-out time to 02:25 PM', original_employee_change: null })
+  render(<ShiftSheet entry={entry} weekEntries={[entry]} weekUnavailable={false} onClose={vi.fn()} onFix={vi.fn()} />)
+  expect(screen.queryByText(/Clock-out · fixed by/)).not.toBeInTheDocument()
+})

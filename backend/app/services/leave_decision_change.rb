@@ -45,6 +45,7 @@ class LeaveDecisionChange
           raise Invalid, "Write a short employee-facing note (1–500 characters)" unless employee_note.length.between?(1, 500)
         end
 
+        previous_review_note = @request.review_note
         previous_status = @request.status
         attributes = { status: status, reviewed_by: status == "pending" ? nil : @actor,
                          reviewed_at: status == "pending" ? nil : Time.current }
@@ -54,6 +55,7 @@ class LeaveDecisionChange
         AuditLog.record!(action: undo ? "leave_request.decision_undone" : "leave_request.decision_changed",
                          auditable: @request, actor: @actor, event_category: "leave",
                          metadata: { from: previous_status, to: status, reason: undo ? nil : reason,
+                                     employee_note: employee_note.presence, previous_review_note: previous_review_note,
                                      employee_id: @request.user_id, employee_name: @request.user.full_name })
       end
     end

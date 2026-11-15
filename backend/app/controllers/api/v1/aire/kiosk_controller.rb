@@ -7,7 +7,7 @@ module Api
         # A PIN is proved afresh even when the tablet already has a device token.
         def lock
           device = AireKioskAccessToken.device_from_token(params[:kiosk_access_token].to_s)
-          return render json: { error: "Kiosk session expired. Sign in again." }, status: :unauthorized unless device
+          return render json: { error: "Kiosk session expired. Sign in again.", code: "kiosk_device_revoked" }, status: :unauthorized unless device
 
           result = AireKioskService.verify_pin(pin: params[:pin].to_s, kiosk_access_token: params[:kiosk_access_token].to_s)
           manager = result[:user]
@@ -24,7 +24,7 @@ module Api
           head :no_content
         rescue AireKioskService::KioskError => e
           record_pin_failure!(e, "kiosk.lock_failed")
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         # A device may discard its own access after a failed manager sign-out.
@@ -66,7 +66,7 @@ module Api
           }
         rescue AireKioskService::KioskError => e
           record_pin_failure!(e, "kiosk.verification_failed")
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         def record_pin_failure!(error, action)
@@ -99,7 +99,7 @@ module Api
 
           render json: serialize_action_response(result), status: :created
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         # POST /api/v1/aire/kiosk/clock_out
@@ -111,7 +111,7 @@ module Api
           )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         # POST /api/v1/aire/kiosk/start_break
@@ -122,7 +122,7 @@ module Api
           )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         # POST /api/v1/aire/kiosk/end_break
@@ -133,7 +133,7 @@ module Api
           )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         # POST /api/v1/aire/kiosk/switch_category
@@ -145,10 +145,17 @@ module Api
           )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
-          render json: { error: e.message }, status: :unprocessable_entity
+          render json: { error: e.message, code: kiosk_error_code(e) }, status: :unprocessable_entity
         end
 
         private
+
+        def kiosk_error_code(error)
+          return "kiosk_device_revoked" if error.is_a?(AireKioskService::DeviceRevoked)
+          return "kiosk_employee_session_refused" if error.is_a?(AireKioskService::EmployeeSessionRefused)
+
+          "kiosk_error"
+        end
 
         def serialize_action_response(result)
           {

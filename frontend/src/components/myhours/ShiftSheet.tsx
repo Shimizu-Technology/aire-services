@@ -33,8 +33,6 @@ export function ShiftSheet({
             ? 'Phone'
             : 'Clock'
   const correctedClockOut = entry.employee_corrected_clock_out
-    || entry.approval_note?.includes('Employee corrected clock-out')
-    || (entry.original_employee_change?.end_time !== undefined && entry.original_employee_change.end_time !== entry.end_time)
   const week = employeeWeekTotals(weekEntries, entry.work_date)
   return (
     <Sheet

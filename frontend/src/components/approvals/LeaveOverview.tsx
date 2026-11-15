@@ -453,7 +453,7 @@ export default function LeaveOverview({
           {editing?.status === 'approved' && <Field label="Note for the employee (required)">
             <Textarea maxLength={500} value={employeeNote} onChange={event => setEmployeeNote(event.target.value)} />
           </Field>}
-          <Field label="Reason (required)">
+          <Field label="Internal reason (managers only)">
             <Textarea
               maxLength={500}
               value={reason}

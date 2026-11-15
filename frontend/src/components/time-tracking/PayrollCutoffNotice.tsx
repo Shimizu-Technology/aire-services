@@ -14,7 +14,7 @@ import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
 import { formatPayPeriod } from '../../lib/payPeriods'
 
 interface Props {
-  kiosk?: { accessToken: string; employeeToken: string; sessionKey: string; notice: PayrollCutoffResponse | null; onSessionRefused?: () => void }
+  kiosk?: { accessToken: string; employeeToken: string; sessionKey: string; notice: PayrollCutoffResponse | null; onSessionRefused?: (device: boolean) => void }
 }
 
 const CACHE_KEY = 'aire:last-payroll-cutoff'
@@ -87,8 +87,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     const sequence = ++requestSequence.current
     const result = await api.getPayrollCutoff(accessToken)
     if (session !== activeSession.current || sequence !== requestSequence.current) return
-    if (accessToken && (result.status === 401 || (result.status === 422 && /kiosk (?:is locked|session expired)/i.test(result.error ?? '')))) {
-      refusedRef.current?.()
+    if (accessToken && ['kiosk_device_revoked', 'kiosk_employee_session_refused'].includes(result.code ?? '')) {
+      refusedRef.current?.(result.code === 'kiosk_device_revoked')
       return
     }
     if (result.data) {
@@ -136,7 +136,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     const session = sessionKey
     void api.acknowledgePayrollCutoff({ period_id: noticeCutoff.period.id, publication_id: noticeCutoff.publication_id, version: noticeCutoff.version, stage: noticeCutoff.stage }, kiosk).then(result => {
       if (activeSession.current !== session) return
-      if (accessToken && result.status === 401) { refusedRef.current?.(); return }
+      if (accessToken && ['kiosk_device_revoked', 'kiosk_employee_session_refused'].includes(result.code ?? '')) { refusedRef.current?.(result.code === 'kiosk_device_revoked'); return }
       setAckError(!!result.error)
       if (result.status === 409) void refresh()
     })

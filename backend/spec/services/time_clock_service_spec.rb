@@ -29,6 +29,64 @@ RSpec.describe TimeClockService, type: :service do
     expect(described_class.clock_out(user: user).status).to eq("completed")
   end
 
+  describe "corrected stops and shift duration" do
+    before do
+      Setting.set("schedule_required_for_clock_in", "false")
+      @category = create(:time_category)
+      @other = create(:time_category)
+      [ @category, @other ].each { |category| user.user_time_categories.create!(time_category: category) }
+    end
+
+    def punch_at(hour)
+      travel_to(guam_zone.local(2026, 4, 2, hour))
+      described_class.clock_in(user: user, time_category_id: @category.id, clock_source: "kiosk")
+    end
+
+    it "closes a noon break at the corrected 13:00 stop when submitted at 15:00" do
+      entry = punch_at(6)
+      travel_to(guam_zone.local(2026, 4, 2, 12))
+      described_class.start_break(user: user)
+      travel_to(guam_zone.local(2026, 4, 2, 15))
+      described_class.clock_out(user: user, corrected_end_time: "2026-04-02T13:00:00")
+      expect(entry.reload).to have_attributes(hours: 6, break_minutes: 60)
+      expect(entry.time_entry_breaks.sole.end_time).to eq(guam_zone.local(2026, 4, 2, 13))
+    end
+
+    it "removes breaks after the corrected end and trims completed breaks" do
+      entry = punch_at(6)
+      entry.time_entry_breaks.create!(start_time: guam_zone.local(2026, 4, 2, 12), end_time: guam_zone.local(2026, 4, 2, 14))
+      entry.time_entry_breaks.create!(start_time: guam_zone.local(2026, 4, 2, 14, 30), end_time: guam_zone.local(2026, 4, 2, 14, 45))
+      travel_to(guam_zone.local(2026, 4, 2, 15))
+      described_class.clock_out(user: user, corrected_end_time: "2026-04-02T13:00:00+10:00")
+      expect(entry.reload).to have_attributes(hours: 6, break_minutes: 60)
+      expect(entry.time_entry_breaks.count).to eq(1)
+    end
+
+    it "permits clock-out 20 seconds after a switch following four hours of work" do
+      punch_at(6)
+      travel 4.hours
+      segment = described_class.switch_category(user: user, time_category_id: @other.id)
+      travel 20.seconds
+      expect(described_class.clock_out(user: user)).to have_attributes(id: segment.id, status: "completed")
+    end
+
+    it "audits the attempted stop on a sub-minute first shift" do
+      entry = punch_at(6)
+      travel 20.seconds
+      expect { described_class.clock_out(user: user) }.to raise_error(described_class::ClockError, /less than a minute/)
+      expect(AuditLog.where(auditable: entry, action: "time_entry.clock_out_refused").sole.metadata).to include("attempted_at" => Time.current.iso8601)
+    end
+
+    it "enforces the same-day and 12-hour limits for every caller" do
+      entry = punch_at(6)
+      travel 20.hours
+      [ "2026-04-02T19:00:00", "2026-04-03T01:00:00", "bad time" ].each do |stop|
+        expect { described_class.clock_out(user: user, corrected_end_time: stop) }.to raise_error(described_class::ClockError)
+        expect(entry.reload.status).to eq("clocked_in")
+      end
+    end
+  end
+
   describe ".clock_in" do
     it "rejects inactive employees even when an admin supplies the override" do
       Setting.set("schedule_required_for_clock_in", "false")

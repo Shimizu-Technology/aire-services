@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
+import { PayStubError } from '../../lib/payStubsApi'
 import KioskPayStubRequest from './KioskPayStubRequest'
 
 const api = vi.hoisted(() => ({ choices: vi.fn(), request: vi.fn() }))
@@ -74,4 +75,18 @@ it('shows why a request was refused', async () => {
   renderPanel()
   fireEvent.click(await screen.findByRole('button', { name: 'Send request to the office' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('3 times today')
+})
+
+it.each(['kiosk_device_revoked', 'kiosk_employee_session_refused'])('distinguishes %s from the other kiosk session', async code => {
+  const onSessionRefused = vi.fn()
+  api.choices.mockRejectedValue(new PayStubError('Session ended', code, 422))
+  render(<KioskPayStubRequest kioskAccessToken="access" kioskToken="employee" onActivity={vi.fn()} onCancel={vi.fn()} onSent={vi.fn()} onSessionRefused={onSessionRefused} />)
+  await waitFor(() => expect(onSessionRefused).toHaveBeenCalledWith(code === 'kiosk_device_revoked'))
+})
+it('does not lock the kiosk for a network failure', async () => {
+  const onSessionRefused = vi.fn()
+  api.choices.mockRejectedValue(new PayStubError('Network error', 'network', 0))
+  render(<KioskPayStubRequest kioskAccessToken="access" kioskToken="employee" onActivity={vi.fn()} onCancel={vi.fn()} onSent={vi.fn()} onSessionRefused={onSessionRefused} />)
+  expect(await screen.findByText('Network error')).toBeInTheDocument()
+  expect(onSessionRefused).not.toHaveBeenCalled()
 })

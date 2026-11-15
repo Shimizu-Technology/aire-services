@@ -23,6 +23,25 @@ RSpec.describe "Leave decision corrections", type: :request do
     post "/api/v1/leave_requests/#{leave.id}/undo", params: { version: leave.reload.lock_version }, headers: auth
   end
 
+  it "hides internal decision history on a manager's own leave" do
+    own = create(:leave_request, user: manager, status: "approved", reviewed_by: create(:user, :admin), reviewed_at: Time.current)
+    AuditLog.record!(action: "leave_request.decision_changed", auditable: own, actor: own.reviewed_by,
+                     event_category: "leave", metadata: { reason: "Private internal reason", from: "declined", to: "approved" })
+    get "/api/v1/leave_requests", headers: headers
+    row = data["leave_requests"].find { |item| item["id"] == own.id }
+    expect(row).to be_present
+    expect(row["decision_history"]).to eq([])
+    expect(response.body).not_to include("Private internal reason")
+  end
+
+  it "keeps the employee note and previous review note in the change audit" do
+    post "/api/v1/leave_requests/#{leave.id}/approve", params: { review_note: "Enjoy your time off" }, headers: headers
+    correct(status: "declined", employee_note: "Please choose new dates.")
+    expect(response).to have_http_status(:ok)
+    event = AuditLog.where(auditable: leave, action: "leave_request.decision_changed").sole
+    expect(event.metadata).to include("employee_note" => "Please choose new dates.", "previous_review_note" => "Enjoy your time off")
+  end
+
   it "undoes atomically with exactly two domain audit rows" do
     approve
     undo

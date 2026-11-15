@@ -46,6 +46,29 @@ RSpec.describe "AIRE kiosk", type: :request do
     )
   end
 
+  it "codes only device revocation as a device lock" do
+    token = AireKioskToken.issue_for(employee)
+    post "/api/v1/aire/kiosk/clock_in", params: { kiosk_access_token: "expired", kiosk_token: token }
+    expect(response.parsed_body["code"]).to eq("kiosk_device_revoked")
+    post "/api/v1/aire/kiosk/clock_in", params: { kiosk_access_token: kiosk_access_token, kiosk_token: "expired" }
+    expect(response.parsed_body["code"]).to eq("kiosk_employee_session_refused")
+    employee.update!(kiosk_enabled: false, time_tracking_enabled: false)
+    post "/api/v1/aire/kiosk/clock_in", params: { kiosk_access_token: kiosk_access_token, kiosk_token: token }
+    expect(response.parsed_body["code"]).to eq("kiosk_employee_session_refused")
+  end
+
+  it "uses Guam for an offset-less corrected stop and trims the open break" do
+    entry = create(:time_entry, user: employee, time_category: time_category, work_date: frozen_time.to_date,
+                   start_time: guam_zone.local(2026, 4, 2, 6), clock_in_at: guam_zone.local(2026, 4, 2, 6),
+                   end_time: nil, status: "on_break", entry_method: "clock", clock_source: "kiosk", hours: 0)
+    entry.time_entry_breaks.create!(start_time: guam_zone.local(2026, 4, 2, 12))
+    travel_to(guam_zone.local(2026, 4, 2, 15))
+    token = AireKioskToken.issue_for(employee)
+    post "/api/v1/aire/kiosk/clock_out", params: { kiosk_access_token: kiosk_access_token, kiosk_token: token, corrected_end_time: "2026-04-02T13:00:00" }
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(hours: 6, break_minutes: 60)
+  end
+
   it "validates an earlier stop and saves its effective time, hours and correction source" do
     entry = create(:time_entry, user: employee, time_category: time_category, work_date: frozen_time.to_date,
                    start_time: frozen_time - 2.hours, clock_in_at: frozen_time - 2.hours, end_time: nil,

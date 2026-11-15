@@ -190,8 +190,10 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       ? `This kiosk was locked by an admin. Your ${action === 'clock_in' ? 'clock-in' : action === 'clock_out' ? 'clock-out' : 'change'} wasn't saved.`
       : 'This kiosk was locked by an admin. Ask a manager to unlock it.')
   }, [clearSession])
-  const sessionRefused = (result: { status?: number; error?: string }) =>
-    result.status === 401 || (result.status === 422 && /kiosk (?:is locked|session expired)|kiosk access is unavailable/i.test(result.error ?? ''))
+  const sessionRefused = (result: { code?: string }) => result.code === 'kiosk_device_revoked'
+  const endEmployeeSession = () => { clearSession(); setError('Please enter your PIN again.') }
+  const employeeRefused = (result: { code?: string }) => result.code === 'kiosk_employee_session_refused'
+
 
   const clearExpiredKioskAccessSession = useCallback(() => {
     if (!kioskAccessSession) return
@@ -306,6 +308,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     const result = await api.getPayrollCutoff(kioskAccessToken || '', employeeToken)
     if (request !== warningRequestRef.current) return
     if (sessionRefused(result)) { lockDevice(actionLoading); return }
+    if (employeeRefused(result)) { endEmployeeSession(); return }
     setCutoffNotice(result.data ?? null)
   }
 
@@ -336,10 +339,6 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     if (result.error || !result.data) {
       setError(/invalid pin/i.test(result.error || '') ? "That PIN didn't match. Try again." : result.error || 'PIN verification failed.')
       setPin('')
-      if (result.error?.match(/kiosk is locked/i)) {
-        setKioskAccessSession(null)
-        if (typeof window !== 'undefined') clearKioskSession()
-      }
       setLoading(false)
       return
     }
@@ -428,6 +427,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     if (generation !== sessionGeneration.current) return
     setConfirmSwitch(false)
     if (sessionRefused(result)) { lockDevice(action); return }
+    if (employeeRefused(result)) { endEmployeeSession(); return }
     if (result.error || !result.data) {
       const unknown = outcomeUnknown(result) || !result.error
       // Every refusal refreshes stale kiosk state; uncertain writes are never retried.
@@ -435,10 +435,6 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       if (generation !== sessionGeneration.current) return
       if (sessionRefused(refreshed)) { lockDevice(action, unknown); return }
       if (!refreshed.data || refreshed.error) {
-        if (refreshed.error?.match(/kiosk is locked/i)) {
-          clearKioskSession()
-          setKioskAccessSession(null)
-        }
         clearSession()
         setError('Could not check your clock status. Enter your PIN again before trying another action.')
         return
@@ -532,8 +528,8 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     if (isClerkEnabled) {
       try {
         const result = await api.lockKiosk(kioskAccessToken || '', managerPin)
-        if (result.error && result.status !== 401) { setLockError(result.status === 403 || result.status === 422 ? "That isn't a manager PIN" : 'Could not lock the kiosk. Check the connection and try again.'); return }
-        if (result.status === 401) setError('Kiosk session expired or was locked. Ask a manager to unlock it.')
+        if (result.error && !sessionRefused(result)) { setLockError(/locked for now|try again after/i.test(result.error) ? result.error : result.status === 403 || result.status === 422 ? "That isn't a manager PIN" : 'Could not lock the kiosk. Check the connection and try again.'); return }
+        if (sessionRefused(result)) setError('Kiosk session expired or was locked. Ask a manager to unlock it.')
       } catch { setLockError('Could not lock the kiosk. Check the connection and try again.'); return }
     }
     setManagerPin('')
@@ -649,7 +645,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
-        <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice, onSessionRefused: () => { if (!inFlight.current) lockDevice() } }} />
+        <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice, onSessionRefused: (device) => { if (!inFlight.current) { if (device) lockDevice(); else endEmployeeSession() } } }} />
       </div>}
       {kioskUnlocked && <div className="flex justify-end px-4"><button className="min-h-11 px-3 text-sm text-slate-400 underline" onClick={() => { setManagerPin(''); setLockError(''); setConfirmLock(true) }}>Supervisor</button></div>}
       {/* Staff share this device while it's unlocked; keep them on the kiosk. */}
@@ -722,7 +718,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
               kioskAccessToken={kioskAccessToken || ''}
               kioskToken={kioskToken}
               onActivity={bumpIdleTimer}
-              onSessionRefused={() => lockDevice()}
+              onSessionRefused={(device) => device ? lockDevice() : endEmployeeSession()}
               onCancel={() => { bumpIdleTimer(); setRequestingStub(false) }}
               onSent={(message) => { setRequestingStub(false); setSuccess(message) }}
             />
