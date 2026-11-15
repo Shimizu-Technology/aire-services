@@ -241,7 +241,10 @@ function describeRequest(event: Pick<AuditLogEntry, 'action' | 'actor' | 'outcom
   if (event.outcome === 'denied') {
     return { sentences: [`${actor} tried to ${verb} ${noun}, but wasn't allowed to.`], usedKeys: [], rawKeys }
   }
-  return { sentences: [], usedKeys: [], rawKeys }
+  const before = isRecord(event.details?.before_values) ? event.details.before_values : {}
+  const after = isRecord(event.details?.after_values) ? event.details.after_values : {}
+  const changes = Object.fromEntries(Object.keys(after).map(key => [key, [before[key], after[key]]]))
+  return { sentences: describeChanges({ actor: event.actor, changes, details: event.details }), usedKeys: [], rawKeys }
 }
 
 /**

@@ -265,6 +265,9 @@ export default function Users() {
     })
   }, [departmentFilter, myPayFilter, myPayForEveryone, normalizedSearchTerm, publicTeamFilter, roleFilter, signInFilter, statusFilter, users])
 
+  const endedMatches = statusFilter === 'active' && normalizedSearchTerm
+    ? users.filter(user => user.employment_status === 'terminated' && [user.full_name, user.display_name, user.email].filter(Boolean).join(' ').toLowerCase().includes(normalizedSearchTerm)).length : 0
+
   const resetFilters = () => {
     const next = new URLSearchParams(query)
     for (const key of ['search', 'role', 'status', 'department', 'signin', 'my_pay', 'public']) next.delete(key)
@@ -492,7 +495,7 @@ export default function Users() {
             resultSummary={hasActiveFilters ? teamCountSummary(filteredUsers.length, users) : undefined}
           />
           {filteredUsers.length === 0 ? (
-            <EmptyState title="No one matches." description="Try another name, or clear the filters." action={<Button variant="secondary" onClick={resetFilters}>Clear filters</Button>} />
+            <EmptyState title={endedMatches ? 'No active match.' : 'No one matches.'} description={endedMatches ? `${endedMatches} ended ${endedMatches === 1 ? 'person matches' : 'people match'}.` : 'Try another name, or clear the filters.'} action={endedMatches ? <Button variant="secondary" onClick={() => { const next = new URLSearchParams(query); next.set('status', 'terminated'); setQuery(next) }}>Show ended</Button> : <Button variant="secondary" onClick={resetFilters}>Clear filters</Button>} />
           ) : (
             <TeamList
               users={filteredUsers}

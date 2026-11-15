@@ -122,8 +122,8 @@ export function ListRow({
         )}
         {leading}
         <div className="min-w-0 flex-1">
-          <p id={`${id}-title`} className="truncate text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
-          {meta && <p id={`${id}-meta`} className="mt-0.5 truncate text-body-sm text-ink-muted">{meta}</p>}
+          <p id={`${id}-title`} className="whitespace-normal break-words text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
+          {meta && <p id={`${id}-meta`} className="mt-0.5 whitespace-normal break-words text-body-sm text-ink-muted">{meta}</p>}
         </div>
         {trailing && <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
         {action && (

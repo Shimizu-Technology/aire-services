@@ -229,7 +229,7 @@ describe('AdminLayout phone tab bar', () => {
     apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 12 } } })
     renderLayout('/admin/approvals')
 
-    const approvals = await within(tabBar()).findByRole('link', { name: 'Approvals, 12 waiting' })
+    const approvals = await within(tabBar()).findByRole('link', { name: '12 Approvals, 12 waiting' })
     expect(approvals).toHaveAttribute('aria-current', 'page')
     expect(approvals).toHaveTextContent('12')
     expect(names(tabBar())).toEqual(['Approvals', 'Timecards', 'Reports', 'My Time'])

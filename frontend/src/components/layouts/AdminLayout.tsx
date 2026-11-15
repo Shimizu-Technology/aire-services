@@ -164,7 +164,7 @@ function AdminShell() {
                               <span className="min-w-0 flex-1 truncate">{navItem.name}</span>
                               {showBadge && (
                                 <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold text-amber-800">
-                                  {approvalBadgeText(approvalCount)}
+                                  {' '}{approvalBadgeText(approvalCount)}
                                 </span>
                               )}
                             </>

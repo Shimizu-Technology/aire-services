@@ -190,6 +190,16 @@ describe('Users filters', () => {
     expect(screen.queryByText('Total Team Members')).not.toBeInTheDocument()
   })
 
+  it('offers ended people when a name has no active match and keeps the search', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ id: 9, full_name: 'Daniel Pangelinan', display_name: 'Daniel Pangelinan', is_active: false, employment_status: 'terminated' })] } })
+    render(<MemoryRouter initialEntries={['/admin/users?search=Daniel']}><Users /></MemoryRouter>)
+    expect(await screen.findByText('No active match.')).toBeInTheDocument()
+    expect(screen.getByText('1 ended person matches.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show ended' }))
+    expect(await screen.findByRole('link', { name: 'Daniel Pangelinan' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search name or email' })).toHaveValue('Daniel')
+  })
+
   it('narrows the team by search and the Filters sheet', async () => {
     render(<MemoryRouter><Users /></MemoryRouter>)
 

@@ -504,6 +504,13 @@ describe('Timecards on a desktop', () => {
     expect(row).not.toHaveTextContent(/approved/i)
   })
 
+  it('starts Everyone inside the selected period on its final Sunday', async () => {
+    vi.setSystemTime(new Date('2026-11-15T12:00:00+10:00'))
+    openAt('/admin/timecards?view=everyone&period=2026-11-01')
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-01' })))
+    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Nov 1 – Nov 7, 2026')
+  })
+
   it('shows the people beside the timecard, and Everyone shows the week grid', async () => {
     openAt('/admin/timecards')
     expect(await screen.findByText('Pick a person to see their pay period.')).toBeInTheDocument()

@@ -39,7 +39,7 @@ describe('AttentionList', () => {
     expect(meta).toEqual([
       'Since Tue, Nov 10, 7:02 AM · 36.7h',
       'Since 7:15 AM · Flight Instruction',
-      '276.1h · 1 added by hand · oldest Fri, Nov 6',
+      '276.1h time · 0h overtime · 1 added by hand · oldest Fri, Nov 6',
       'Ethan Cruz · week of Nov 1',
       'Nov 1–15 · the lock needs a category on every shift',
       "AIRE couldn't lock these hours, so Payroll doesn't have them yet",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { useCapabilities } from '../../lib/useCapabilities'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
@@ -223,6 +224,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
 
 export default function ActivityHistory() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const globalHistory = useCapabilities().view_activity
   const routedEventCategory = searchParams.get('event_category')?.trim() || undefined
   const routedSearch = searchParams.get('search')?.trim() || ''
   const [events, setEvents] = useState<AuditLogEntry[]>([])
@@ -315,7 +317,7 @@ export default function ActivityHistory() {
         return
       }
       setEventLoading(true)
-      const response = await api.getAuditLog(Number(requestedEventId))
+      const response = globalHistory ? await api.getAuditLog(Number(requestedEventId)) : await api.getAuditLog(Number(requestedEventId), routeSubjectType && routeSubjectId ? { subject_type: routeSubjectType, subject_id: routeSubjectId } : undefined)
       if (cancelled) return
       const event = response.data
       if (!event || event.id !== Number(requestedEventId) || (routeSubjectType && (event.subject.type !== routeSubjectType || event.subject.id !== routeSubjectId))) {
@@ -326,7 +328,7 @@ export default function ActivityHistory() {
       setEventLoading(false)
     }, 0)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [requestedEventId, routeSubjectType, routeSubjectId, eventRetry])
+  }, [requestedEventId, routeSubjectType, routeSubjectId, eventRetry, globalHistory])
 
   const activeFilterCount = useMemo(() => [filters.event_category, filters.source, filters.from, filters.to, filters.outcome, filters.search, routeSubjectType && routeSubjectId].filter(Boolean).length, [filters, routeSubjectId, routeSubjectType])
 
@@ -337,7 +339,16 @@ export default function ActivityHistory() {
   const clearFilters = () => {
     setSearchInput('')
     setFilters({ page: 1, per_page: 50 })
-    setSearchParams(returnTo ? { return_to: returnTo } : {}, { replace: true })
+    const next = new URLSearchParams(returnTo ? { return_to: returnTo } : {})
+    if (!globalHistory && routeSubjectType && routeSubjectId) {
+      next.set('subject_type', routeSubjectType)
+      next.set('subject_id', String(routeSubjectId))
+      for (const key of ['shift_person', 'shift_date']) {
+        const value = searchParams.get(key)
+        if (value) next.set(key, value)
+      }
+    }
+    setSearchParams(next, { replace: true })
   }
 
   const clearSubjectScope = () => {
@@ -383,6 +394,7 @@ export default function ActivityHistory() {
 
   return (
     <div className="space-y-6">
+      {searchParams.get('saved') === '1' && <p role="status">Shift saved.</p>}
       {returnTo && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>{backLabel}</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
       {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
@@ -392,17 +404,17 @@ export default function ActivityHistory() {
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Activity History</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">A permanent record of access, time, approvals, schedules, settings, exports, and other important changes in AIRE.</p>
         </div>
-        <button type="button" onClick={exportEvents} disabled={exporting || loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">
+        {globalHistory && <button type="button" onClick={exportEvents} disabled={exporting || loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></svg>
           {exporting ? 'Preparing CSV…' : 'Export CSV'}
-        </button>
+        </button>}
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         {routeSubjectType && routeSubjectId && (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary-dark">
             <span>Showing history for {formatLabel(routeSubjectType)} #{routeSubjectId}</span>
-            <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark">Show all</button>
+            {globalHistory && <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark">Show all</button>}
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -445,7 +457,7 @@ export default function ActivityHistory() {
               {events.map((event) => (
                 <button key={event.id} type="button" onClick={() => selectEvent(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
                   <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-500 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
-                  <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type} · {formatLabel(event.source)}</p></div>
+                  <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary} {event.outcome !== 'succeeded' && <span className="ml-2 rounded bg-red-100 px-2 py-1 text-sm font-semibold text-red-900">Not saved</span>}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type} · {event.source === 'admin' ? 'in AIRE Ops' : formatLabel(event.source)}</p></div>
                   <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>
                 </button>
               ))}

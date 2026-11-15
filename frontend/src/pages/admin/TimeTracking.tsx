@@ -324,6 +324,9 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
+  if (employee.payroll_hours && (employee.payroll_hours.time_waiting_hours > 0 || employee.payroll_hours.overtime_waiting_hours > 0)) {
+    return { status: 'awaiting_approval', label: 'Some time still waiting', settlements: [], payment_method: null, payment_reference: null }
+  }
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
   const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_cancelled', 'payment_voided', 'payment_attested_pending_evidence', 'partially_allocated', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
 
@@ -1982,25 +1985,12 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
       {/* Reports Tab */}
       {activeTab === 'reports' && canExportHours && (
         <div className="space-y-6">
-          <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-primary-dark">Live hours, not a finalized payroll record</h2>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-primary/80">
-                Use this report to investigate current time and download working exports. Finalize the authoritative cutoff from Payroll after review.
-              </p>
-            </div>
-            {canManagePayroll && <Link
-              to={reportPayrollHref}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-            >
-              Prepare payroll cutoff
-            </Link>}
-          </section>
+
 
           <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
             <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-primary-dark">Hours Report</h3>
+                <h2 className="text-sm font-semibold text-primary-dark">Hours Report</h2>
                 <p className="mt-1 text-xs text-text-muted">Live employee totals with Sunday–Saturday overtime context across semi-monthly pay periods.</p>
               </div>
               <ReportExportActions
@@ -2038,22 +2028,22 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Start Date</label>
-                <input type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <input aria-label="Start date" type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">End Date</label>
-                <input type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <input aria-label="End date" type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Employee</label>
-                <select value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Employee" value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All employees</option>
                   {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>)}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Department</label>
-                <select value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Department" value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All departments</option>
                   <option value="unassigned">Unassigned</option>
                   {approvalGroups.map(group => <option key={group.key} value={group.key}>{group.label}</option>)}
@@ -2061,7 +2051,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Employee Status</label>
-                <select value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Employee Status" value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All statuses</option>
                   <option value="current">Current users</option>
                   <option value="active">Active only</option>
@@ -2072,14 +2062,14 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Role</label>
-                <select value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Role" value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All roles</option>
                   {USER_ROLES.map((role) => <option key={role} value={role}>{ROLE_DETAILS[role].plural}</option>)}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Category</label>
-                <select value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Category" value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All categories</option>
                   <option value="uncategorized">Missing category (needs correction)</option>
                   {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
@@ -2087,7 +2077,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Source</label>
-                <select value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Source" value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All sources</option>
                   <option value="kiosk">Kiosk</option>
                   <option value="mobile">Mobile</option>
@@ -2097,7 +2087,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Entry Method</label>
-                <select value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Entry Method" value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Clock + manual</option>
                   <option value="clock">Clock only</option>
                   <option value="manual">Manual only</option>
@@ -2105,7 +2095,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Approval Status</label>
-                <select value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Approval Status" value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="approved_or_standard">Approved / standard</option>
                   <option value="">All statuses</option>
                   <option value="pending">Pending</option>
@@ -2115,7 +2105,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </div>
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Overtime Status</label>
-                <select value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <select aria-label="Overtime Status" value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All OT statuses</option>
                   <option value="none">No OT flag</option>
                   <option value="pending">Pending OT review</option>
@@ -2161,7 +2151,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                 {!hoursReport.ready
                   ? [
                     reportSummary.allocation_hold_count ? 'Overnight time or break placement needs administrator review. These hours and their affected workweeks are held from payroll until the intervals can be confirmed.' : null,
-                    reportSummary.uncategorized_count > 0 ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.` : null,
+                    reportSummary.uncategorized_count > 0 ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before locking the pay period.` : null,
                   ].filter(Boolean).join(' ')
                   : excludedEntryCount > 0
                     ? [
@@ -2170,7 +2160,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       reportSummary.pending_overtime_count > 0 ? `${reportSummary.pending_overtime_count} pending overtime` : null,
                       reportSummary.denied_overtime_count > 0 ? `${reportSummary.denied_overtime_count} denied overtime` : null,
                       reportSummary.open_clock_count > 0 ? `${reportSummary.open_clock_count} open clock` : null,
-                    ].filter(Boolean).join(', ') + '. Hours waiting for approval, denied hours and open clocks are not included in this cutoff. Approved regular hours on a shift with waiting overtime are included; the waiting overtime and later approvals carry into the next cutoff.'
+                    ].filter(Boolean).join(', ') + '. Hours waiting for approval, denied hours and open clocks are not included in this lock. Approved regular hours on a shift with waiting overtime are included; the waiting overtime and later approvals carry into the next lock.'
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
               {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (
@@ -2181,13 +2171,30 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             </div>
           )}
 
+          <details className="rounded-card border border-line bg-surface p-4">
+            <summary className="min-h-11 cursor-pointer font-semibold">More detail</summary>
+            <div className="mt-3 space-y-4">
+          <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-primary-dark">Live hours, not a finalized payroll record</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-primary/80">
+                Use this report to investigate current time and download working exports. Review and lock the pay period from Payroll.
+              </p>
+            </div>
+            {canManagePayroll && <Link
+              to={reportPayrollHref}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              Open the pay period
+            </Link>}
+          </section>
           {hoursReport?.quality.status === 'needs_review' && (
             <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4" aria-labelledby="report-quality-heading">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 id="report-quality-heading" className="font-semibold text-amber-950">Time data worth reviewing</h3>
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
-                    These checks do not change payroll totals or cutoff readiness. They highlight entries that may need a note or a quick accuracy check.
+                    These checks do not change payroll totals or lock readiness. They highlight entries that may need a note or a quick accuracy check.
                   </p>
                 </div>
                 <span className="inline-flex w-fit rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">Quality review</span>
@@ -2205,27 +2212,29 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="payroll-lifecycle-summary">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
-                  <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
-                  <p className="mt-0.5 text-xs text-text-muted">Accounting corrections are recorded entries, not payments.</p>
+                  <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll progress</h3>
+                  <p className="mt-0.5 text-xs text-text-muted">Progress from the AIRE lock through Cornerstone payment.</p>
+                  <p className="mt-0.5 text-xs text-text-muted">Recorded corrections are recorded entries, not payments.</p>
                 </div>
-                {canManagePayroll && <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>}
+                {canManagePayroll && <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">View payroll progress</Link>}
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
 
-                <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
+                <ReportMetric label="Ready or waiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
                 <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
                 <ReportMetric label="Partial progress" value={String((reportSummary.payroll_statuses?.partially_processed || 0) + (reportSummary.payroll_statuses?.partially_prepared || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
                 <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
-                <ReportMetric label="Accounting corrections" value={String(reportSummary.payroll_statuses?.accounting_correction_committed || 0)} />
-                <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Recorded corrections" value={String(reportSummary.payroll_statuses?.accounting_correction_committed || 0)} />
+                <ReportMetric label="Payment proof still needed" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
               </div>
             </section>
           )}
+            </div>
+          </details>
 
           {hoursReport && (hoursReport.context_start_date !== hoursReport.start_date || hoursReport.context_end_date !== hoursReport.end_date) && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">

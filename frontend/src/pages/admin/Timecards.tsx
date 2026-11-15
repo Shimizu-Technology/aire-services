@@ -57,7 +57,7 @@ export default function Timecards() {
   // ?view=week without a person is the old team week; it opens Everyone.
   const view: View = rawView === 'everyone' || (rawView === 'week' && !userId && !entryId) ? 'everyone' : 'person'
   const showEveryone = desktop && view === 'everyone'
-  const weekDate = isIsoDate(date) ? date : payPeriodIncludes(period, today) ? today : period.start
+  const weekDate = isIsoDate(date) ? date : payPeriodIncludes(period, today) && businessWeekStart(today) < period.end ? today : period.start
   const returnRequested = searchParams.get('return') === 'edit'
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
 

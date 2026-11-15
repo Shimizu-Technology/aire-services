@@ -147,7 +147,7 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
       }
       case 'approvals_waiting': {
         const meta = [
-          hoursLabel(item.total_hours),
+          `${hoursLabel(item.time_waiting_hours ?? item.total_hours)} time · ${hoursLabel(item.overtime_waiting_hours ?? 0)} overtime`,
           item.by_kind.added > 0 && `${item.by_kind.added} added by hand`,
           item.oldest_work_date && `oldest ${dayLabel(item.oldest_work_date)}`,
         ].filter(Boolean).join(' · ')

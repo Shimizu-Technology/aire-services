@@ -64,6 +64,15 @@ describe('ActivityHistory', () => {
     })
   })
 
+  it('marks refused edits as Not saved and labels the application source plainly', async () => {
+    const failed = { ...event, outcome: 'failed', summary: 'Chels tried to change Daniel’s clock-out — not saved: a reason was required' }
+    const response = await apiMock.getAuditLogs()
+    apiMock.getAuditLogs.mockResolvedValue({ data: { ...response.data, audit_logs: [failed] } })
+    renderPage()
+    expect(await screen.findByText('Not saved', { exact: true })).toBeVisible()
+    expect(screen.getByText(/in AIRE Ops/)).toBeInTheDocument()
+  })
+
   it('loads the permanent event list and opens complete event context', async () => {
     renderPage()
 

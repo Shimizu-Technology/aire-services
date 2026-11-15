@@ -4,7 +4,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'danger-outline
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const base =
-  'inline-flex items-center justify-center gap-2 rounded-control font-semibold whitespace-nowrap ' +
+  'aire-button inline-flex items-center justify-center gap-2 rounded-control font-semibold whitespace-nowrap ' +
   'transition duration-(--dur-press) ease-out-strong active:scale-[0.97] motion-reduce:active:scale-100 ' +
   'disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 aria-busy:cursor-progress'
 
@@ -20,13 +20,13 @@ const variants: Record<ButtonVariant, string> = {
 // Every size is at least 44px tall on touch screens. `sm` drops to 36px only
 // with a mouse or trackpad.
 const sizes: Record<ButtonSize, string> = {
-  sm: 'min-h-11 px-3 text-sm pointer-fine:min-h-9',
+  sm: 'min-h-11 px-3 text-sm pointer-fine:min-h-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11',
   md: 'min-h-11 px-4 text-sm',
   lg: 'min-h-12 px-5 text-base',
 }
 
 const iconSizes: Record<ButtonSize, string> = {
-  sm: 'size-11 pointer-fine:size-9',
+  sm: 'size-11 pointer-fine:size-9 pointer-coarse:size-11',
   md: 'size-11',
   lg: 'size-12',
 }

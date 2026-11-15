@@ -147,8 +147,9 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
     fireEvent.click(historyLink())
     fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('The pay period is locked')
-    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('The pay period is locked')
     expect(assign).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
     expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
   })
 
@@ -349,16 +350,20 @@ describe('Edit shift: a refused save is shown where it can be fixed (item 5)', (
     expect(screen.getByText(/AIRE-PAY-1/)).toBeInTheDocument()
   })
 
-  it('does the same from Save and view history, and does not leave the page', async () => {
-    apiMock.updateTimeEntry.mockResolvedValue(refusal)
+  it('keeps Save and view history open with the required reason and can retry', async () => {
+    apiMock.updateTimeEntry.mockResolvedValueOnce(refusal).mockResolvedValueOnce({ data: { time_entry: {} } })
     show()
     edit()
     fireEvent.click(historyLink())
     fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
-    await waitFor(() => expect(reason()).toHaveFocus())
-    expect(screen.queryByRole('alertdialog')).toBeNull()
+    const guard = await screen.findByRole('alertdialog')
+    const inlineReason = await within(guard).findByLabelText('Add a short reason, then save and view history')
+    expect(within(guard).getByRole('alert')).toHaveTextContent(refusal.error)
     expect(window.location.assign).not.toHaveBeenCalled()
-    expect(reason()).toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(inlineReason, { target: { value: 'Corrected clock-out from office record' } })
+    fireEvent.click(within(guard).getByRole('button', { name: 'Save and view history' }))
+    await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith(expect.stringContaining('saved=1')))
+    expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(entry.id, expect.anything(), 'Corrected clock-out from office record')
   })
 
   it('asks again without sending anything while the reason is still empty, then saves with it', async () => {

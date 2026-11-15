@@ -2155,7 +2155,7 @@ export const api = {
     }),
 
   // Activity history
-  getAuditLog: (id: number) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}`),
+  getAuditLog: (id: number, scope?: { subject_type: string; subject_id: number }) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}${scope ? `?${new URLSearchParams({ subject_type: scope.subject_type, subject_id: String(scope.subject_id) })}` : ''}`),
 
   getAuditLogs: (filters: AuditLogFilters = {}) => {
     const searchParams = new URLSearchParams();
