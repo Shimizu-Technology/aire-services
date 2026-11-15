@@ -185,12 +185,20 @@ export const myTimeApi = {
       },
       'The leave request timed out. Check your requests before trying again.',
     ),
-  cancelLeave: (id: number) =>
-    boundedRequest<{ leave_request: LeaveRequest }>(
+  undoCancelLeave: (id: number) =>
+    boundedRequest<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/undo_cancel`, { method: 'POST' }, 'Undo timed out. Check your requests before trying again.'),
+  cancelLeave: async (id: number) => {
+    // Starting the remaining server window before the request is conservative
+    // about transit time and independent of the tablet's clock setting.
+    const requestedAt = Date.now()
+    const result = await boundedRequest<{ leave_request: LeaveRequest; server_time?: string; undo_until?: string; undoExpiresAt?: number }>(
       `/api/v1/leave_requests/${id}/cancel`,
-      {
-        method: 'POST',
-      },
+      { method: 'POST' },
       'The cancellation timed out. Check your requests before trying again.',
-    ),
+    )
+    if (result.data?.server_time && result.data.undo_until) {
+      result.data.undoExpiresAt = requestedAt + Math.max(0, Date.parse(result.data.undo_until) - Date.parse(result.data.server_time))
+    }
+    return result
+  },
 }

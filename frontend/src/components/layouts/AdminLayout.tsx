@@ -104,7 +104,7 @@ function AdminShell() {
             </button>
             <div className="min-w-0">
               <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">AIRE Ops</Link>
-              <p className="text-xs text-slate-500 lg:hidden">{`${workspaceLabel} workspace`}</p>
+              <p className="text-sm text-slate-500 lg:hidden">{`${workspaceLabel} workspace`}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">

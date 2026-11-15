@@ -78,6 +78,11 @@ RSpec.describe AuditLogPresenter do
     end
   end
 
+  it "says that rejecting the change kept dated original time without approving the change" do
+    expect(summary_for("time_entry.change_rejected", metadata: clock_metadata(worker, work_date: "2026-11-14")))
+      .to eq("Roke Reyes kept Ethan Cruz's original time for Sat, Nov 14 and didn't approve the change")
+  end
+
   it "describes clock events as plain sentences" do
     expect(summary_for("time_entry.clocked_in", actor: worker, subject_name: "0.0 hours on 2026-11-10", metadata: clock_metadata)).to eq("Ethan Cruz clocked in")
     expect(summary_for("time_entry.clocked_out", actor: worker, metadata: clock_metadata)).to eq("Ethan Cruz clocked out")

@@ -162,7 +162,7 @@ it('sends a date range and the note without a half-day control or generated pref
 
 it('cancels only a pending request owned by the viewer', async () => {
   const cancel = vi.spyOn(myTimeApi, 'cancelLeave').mockResolvedValue({
-    data: { leave_request: { ...request, status: 'cancelled' } },
+    data: { leave_request: { ...request, status: 'cancelled' }, undoExpiresAt: Date.parse('2026-11-14T02:01:00Z') },
     status: 200,
   })
   open()
@@ -175,10 +175,10 @@ it('cancels only a pending request owned by the viewer', async () => {
 
 it('can undo a cancellation by sending the same request again', async () => {
   vi.spyOn(myTimeApi, 'cancelLeave').mockResolvedValue({
-    data: { leave_request: { ...request, status: 'cancelled' } },
+    data: { leave_request: { ...request, status: 'cancelled' }, undoExpiresAt: Date.parse('2026-11-14T02:01:00Z') },
     status: 200,
   })
-  const send = vi.spyOn(myTimeApi, 'requestLeave').mockResolvedValue({
+  const send = vi.spyOn(myTimeApi, 'undoCancelLeave').mockResolvedValue({
     data: { leave_request: { ...request, id: 10 } },
     status: 201,
   })
@@ -186,12 +186,7 @@ it('can undo a cancellation by sending the same request again', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
   await waitFor(() =>
-    expect(send).toHaveBeenCalledWith({
-      leave_type: 'paid_time_off',
-      start_date: '2026-12-01',
-      end_date: '2026-12-01',
-      reason: 'Family visit',
-    }),
+    expect(send).toHaveBeenCalledWith(9),
   )
   expect(
     await screen.findByText('Your request is back and waiting for approval.'),

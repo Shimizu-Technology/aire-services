@@ -214,3 +214,14 @@ describe('Toast', () => {
     vi.restoreAllMocks()
   })
 })
+
+it('removes an expired Undo even while focused or hidden', () => {
+  const onAction = vi.fn()
+  renderToast({ message: 'Cancelled your leave.', duration: 120_000, action: { label: 'Undo', onAction, expiresAt: Date.now() + 60_000 } })
+  const undo = screen.getByRole('button', { name: 'Undo' })
+  act(() => { undo.focus() })
+  act(() => { vi.advanceTimersByTime(60_000) })
+  expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  expect(screen.getByText('Cancelled your leave.')).toBeInTheDocument()
+  expect(onAction).not.toHaveBeenCalled()
+})
