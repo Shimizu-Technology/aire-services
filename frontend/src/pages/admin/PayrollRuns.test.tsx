@@ -244,7 +244,7 @@ describe('pay period page: open period', () => {
     await open()
     expect(checklist().getByText('Time waiting for approval').closest('li')).toHaveTextContent('12.0h')
     expect(checklist().getByText('Overtime waiting for approval').closest('li')).toHaveTextContent('2.0h')
-    expect(checklist().getByText('3 shifts with time or overtime waiting for approval.')).toBeInTheDocument()
+    expect(checklist().getByText('3 shifts with finished hours waiting for approval. Open clocks are listed separately; Approvals also includes those shifts.')).toBeInTheDocument()
     expect(checklist().queryByText('276.1h')).not.toBeInTheDocument()
   })
 
@@ -460,7 +460,7 @@ describe('pay period page: lock states', () => {
     mocks.getPayrollCarryovers.mockResolvedValue({ data: { items: [carried({ original_work_date: '2026-11-04' })], summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 }, truncated: false } })
     await open()
     expect(steps().getByText('Locked for payroll').closest('li')).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByText('Waiting for Cornerstone Payroll to confirm it received the hours. This usually takes under a minute.')).toBeInTheDocument()
+    expect(screen.getByText('AIRE is sending the hours to Cornerstone Payroll. It shows as received once payroll imports the hours.')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: /Before it locks/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
     expect(mocks.previewPayrollBatch).not.toHaveBeenCalled()

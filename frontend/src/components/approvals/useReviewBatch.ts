@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   approvalsApi,
   type ReviewEntry,
@@ -60,6 +60,7 @@ const undoneRefusal =
 export function useReviewBatch(
   reloadFresh: () => Promise<void>,
   onCommitted?: (ids: number[]) => void,
+  viewerId?: number,
 ) {
   const toast = useToast()
   const latestReload = useRef(reloadFresh)
@@ -70,7 +71,23 @@ export function useReviewBatch(
   const uncertain = useRef(new Map<string, UncertainRequest>())
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [undoBatches, setUndoBatches] = useState<SucceededBatch[]>([])
+  const storageKey = viewerId === undefined ? null : `aire.approvals.undo.${viewerId}`
+  const [undoBatches, setUndoBatches] = useState<SucceededBatch[]>(() => {
+    if (!storageKey) return []
+    try {
+      const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) || '[]')
+      return Array.isArray(saved) ? saved.filter((row): row is SucceededBatch =>
+        row && typeof row.id === 'string' && Number.isInteger(row.count) && row.count > 0 &&
+        typeof row.expiresAt === 'string' && Date.parse(row.expiresAt) > Date.now() &&
+        (row.people === undefined || (Array.isArray(row.people) && row.people.every((person: { id?: unknown; name?: unknown }) => Number.isInteger(person.id) && typeof person.name === 'string'))),
+      ) : []
+    } catch { return [] }
+  })
+  useEffect(() => {
+    if (!storageKey) return
+    try { sessionStorage.setItem(storageKey, JSON.stringify(undoBatches.filter(row => Date.parse(row.expiresAt) > Date.now()))) }
+    catch { /* Undo remains available in this view if storage is unavailable. */ }
+  }, [storageKey, undoBatches])
   const remember = (batch: SucceededBatch, items: readonly ReviewItem[]) => {
     setUndoBatches((current) =>
       current.some((row) => row.id === batch.id) ? current : [...current, batch],

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { PayrollPeriodSummary } from '../../lib/api/payrollPeriod'
 import type { HandoffState } from '../../lib/payrollTerms'
-import { carried, preview } from '../../test/fixtures/payPeriod'
+import { carried, preview, periodSummary } from '../../test/fixtures/payPeriod'
 import { EarlierPeriods } from './EarlierPeriods'
 import { CarriedHours } from './CarriedHours'
 import { HandoffSteps } from './HandoffSteps'
@@ -132,4 +132,14 @@ it('links to the previous period outside the recent history window', () => {
   render(<MemoryRouter><EarlierPeriods periods={[]} before="2025-01-01" previousStart="2024-12-16" /></MemoryRouter>)
   expect(screen.getByRole('link', { name: 'View previous pay period' })).toHaveAttribute('href', '/admin/payroll/periods/2024-12-16')
   expect(screen.queryByText('No earlier pay periods yet.')).not.toBeInTheDocument()
+})
+
+it('distinguishes sending from delivered hours awaiting a human import', () => {
+  const period = periodSummary({ handoff_state: 'locked', status: 'finalized' })
+  const view = (delivered: boolean) => <MemoryRouter><HandoffSteps period={{ ...period, delivery: { status: delivered ? 'delivered' : 'pending', stuck: false } as NonNullable<typeof period.delivery> }} /></MemoryRouter>
+  const { rerender } = render(view(false))
+  expect(screen.getByRole('status')).toHaveTextContent('AIRE is sending the hours')
+  rerender(view(true))
+  expect(screen.getByRole('status')).toHaveTextContent('Sent to Cornerstone Payroll. It shows as received once payroll imports the hours.')
+  expect(screen.queryByText(/under a minute/)).not.toBeInTheDocument()
 })

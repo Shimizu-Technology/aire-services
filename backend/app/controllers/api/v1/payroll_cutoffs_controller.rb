@@ -41,6 +41,8 @@ module Api
         render json: { error: e.message }, status: :unprocessable_entity
       rescue ::Payroll::CutoffChangeClient::Rejected => e
         render json: { error: e.message }, status: e.status == 409 ? :conflict : :unprocessable_entity
+      rescue ::Payroll::CutoffChangeClient::Unconfirmed
+        render json: { error: "Cornerstone Payroll may still be processing this change. Check this page in a minute before trying again. Do not press Lock now again yet." }, status: :gateway_timeout
       rescue ::Payroll::CutoffChangeClient::Unavailable
         render json: { error: "Cornerstone Payroll could not be reached. Nothing changed; try again in a minute." }, status: :bad_gateway
       end

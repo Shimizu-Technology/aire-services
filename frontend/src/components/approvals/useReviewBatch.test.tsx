@@ -448,3 +448,21 @@ it('settles a never-resolving Undo and releases the lock for Reload', async () =
     expect(reload).toHaveBeenCalledTimes(2)
   } finally { vi.useRealTimers() }
 })
+
+it('restores unexpired Undo batches after navigation and keeps viewers separate', async () => {
+  sessionStorage.clear()
+  const saved = { ...ok('restored').data, undo_expires_at: new Date(Date.now() + 900000).toISOString() }
+  vi.mocked(approvalsApi.review).mockResolvedValue({ data: saved })
+  const first = renderHook(() => useReviewBatch(vi.fn(), undefined, 17), { wrapper })
+  await act(async () => { await first.result.current.approve(items(1), 100, 'Approved') })
+  first.unmount()
+  const next = renderHook(() => useReviewBatch(vi.fn(), undefined, 17), { wrapper })
+  expect(next.result.current.undoBatches).toMatchObject([{ id: 'restored', count: 1 }])
+  const other = renderHook(() => useReviewBatch(vi.fn(), undefined, 18), { wrapper })
+  expect(other.result.current.undoBatches).toEqual([])
+  next.unmount()
+  sessionStorage.setItem('aire.approvals.undo.17', JSON.stringify([{ id: 'expired', count: 1, expiresAt: new Date(Date.now() - 1).toISOString() }]))
+  const expired = renderHook(() => useReviewBatch(vi.fn(), undefined, 17), { wrapper })
+  expect(expired.result.current.undoBatches).toEqual([])
+  sessionStorage.clear()
+})

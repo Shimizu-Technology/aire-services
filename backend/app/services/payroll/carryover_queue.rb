@@ -164,6 +164,7 @@ module Payroll
         exclusion_reason: exclusion.reason,
         held_total_hours: exclusion.held_total_hours.to_f,
         current_total_hours: entry&.hours&.to_f,
+        still_clocked_in: entry&.active? || false,
         status: status,
         completion: completion,
         payroll_lifecycle: @lifecycles[entry&.id],

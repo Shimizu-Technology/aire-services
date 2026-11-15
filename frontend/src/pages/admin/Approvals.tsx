@@ -92,6 +92,7 @@ async function loadPendingLeave() {
 }
 
 export default function Approvals() {
+  const { currentUser } = useAuthContext()
   const [query] = useSearchParams()
   if (query.get('classic') === '1') {
     return (
@@ -100,7 +101,7 @@ export default function Approvals() {
       </Suspense>
     )
   }
-  return <ApprovalsInbox />
+  return <ApprovalsInbox key={currentUser?.id} />
 }
 
 function ApprovalsInbox() {
@@ -159,13 +160,14 @@ function ApprovalsInbox() {
   const toast = useToast()
   const changing = useRef(false)
   const params = useMemo(() => pendingParams(query, department), [query, department])
-  const pruneSelection = useCallback((rows: ReviewEntry[]) => {
+  const pruneSelection = useCallback(async (rows: ReviewEntry[]) => {
     const ordinaryIds = new Set(rows.filter(isOrdinary).map((row) => row.id))
     setSelected((current) => {
       const retained = new Set([...current].filter((id) => ordinaryIds.has(id)))
       return retained.size === current.size ? current : retained
     })
-  }, [])
+    await refreshApprovalCount()
+  }, [refreshApprovalCount])
   const inbox = useApprovalsQuery(
     params,
     (rows) => {
@@ -177,10 +179,7 @@ function ApprovalsInbox() {
   const removeApprovedSelection = useCallback((ids: number[]) => {
     setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))))
   }, [])
-  const batches = useReviewBatch(inbox.reloadFresh, removeApprovedSelection)
-  useEffect(() => {
-    if (inbox.loadedAt) void refreshApprovalCount()
-  }, [inbox.loadedAt, refreshApprovalCount])
+  const batches = useReviewBatch(inbox.reloadFresh, removeApprovedSelection, currentUser?.id)
   const entries = inbox.data?.pending_entries ?? EMPTY
   const ordinary = entries.filter(isOrdinary)
   const needsLook = entries.filter((entry) => !isOrdinary(entry))
@@ -470,9 +469,11 @@ function ApprovalsInbox() {
     allApprovalCount !== null && approvalCount !== null
       ? Math.max(0, allApprovalCount - approvalCount)
       : null
+  const unfilteredDefault = department === defaultDepartment && Object.keys(params).every(key => ['approval_group', 'per_page', 'sort', 'direction'].includes(key))
+  const badgeCount = unfilteredDefault ? inbox.data?.count ?? approvalCount : approvalCount
   const scopeHint =
     defaultDepartment !== 'all' && otherCount !== null
-      ? `The badge counts all ${approvalCount} waiting in ${defaultLabel}. ${otherCount} more waiting in other departments. Today counts everyone.`
+      ? `The badge counts all ${badgeCount} waiting in ${defaultLabel}. ${otherCount} more waiting in other departments. Today counts everyone.`
       : undefined
   const headerDescription = `${inbox.data?.count ?? '…'} waiting${lock.description}`
   const filterCount = FILTER_KEYS.filter((key) => query.has(key)).length

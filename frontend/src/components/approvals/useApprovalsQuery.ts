@@ -10,7 +10,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 export function useApprovalsQuery(
   params: PendingApprovalsParams,
   paused: boolean | ((rows: ReviewEntry[]) => boolean),
-  onReloaded?: (rows: ReviewEntry[]) => void,
+  onReloaded?: (rows: ReviewEntry[]) => Promise<void> | void,
 ) {
   const key = JSON.stringify(params)
   const [result, setResult] = useState<{
@@ -60,6 +60,19 @@ export function useApprovalsQuery(
         controller.signal.removeEventListener('abort', cancel)
       }
       if (id !== generation.current) return
+      if (response.data && onReloaded) {
+        // Keep the scope hint and header together, but a stalled badge read
+        // must not hide an otherwise usable inbox.
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            onReloaded(response.data.pending_entries),
+            new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) }),
+          ])
+        } catch { /* The inbox can still show its own successful response. */ }
+        finally { clearTimeout(timer) }
+      }
+      if (id !== generation.current) return
       setResult((current) =>
         response.data
           ? { key, data: response.data, at: new Date() }
@@ -68,7 +81,6 @@ export function useApprovalsQuery(
               error: response.error || "Couldn't load approvals.",
             },
       )
-      if (response.data) onReloaded?.(response.data.pending_entries)
       setLoading(false)
     })().finally(() => {
       if (inFlight.current?.controller === controller) inFlight.current = null

@@ -176,3 +176,22 @@ it.each(['approve', 'undo', 'refresh', 'retry'] as const)(
     expect(result.current.query.loading).toBe(false)
   },
 )
+
+it('settles the scope counts before publishing the inbox, and still opens if that refresh stalls', async () => {
+  vi.useFakeTimers()
+  vi.mocked(approvalsApi.pending).mockResolvedValue({ data })
+  let settle!: () => void
+  const counts = vi.fn(() => new Promise<void>(resolve => { settle = resolve }))
+  const { result } = renderHook(() => useApprovalsQuery({}, false, counts))
+  await act(async () => {})
+  expect(counts).toHaveBeenCalledOnce()
+  expect(result.current.data).toBeUndefined()
+  await act(async () => settle())
+  expect(result.current.data).toEqual(data)
+  let refreshing!: Promise<void>
+  act(() => { refreshing = result.current.reloadFresh() })
+  await act(async () => {})
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); await refreshing })
+  expect(result.current.loading).toBe(false)
+  expect(result.current.data).toEqual(data)
+})

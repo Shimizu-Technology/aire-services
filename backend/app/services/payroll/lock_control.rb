@@ -96,6 +96,14 @@ module Payroll
       raise Error, "Keep the reason under #{REASON_MAX} characters" if reason.length > REASON_MAX
 
       target = validate_action!(action.to_s, cutoff_at)
+      period.with_lock do
+        pending = AuditLog.where(action: [ REQUESTED, "#{REQUESTED}.started" ], auditable: period)
+          .where("occurred_at > ?", Time.current - 1.minute).order(occurred_at: :desc, id: :desc).first
+        pending = pending && pending.outcome != "failed"
+        raise Error, "A lock-time change may still be processing. Check this page in a minute before trying again." if pending
+
+        audit!(user, action, target, reason, "deferred", started: true)
+      end
       change = CutoffChangeClient.new.request_change(
         external_pay_period_id: period.external_pay_period_id,
         action: action.to_s,
@@ -106,6 +114,9 @@ module Payroll
       )
       audit!(user, action, target, reason, "succeeded", change: change)
       change
+    rescue CutoffChangeClient::Unconfirmed => e
+      audit!(user, action, target, reason, "deferred", error: e.message)
+      raise
     rescue CutoffChangeClient::Error => e
       audit!(user, action, target, reason, "failed", error: e.message)
       raise
@@ -229,9 +240,9 @@ module Payroll
       }
     end
 
-    def audit!(user, action, target, reason, outcome, change: nil, error: nil)
+    def audit!(user, action, target, reason, outcome, change: nil, error: nil, started: false)
       AuditLog.record!(
-        action: "payroll_calendar_period.cutoff_change_requested",
+        action: started ? "#{REQUESTED}.started" : REQUESTED,
         actor: user,
         source: "admin",
         event_category: "payroll",

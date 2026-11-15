@@ -166,4 +166,17 @@ RSpec.describe "Payroll lock time", type: :request do
     expect(response).to have_http_status(:bad_gateway)
     expect(AuditLog.where(action: "payroll_calendar_period.cutoff_change_requested", outcome: "failed").count).to eq(2)
   end
+  it "reports an uncertain timeout honestly, defers its audit and refuses a second press" do
+    allow(client).to receive(:request_change).and_raise(Payroll::CutoffChangeClient::Unconfirmed, "timeout")
+    request_change(admin)
+    expect(response).to have_http_status(:gateway_timeout)
+    expect(response.parsed_body.fetch("error")).to include("may still be processing", "Check this page in a minute", "Do not press Lock now again")
+    expect(response.parsed_body.fetch("error")).not_to include("Nothing changed")
+    expect(AuditLog.where(action: Payroll::LockControl::REQUESTED).pluck(:outcome)).to eq([ "deferred" ])
+
+    request_change(admin, request_id: SecureRandom.uuid)
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body.fetch("error")).to include("may still be processing")
+    expect(client).to have_received(:request_change).once
+  end
 end

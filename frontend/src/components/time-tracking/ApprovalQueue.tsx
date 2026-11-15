@@ -399,6 +399,9 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     }
   }, [reviewFilters, rangeError, syncExpandedDescriptions])
 
+  const latestFetch = useRef(() => fetchPending(approvalGroupFilter))
+  latestFetch.current = () => fetchPending(approvalGroupFilter)
+
   useEffect(() => {
     void fetchPending(approvalGroupFilter)
     return startVisibilityAwarePolling(() => fetchPending(approvalGroupFilter), 30_000)
@@ -521,11 +524,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
       if (result.error) {
         setActionError(result.status === 409 && result.code === 'stale_entry' ? 'This shift changed since you opened it. Nothing was saved. The list has been refreshed.' : result.error)
-        await fetchPending(approvalGroupFilter)
+        await latestFetch.current()
       } else {
         if (result.data?.time_entry?.payroll_cutoff_missed ?? entry.payroll_cutoff_missed) setApprovalNotice(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
         window.dispatchEvent(new Event('aire:approvals-updated'))
-        await fetchPending(approvalGroupFilter)
+        await latestFetch.current()
         setNoteInput(null)
         onUpdate?.()
       }
@@ -560,11 +563,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     try {
       const result = await api.denyOvertime(entry.id, reason, entry.version)
       if (result.error) {
-        if (result.status === 409) await fetchPending(approvalGroupFilter)
+        if (result.status === 409) await latestFetch.current()
         setActionError(result.status === 409 && result.code === 'stale_entry' ? 'This shift changed since you opened it. Nothing was saved. The list has been refreshed.' : result.error)
       } else {
         window.dispatchEvent(new Event('aire:approvals-updated'))
-        await fetchPending(approvalGroupFilter)
+        await latestFetch.current()
         setNoteInput(null)
         onUpdate?.()
       }
@@ -594,12 +597,12 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
         : await api.denyTimeEntry(entry.id, note, entry.version)
 
       if (result.error) {
-        if (result.status === 409) await fetchPending(approvalGroupFilter)
+        if (result.status === 409) await latestFetch.current()
         if (/reason is required/i.test(result.error)) askForReason(entry, result.error)
         else setActionError(result.status === 409 && result.code === 'stale_entry' ? 'This shift changed since you opened it. Nothing was saved. The list has been refreshed.' : result.error)
       } else {
         window.dispatchEvent(new Event('aire:approvals-updated'))
-        await fetchPending(approvalGroupFilter)
+        await latestFetch.current()
         setNoteInput(null)
         onUpdate?.()
       }
@@ -694,7 +697,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
       if (approvedLate) setApprovalNotice(`Approved. Selected entries missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
       window.dispatchEvent(new Event('aire:approvals-updated'))
       setSelectedIds(new Set())
-      await fetchPending(approvalGroupFilter)
+      await latestFetch.current()
       setNoteInput(null)
       onUpdate?.()
     } catch {
@@ -706,13 +709,13 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
   const handleEditSaved = async () => {
     setEditingEntry(null)
-    await fetchPending(approvalGroupFilter)
+    await latestFetch.current()
     onUpdate?.()
   }
 
   const handleEditDeleted = async () => {
     setEditingEntry(null)
-    await fetchPending(approvalGroupFilter)
+    await latestFetch.current()
     onUpdate?.()
   }
 
