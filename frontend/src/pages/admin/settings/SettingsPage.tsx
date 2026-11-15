@@ -50,6 +50,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const [lockingKiosks, setLockingKiosks] = useState(false)
   // Messages shown under the field they are about, keyed by setting.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   // Address typed into an email list but not added yet. Saving adds it.
@@ -382,6 +383,14 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                 <ExternalLink className="size-4" aria-hidden="true" />
                 <span className="sr-only">(opens in a new tab)</span>
               </a>
+              <Button variant="danger" disabled={lockingKiosks} onClick={async () => {
+                if (!(await confirm({ title: 'Lock all kiosks?', description: 'Staff will need a manager to unlock each office device again.', confirmLabel: 'Lock all kiosks', tone: 'danger' }))) return
+                setLockingKiosks(true)
+                const result = await api.lockAllKiosks()
+                setLockingKiosks(false)
+                if (result.error) setError(result.error)
+                else setMessage('All kiosks are locked. A manager can unlock each device again.')
+              }}>{lockingKiosks ? 'Locking…' : 'Lock all kiosks'}</Button>
               <p className="text-sm text-ink-muted">
                 Open this on the shared office device, not on your own computer. A manager or admin
                 unlocks it there before staff can enter a PIN.
