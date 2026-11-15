@@ -10,7 +10,7 @@ import type { ChecklistStatus } from '../ui'
 import { monthDay, periodLabel, plural } from '../today/format'
 import { missingCategoryHref, openClockHref } from '../today/links'
 
-const hoursLabel = (hours: number) => `${hours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
+export const payPeriodHoursLabel = (hours: number) => `${hours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
 
 // What the pay period page shows, worked out from the API answers. Kept apart
 // from the components so each rule can be tested on its own.
@@ -47,7 +47,7 @@ export interface PeriodWaiting {
 
 function approvalsItem(range: PayPeriod, count: number, hours: number): ChecklistEntry {
   return count > 0
-    ? { key: 'approvals', status: 'todo', text: `${plural(count, 'shift')} waiting for approval`, meta: hoursLabel(hours), action: { label: 'Review', to: approvalsForPeriodHref(range) } }
+    ? { key: 'approvals', status: 'todo', text: `${plural(count, 'shift')} waiting for approval`, meta: payPeriodHoursLabel(hours), action: { label: 'Review', to: approvalsForPeriodHref(range) } }
     : { key: 'approvals', status: 'done', text: 'No shifts waiting for approval' }
 }
 
@@ -68,7 +68,7 @@ function overtimeItem(range: PayPeriod, count: number, hours: number | null, peo
   return {
     key: 'overtime',
     status: 'todo',
-    text: hours === null ? `${plural(count, 'shift')} with overtime to review` : `${hoursLabel(hours)} overtime waiting`,
+    text: hours === null ? `${plural(count, 'shift')} with overtime to review` : `${payPeriodHoursLabel(hours)} overtime waiting`,
     meta: names(people) || undefined,
     action: { label: 'Review', to: approvalsForPeriodHref(range, { approval_type: 'overtime' }) },
   }
@@ -110,7 +110,7 @@ function lateHoursItem(preview: PayrollBatchPayload, previousStart: string | nul
     key: 'late_hours',
     status: 'info',
     text: `${plural(shifts, 'shift')} approved after ${source} ${shifts === 1 ? 'goes' : 'go'} into this payroll`,
-    meta: hoursLabel(lines.reduce((sum, line) => sum + line.total_hours, 0)),
+    meta: payPeriodHoursLabel(lines.reduce((sum, line) => sum + line.total_hours, 0)),
   }
 }
 
@@ -150,7 +150,7 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
   const live = period?.hours_source === 'live' && typeof period.time_waiting_hours === 'number' && typeof period.overtime_waiting_hours === 'number'
   if (live) items.push({
     key: 'approvals', status: period.time_waiting_hours! > 0 ? 'todo' : 'done',
-    text: 'Time waiting for approval', meta: hoursLabel(period.time_waiting_hours!),
+    text: 'Time waiting for approval', meta: payPeriodHoursLabel(period.time_waiting_hours!),
     ...(period.time_waiting_hours! > 0 ? { action: { label: 'Review', to: approvalsForPeriodHref(range) } } : {}),
   })
   else if (!period && waiting) items.push(approvalsItem(range, waiting.count, waiting.hours))
@@ -169,7 +169,7 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
 
   if (live) items.push({
     key: 'overtime', status: period.overtime_waiting_hours! > 0 ? 'todo' : 'done',
-    text: 'Overtime waiting for approval', meta: hoursLabel(period.overtime_waiting_hours!),
+    text: 'Overtime waiting for approval', meta: payPeriodHoursLabel(period.overtime_waiting_hours!),
     ...(period.overtime_waiting_hours! > 0 ? { action: { label: 'Review', to: approvalsForPeriodHref(range, { approval_type: 'overtime' }) } } : {}),
   })
   else if (!period && waiting) items.push(overtimeItem(range, waiting.overtime.count, waiting.overtime.hours, waiting.overtime.people))
@@ -199,7 +199,7 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
 
   if (preview) {
     const carried = personRows(preview).reduce((sum, row) => sum + row.carriedWaiting, 0)
-    if (carried > 0) items.push({ key: 'carried_waiting', status: 'todo', text: 'Carried in, still waiting', meta: hoursLabel(carried), action: { label: 'Review', to: ADMIN_PATHS.approvals } })
+    if (carried > 0) items.push({ key: 'carried_waiting', status: 'todo', text: 'Carried in, still waiting', meta: payPeriodHoursLabel(carried), action: { label: 'Review', to: ADMIN_PATHS.approvals } })
     const late = lateHoursItem(preview, previousStart)
     if (carried === 0 || late.status !== 'done') items.push(late)
   }
@@ -271,7 +271,7 @@ export function periodFacts(period: PayrollPeriodSummary) {
     period.locked_at ? `Locked ${day(period.locked_at)}` : null,
     period.handoff_state === 'paid' && period.payroll_status?.occurred_at ? `paid ${day(period.payroll_status.occurred_at)}` : null,
     plural(period.people, 'person', 'people'),
-    hours === undefined ? null : hoursLabel(hours),
+    hours === undefined ? null : payPeriodHoursLabel(hours),
   ].filter(Boolean).join(' · ')
 }
 

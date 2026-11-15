@@ -73,7 +73,7 @@ describe('CarriedHours', () => {
   // Codex finding 7: the carried part, not the whole shift.
   it('shows the carried part of a shift and the whole shift beside it', () => {
     render(<MemoryRouter><CarriedHours items={[carried({ exclusion_reason: 'overtime_approved_after_cutoff', held_total_hours: 2, current_total_hours: 10 })]} range={range} recordsHref="/admin/payroll/records" /></MemoryRouter>)
-    expect(screen.getByRole('region', { name: /Hours carried to a later period/ })).toHaveTextContent('Jun Santos · Fri, Oct 30 · 2h of a 10h shift→ Next payroll')
+    expect(screen.getByRole('region', { name: /Hours carried to a later period/ })).toHaveTextContent('Jun Santos · Fri, Oct 30 · 2.0h of a 10.0h shift→ Next payroll')
   })
 
   it('lists the carried shifts from this period', () => {

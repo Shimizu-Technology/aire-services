@@ -9,9 +9,7 @@ import { useMediaQuery } from '../../lib/useMediaQuery'
 import { Button, StatusPill } from '../ui'
 import { dayLabel, plural } from '../today/format'
 import { StaleNote } from '../today/StaleNote'
-import { personRows, type PersonRow } from './payPeriodModel'
-
-const hoursLabel = (hours: number) => `${hours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
+import { payPeriodHoursLabel as hoursLabel, personRows, type PersonRow } from './payPeriodModel'
 
 const HELD_LABELS: Record<string, string> = {
   pending_approval: LIFECYCLE_LABELS.awaiting_approval,

@@ -3,8 +3,8 @@ import type { PayrollCarryoverItem } from '../../lib/api'
 import { payPeriodIncludes, type PayPeriod } from '../../lib/payPeriods'
 import { PAYROLL_WORDS } from '../../lib/payrollTerms'
 import { HelpTip } from '../ui'
-import { dayLabel, hoursLabel } from '../today/format'
-import { carriedDestination, carriedHours } from './payPeriodModel'
+import { dayLabel } from '../today/format'
+import { payPeriodHoursLabel as hoursLabel, carriedDestination, carriedHours } from './payPeriodModel'
 
 export interface CarriedHoursProps {
   truncated?: boolean
