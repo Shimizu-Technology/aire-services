@@ -177,7 +177,7 @@ export function TimecardView({
       {!hidePerson && <div className="flex items-center gap-3">
         <Avatar name={person.name} size="lg" />
         <div className="min-w-0 flex-1">
-          <h2 className="whitespace-normal break-normal text-title font-semibold text-ink">{person.name}</h2>
+          <h2 className="whitespace-normal break-words text-title font-semibold text-ink">{person.name}</h2>
           {person.meta && <p className="truncate text-body-sm text-ink-muted">{person.meta}</p>}
         </div>
         {actions}
