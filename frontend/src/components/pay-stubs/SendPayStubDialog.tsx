@@ -18,7 +18,7 @@ interface Props {
   /** Start with this person chosen (from a person's page). */
   workerId?: number | null
   /** Keep a period-page send on this person and their issued checks for this period. */
-  period?: { start: string; end: string; statementIds: string[] }
+  period?: { start: string; end: string; statementIds: string[]; requestId?: number; requestStatementId?: string | null }
   /** Owners and admins (preview_pay): may send to an address that isn't on file. */
   canChooseRecipient: boolean
   onClose: () => void
@@ -202,7 +202,7 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
       const result = await payStubsApi.send({
         userId: worker.id,
         statementIds: [...selected],
-        requestId: request?.id ?? null,
+        requestId: request?.id ?? (period?.requestStatementId && selected.has(period.requestStatementId) ? period.requestId : null) ?? null,
         ...(typing ? { email: email.trim(), emailConfirmation: confirmation.trim() } : {}),
       })
       setSent({ link: result.link, captured: result.email_status === 'captured' })
@@ -237,7 +237,7 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
                 : `We emailed a secure link to ${sent.link.recipient_email}.`}
             </p>
             <p className="text-sm text-slate-600">
-              It works until {new Date(sent.link.expires_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}, and each stub can be downloaded {sent.link.max_downloads_per_document} times. You can revoke it from Sent links.
+              It works until {new Date(sent.link.expires_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}, and each stub can be downloaded {sent.link.max_downloads_per_document} times. You can revoke it from {period ? 'Sent links and requests on the Pay stubs page' : 'Sent links'}.
             </p>
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={primary}>Done</button>

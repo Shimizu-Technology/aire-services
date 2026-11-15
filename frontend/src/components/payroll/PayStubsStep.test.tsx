@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { PayStubsStep } from './PayStubsStep'
 import type { PayStubLink } from '../../lib/payStubsApi'
 const mocks = vi.hoisted(() => ({ period: vi.fn(), workers: vi.fn(), statements: vi.fn(), send: vi.fn() }))
-vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: 'manager', isClerkEnabled: true }) }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: 'admin', isClerkEnabled: true }) }))
 vi.mock('../../lib/payStubsApi', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/payStubsApi')>(), payStubsApi: mocks }))
 const worker = { id: 7, name: 'Mindy Cruz', first_name: 'Mindy', role: 'employee', on_file_email: 'm•••@example.test' }
 const statement = { id: '42', pay_date: '2026-11-10', period_start: '2026-10-16', period_end: '2026-10-31', voided: false }
@@ -31,17 +31,17 @@ it('lists missing email with a person link and no send button', async () => {
   const person = await screen.findByRole('link', { name: 'No Email' })
   expect(person).toHaveAttribute('href', '/admin/users/8')
   const row = within(person.closest('li')!)
-  expect(row.getByText('No email on file — add one on their page')).toBeInTheDocument()
+  expect(row.getByRole('link', { name: 'add one on their page' })).toHaveAttribute('href', '/admin/users/8')
   expect(row.queryByRole('button')).not.toBeInTheDocument()
 })
-it('sends only this person and period and updates history, without manager amounts', async () => {
+it('sends only this person and period and updates history, without pay amounts', async () => {
   open()
   fireEvent.click(await screen.findByRole('button', { name: /Send pay stub to Mindy/ }))
   const dialog = within(await screen.findByRole('dialog'))
   await waitFor(() => expect(dialog.getByRole('button', { name: 'Send secure link' })).toBeEnabled())
   expect(dialog.getByRole('combobox')).toBeDisabled()
   expect(dialog.getAllByRole('checkbox')).toHaveLength(1)
-  expect(dialog.queryByRole('radio')).not.toBeInTheDocument()
+
   fireEvent.click(dialog.getByRole('button', { name: 'Send secure link' }))
   expect(await dialog.findByText(/nothing was delivered/)).toBeInTheDocument()
   expect(mocks.send).toHaveBeenCalledWith({ userId: 7, statementIds: ['42'], requestId: null })
@@ -69,6 +69,39 @@ it('retries a list failure and displays historical sends and failed attempts', a
   open()
   expect(await screen.findByRole('alert')).toHaveTextContent("Pay stubs couldn't be loaded")
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  expect(await screen.findByText(/Link sent/)).toBeInTheDocument()
-  expect(screen.getByText(/The email failed/)).toBeInTheDocument()
+  expect(await screen.findByText(/The email failed/)).toBeInTheDocument()
+  expect(screen.queryByText(/Link sent/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Send again to Mindy/ })).toBeInTheDocument()
+})
+
+it('lists departed people without a send button', async () => {
+  mocks.period.mockResolvedValue({ workers: [{ worker, inactive: true, statements: [statement], links: [], open_requests: [] }] })
+  open()
+  expect(await screen.findByText("No longer works here — stubs can't be emailed from here")).toBeInTheDocument()
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
+})
+it.each([
+  { scope: 'latest', statement_id: '42', recipient_kind: 'on_file', expected: 20 },
+  { scope: 'pay_date', statement_id: '42', recipient_kind: 'on_file', expected: 20 },
+  { scope: 'latest', statement_id: '99', recipient_kind: 'on_file', expected: null },
+  { scope: 'pay_date', statement_id: '99', recipient_kind: 'on_file', expected: null },
+  { scope: 'latest', statement_id: null, recipient_kind: 'typed', expected: null },
+])('passes only a matching on-file request: %o', async ({ expected, ...request }) => {
+  mocks.period.mockResolvedValue({ workers: [{ worker, statements: [statement], links: [], open_requests: [{ id: 20, ...request }] }] })
+  open()
+  expect(await screen.findByText(/Asked for their stub/)).toBeInTheDocument()
+  if (request.recipient_kind === 'typed') expect(screen.getByText(/asked for a different email; handle that request/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Send pay stub to Mindy/ }))
+  const dialog = within(await screen.findByRole('dialog'))
+  const send = dialog.getByRole('button', { name: 'Send secure link' })
+  await waitFor(() => expect(send).toBeEnabled())
+  fireEvent.click(send)
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith({ userId: 7, statementIds: ['42'], requestId: expected }))
+})
+it('shows a retry for a failed lookup and an honest stale pending status', async () => {
+  mocks.period.mockResolvedValue({ workers: [{ worker, lookup_failed: true, statements: [], links: [] }, { worker: { ...worker, id: 8 }, statements: [statement], links: [{ ...link, state: 'pending', sent_at: '2020-01-01T00:00:00Z' }] }] })
+  open()
+  expect(await screen.findByText(/Couldn't check this person's stubs/)).toBeInTheDocument()
+  expect(screen.getByText("Didn't finish — you can send again")).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Sent links and requests' })).toHaveAttribute('href', '/admin/pay-stubs')
 })

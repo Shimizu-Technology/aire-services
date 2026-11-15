@@ -4218,6 +4218,13 @@ CREATE INDEX index_pay_document_items_on_pay_document_delivery_id ON public.pay_
 
 
 --
+-- Name: index_pay_document_items_on_period_start_and_period_end; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_items_on_period_start_and_period_end ON public.pay_document_items USING btree (period_start, period_end);
+
+
+--
 -- Name: index_pay_document_requests_on_resolved_by_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6132,6 +6139,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261115010000'),
 ('20261114010000'),
 ('20261111120000'),
 ('20261111000000'),

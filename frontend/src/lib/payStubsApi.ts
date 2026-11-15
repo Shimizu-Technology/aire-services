@@ -159,7 +159,17 @@ function id(value: string | number): string {
   return text
 }
 
+export interface PeriodPayStubRequest {
+  id: number
+  scope: PayStubScope
+  statement_id: string | null
+  recipient_kind: PayStubRecipientKind
+}
+
 export interface PeriodPayStubWorker {
+  inactive: boolean
+  lookup_failed: boolean
+  open_requests: PeriodPayStubRequest[]
   worker: PayStubWorker
   statements: PayStubDate[]
   links: PayStubLink[]
