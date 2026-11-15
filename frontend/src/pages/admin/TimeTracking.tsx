@@ -24,6 +24,8 @@ import TimePayrollWorkspaceHeader, { type TimePayrollSection } from '../../compo
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor, isUserRole, ROLE_DETAILS, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { payPeriodContaining } from '../../lib/payPeriods'
+import { SHIFT_GONE_MESSAGE, useShiftReturn } from '../../lib/useShiftReturn'
 import { currentPayrollPeriod, isIsoDate, withPayrollPeriod, type PayrollPeriod } from '../../lib/payrollPeriods'
 
 // Local types to avoid Vite caching issues
@@ -443,6 +445,25 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
   const [error, setError] = useState<string | null>(null)
   
   const activeTab: TimeTab = section ?? timeTabFromSearchParams(searchParams)
+
+  // Back from a shift's history: show the week (or pay period) the shift is in now, then
+  // reopen Edit shift on it. In the approvals queue the sheet opens over whatever it lists.
+  const shiftReturn = useShiftReturn('entry_id')
+  const returning = shiftReturn.state.status === 'ready' ? shiftReturn.state.entry : null
+  useEffect(() => {
+    if (!returning || activeTab === 'approvals') return
+    const next = new URLSearchParams(searchParams)
+    next.set('date', returning.work_date)
+    next.delete('entries_page')
+    if (next.has('user_id')) next.set('user_id', String(returning.user.id))
+    const own = payPeriodContaining(returning.work_date)
+    const named = linkedPayrollPeriod(searchParams)
+    if (named && !(named.start <= returning.work_date && returning.work_date <= named.end)) {
+      next.set('start_date', own.start)
+      next.set('end_date', own.end)
+    }
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [returning, activeTab, searchParams, setSearchParams])
   
   // View mode: 'day' or 'week'
   const viewMode = routedView
@@ -963,6 +984,15 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
     setShowEditModal(true)
   }
 
+  const reopenShift = useEffectEvent((entry: TimeEntryItem) => {
+    openEditEntry(entry)
+    shiftReturn.finish()
+  })
+  useEffect(() => {
+    // Wait for the URL to have moved to the shift's week, so clearing the request can't undo that.
+    if (returning && activeTab !== 'approvals' && categories.length > 0 && routedDate === returning.work_date) reopenShift(returning as unknown as TimeEntryItem)
+  }, [returning, activeTab, categories.length, routedDate])
+
   const reopenPersonDayAfterLoad = useRef<{ name: string; date: string; userId: number } | null>(null)
 
   useEffect(() => {
@@ -1221,6 +1251,12 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
   return (
     <div className="space-y-6">
       <PayrollCutoffNotice />
+      {shiftReturn.state.status === 'gone' && (
+        <p role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-warm bg-white px-4 py-3 text-sm text-primary-dark">
+          {SHIFT_GONE_MESSAGE}
+          <button type="button" onClick={shiftReturn.finish} className="font-semibold underline">Dismiss</button>
+        </p>
+      )}
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
@@ -1275,6 +1311,8 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               : undefined}
           onUpdate={refreshEntryViews}
           canDeleteEntry={canDeleteEntry}
+          reopenEntry={returning}
+          onReopened={shiftReturn.finish}
         />
       )}
 

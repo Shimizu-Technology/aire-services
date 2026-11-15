@@ -92,6 +92,8 @@ export interface UnsavedChangesGuardProps {
    * `blockPathOrParams('tab')` when the draft belongs to one tab.
    */
   shouldBlock?: ShouldBlock
+  /** Replaces "Leave without saving?" when the draft is a dialog rather than a page. */
+  title?: string
 }
 
 /**
@@ -99,12 +101,12 @@ export interface UnsavedChangesGuardProps {
  * use through `useUnsavedChanges`. React Router allows one active blocker at
  * a time, so render one guard per page and combine every section's `dirty`.
  */
-export function UnsavedChangesGuard({ dirty, what, onDiscard, shouldBlock = blockPathChanges }: UnsavedChangesGuardProps) {
+export function UnsavedChangesGuard({ dirty, what, onDiscard, shouldBlock = blockPathChanges, title = 'Leave without saving?' }: UnsavedChangesGuardProps) {
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && shouldBlock(currentLocation, nextLocation))
   return (
     <ConfirmDialog
       open={blocker.state === 'blocked'}
-      title="Leave without saving?"
+      title={title}
       description={what ? `Your changes to ${what} will be lost.` : 'Your changes will be lost.'}
       tone="danger"
       confirmLabel="Discard changes"

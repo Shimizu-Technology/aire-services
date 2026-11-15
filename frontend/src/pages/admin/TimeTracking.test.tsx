@@ -503,6 +503,36 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getByTestId('location-path')).toHaveTextContent('/admin/reports')
   })
 
+  describe('coming back from a shift\'s history', () => {
+    beforeEach(() => {
+      apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: linkedFixture(90) } })
+      apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+      apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey Employee', time_category_ids: [3] }] } })
+    })
+
+    it('opens Edit shift in the classic week view, on the week the shift is in now', async () => {
+      render(<MemoryRouter initialEntries={['/admin/time?date=2026-08-02&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
+      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('return=edit'))
+      expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
+      expect(screen.getByTestId('location-search')).toHaveTextContent('entry_id=90')
+    })
+
+    it('opens Edit shift over the classic approvals queue', async () => {
+      render(<MemoryRouter initialEntries={['/admin/approvals?start_date=2026-08-01&end_date=2026-08-15&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
+      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('return=edit'))
+      expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-08-01')
+    })
+
+    it('says so when the shift is gone', async () => {
+      apiMock.getTimeEntry.mockResolvedValue({ error: 'Not found', status: 404 })
+      render(<MemoryRouter initialEntries={['/admin/time?date=2026-08-02&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
+      expect(await screen.findByText(/deleted or can't be edited any more/)).toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
+    })
+  })
+
   it('opens the locked-period approval queue with its existing range filters', async () => {
     render(<MemoryRouter initialEntries={['/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals']}><TimeRouteHarness /></MemoryRouter>)
     await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-10-16', end_date: '2026-10-31' })))
@@ -755,6 +785,8 @@ describe('TimeTracking routed report periods', () => {
     await interaction.clear(description)
     await interaction.type(description, 'Unsaved review note')
     await interaction.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    // Unsaved edits now ask before they are thrown away.
+    await interaction.click(within(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).getByRole('button', { name: 'Discard changes' }))
     expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
     expect(edit).toHaveFocus()
     expect(expand).toHaveAttribute('aria-expanded', 'true')

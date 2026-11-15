@@ -18,6 +18,20 @@ function renderDialog(props: Partial<Parameters<typeof ConfirmDialog>[0]> = {}) 
 }
 
 describe('ConfirmDialog', () => {
+  it('stacks three choices full width so none is clipped, and runs the alternate', async () => {
+    const alternate = vi.fn()
+    const { onConfirm, onCancel } = renderDialog({ confirmLabel: 'Save and view history', cancelLabel: 'Keep editing', alternate: { label: 'Discard changes', tone: 'danger', onClick: alternate } })
+    const dialog = screen.getByRole('alertdialog')
+    const buttons = within(dialog).getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(['Keep editing', 'Discard changes', 'Save and view history'])
+    buttons.forEach(button => expect(button.className).toContain('w-full'))
+    buttons.forEach(button => expect(button.className).not.toContain('sm:w-auto'))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Discard changes' }))
+    expect(alternate).toHaveBeenCalledOnce()
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
   it('renders nothing while closed', () => {
     render(<ConfirmDialog open={false} title="Hidden" confirmLabel="Go" onConfirm={vi.fn()} onCancel={vi.fn()} />)
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()

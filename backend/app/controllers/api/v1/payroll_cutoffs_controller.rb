@@ -9,7 +9,7 @@ module Api
       before_action :prevent_caching
 
       def show
-        render_cutoff(current_user, include_attention: current_user.can_manage_payroll?)
+        render_cutoff(current_user, include_attention: current_user.can_manage_payroll?, include_next_lock: true)
       end
 
       def kiosk
@@ -69,9 +69,10 @@ module Api
         end
       end
 
-      def render_cutoff(user, include_attention: false)
+      def render_cutoff(user, include_attention: false, include_next_lock: false)
         cutoff = ::Payroll::CutoffPresenter.call
         payload = { cutoff: cutoff, connected_payroll: ConnectedPayrollMode.capability }
+        payload[:next_lock] = ::Payroll::CutoffPresenter.next_lock if include_next_lock
         payload[:acknowledged] = PayrollCutoffAcknowledgement.exists?(PayrollCutoffAcknowledgement.identity(user, cutoff)) if user
         if include_attention
           payload[:attention] = ::Payroll::CutoffPresenter.attention

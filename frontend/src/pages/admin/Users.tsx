@@ -16,6 +16,7 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { isUserRole, ROLE_DETAILS, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { teamCountSummary } from '../../components/team/teamCounts'
 
 export default function Users() {
   useEffect(() => {
@@ -488,7 +489,7 @@ export default function Users() {
             moreFilters={teamFilters}
             activeFilterCount={activeFilterCount}
             onClear={resetFilters}
-            resultSummary={hasActiveFilters ? `Showing ${filteredUsers.length} of ${users.length}` : undefined}
+            resultSummary={hasActiveFilters ? teamCountSummary(filteredUsers.length, users) : undefined}
           />
           {filteredUsers.length === 0 ? (
             <EmptyState title="No one matches." description="Try another name, or clear the filters." action={<Button variant="secondary" onClick={resetFilters}>Clear filters</Button>} />

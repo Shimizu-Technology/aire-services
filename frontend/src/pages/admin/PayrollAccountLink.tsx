@@ -1,7 +1,7 @@
 import { stagingNavigationUrl } from '../../lib/staging'
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Check, Link2, Loader2, ShieldCheck, Unplug } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, type PayrollAccountLinkSession } from '../../lib/api'
 
 const permissions = [
@@ -109,6 +109,12 @@ export default function PayrollAccountLink() {
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950" role="alert">
               <p className="font-semibold">This connection cannot continue</p>
               <p className="mt-1">{error}</p>
+              <Link
+                to="/admin/settings/payroll-connection"
+                className="mt-3 inline-flex min-h-11 items-center font-semibold text-[#1e3a5f] underline"
+              >
+                Back to connection settings
+              </Link>
             </div>
           )}
 

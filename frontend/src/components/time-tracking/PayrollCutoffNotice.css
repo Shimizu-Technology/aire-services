@@ -1,5 +1,6 @@
 .cutoff-notice { border: 1px solid #a5cbd9; border-radius: 12px; padding: 16px 20px; background: #f0f8fc; color: #19334f; font-size: 16px; line-height: 1.5; }
 .cutoff-notice a { color: #143c60; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.cutoff-status { border-radius: 8px; padding: 8px 14px; background: #f0f8fc; color: #19334f; font-size: 16px; line-height: 1.5; }
 .cutoff-overlay { margin: 0; position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgb(15 23 42 / 65%); }
 .cutoff-dialog { width: min(100%, 540px); max-height: 100%; overflow-y: auto; border-radius: 16px; padding: 24px; background: white; color: #19334f; font-size: 16px; line-height: 1.5; animation: cutoff-appear 160ms ease-out; }
 .cutoff-close { display: block; margin-left: auto; min-height: 44px; padding: 8px 12px; color: #19334f; text-decoration: underline; }
