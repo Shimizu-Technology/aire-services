@@ -4,6 +4,10 @@ class LeaveRequest < ApplicationRecord
   LEAVE_TYPES = %w[paid_time_off sick unpaid bereavement other].freeze
   STATUSES = %w[pending approved declined cancelled].freeze
 
+  has_many :decision_events,
+           -> { where(action: %w[leave_request.approved leave_request.declined leave_request.decision_changed leave_request.decision_undone]).order(occurred_at: :desc, id: :desc) },
+           class_name: "AuditLog", as: :auditable
+
   belongs_to :user
   belongs_to :reviewed_by, class_name: "User", optional: true
   belongs_to :cancelled_by, class_name: "User", optional: true

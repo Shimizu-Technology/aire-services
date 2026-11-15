@@ -567,7 +567,8 @@ CREATE TABLE public.leave_requests (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     cancelled_by_id bigint,
-    cancelled_at timestamp(6) without time zone
+    cancelled_at timestamp(6) without time zone,
+    lock_version integer DEFAULT 0 NOT NULL
 );
 
 
@@ -6132,6 +6133,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261115010000'),
 ('20261114140000'),
 ('20261114010000'),
 ('20261111120000'),
