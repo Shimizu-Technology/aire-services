@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+import { ArrowRight } from 'lucide-react'
 import { businessDateISO, formatDateOnly } from '../../lib/dateUtils'
 
 // The team week grid (Timecards' Everyone view). Moved out of TimeTracking.tsx
@@ -34,6 +36,11 @@ const ClockIcon = () => (
   </svg>
 )
 
+/** "2.5h", "8.67h": enough digits to match the card's own hours. */
+function formatHours(hours: number) {
+  return `${Math.round(hours * 100) / 100}h`
+}
+
 function sumEntryHours(entries: WeekGridEntry[]): number {
   return entries.reduce((sum, entry) => sum + entry.hours, 0)
 }
@@ -57,11 +64,32 @@ export default function WeekGrid<T extends WeekGridEntry>({
   openNewEntry,
   addDisabled,
 }: WeekGridProps<T>) {
+  // Below 1280px seven days don't fit readably beside the sidebar, so the week is a
+  // wider canvas that scrolls sideways, with a cue while more days are off to the right.
+  const scroller = useRef<HTMLDivElement>(null)
+  const [moreRight, setMoreRight] = useState(false)
+  useEffect(() => {
+    const node = scroller.current
+    if (!node) return
+    const update = () => setMoreRight(node.scrollWidth - node.clientWidth - node.scrollLeft > 4)
+    update()
+    node.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      node.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [])
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-      <div className="overflow-x-auto">
+      <p className="flex items-center gap-1.5 border-b border-neutral-warm bg-surface-muted px-3 py-2 text-sm text-ink-muted xl:hidden">
+        Scroll sideways to see every day
+        <ArrowRight className="size-4" aria-hidden="true" />
+      </p>
+      <div className="relative">
+      <div ref={scroller} className="overflow-x-auto">
         {/* Week Header */}
-        <div className="grid min-w-[980px] grid-cols-7 border-b border-neutral-warm lg:min-w-full">
+        <div className="grid min-w-[1020px] grid-cols-7 border-b border-neutral-warm xl:min-w-full">
           {weekDates.map((date, idx) => {
             const dateStr = date
             const isToday = date === businessDateISO()
@@ -89,7 +117,7 @@ export default function WeekGrid<T extends WeekGridEntry>({
         </div>
 
         {/* Week Entries */}
-        <div className="grid min-h-[280px] grid-cols-7 min-w-[980px] sm:min-h-[320px] lg:min-w-full">
+        <div className="grid min-h-[280px] grid-cols-7 min-w-[1020px] sm:min-h-[320px] xl:min-w-full">
           {weekDates.map((date, idx) => {
             const dateStr = date
             const dayEntries = entriesByDate[dateStr] || []
@@ -135,10 +163,16 @@ export default function WeekGrid<T extends WeekGridEntry>({
                             {entry.hours.toFixed(2)}h
                           </div>
                           <div className="flex items-center gap-1">
-                            {entry.approval_status === 'pending' && <span className="h-2 w-2 rounded-full bg-amber-500" title="Pending approval" />}
-                            {entry.approval_status === 'denied' && <span className="h-2 w-2 rounded-full bg-red-500" title="Denied" />}
+                            {entry.approval_status === 'pending' && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />}
+                            {entry.approval_status === 'denied' && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-red-500" />}
                           </div>
                         </div>
+                        {entry.approval_status === 'pending' && (
+                          <div className="mt-1.5 text-xs font-semibold text-amber-800">{formatHours(entry.hours)} waiting</div>
+                        )}
+                        {entry.approval_status === 'denied' && (
+                          <div className="mt-1.5 text-xs font-semibold text-red-800">Denied</div>
+                        )}
                         {entry.formatted_start_time && entry.formatted_end_time && (
                           <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
                         )}
@@ -176,6 +210,10 @@ export default function WeekGrid<T extends WeekGridEntry>({
           })}
         </div>
       </div>
+      {moreRight && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-linear-to-l from-white to-transparent xl:hidden" />
+      )}
+      </div>
     </div>
   )
 }
@@ -199,6 +237,7 @@ function CalendarUserGroup({
   hasDenied: boolean
   onClick: () => void
 }) {
+  const waitingHours = entries.filter(e => e.approval_status === 'pending').reduce((sum, e) => sum + e.hours, 0)
   const catSummary = entries.reduce((acc, e) => {
     const cat = e.time_category?.name || 'Other'
     acc[cat] = (acc[cat] || 0) + e.hours
@@ -220,14 +259,16 @@ function CalendarUserGroup({
             {totalHours.toFixed(2)}h
           </div>
           <div className="flex items-center gap-1.5">
-            {hasPending && <span className="h-2 w-2 rounded-full bg-amber-500" title="Has pending entries" />}
-            {hasDenied && <span className="h-2 w-2 rounded-full bg-red-500" title="Has denied entries" />}
+            {hasPending && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />}
+            {hasDenied && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-red-500" />}
           </div>
         </div>
+        {waitingHours > 0 && <div className="mt-1.5 text-xs font-semibold text-amber-800">{formatHours(waitingHours)} waiting</div>}
+        {hasDenied && <div className="mt-1.5 text-xs font-semibold text-red-800">Some denied</div>}
         {firstStart && lastEnd && (
           <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{firstStart} – {lastEnd}</div>
         )}
-        <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-primary/60">
+        <div className="mt-1 text-sm font-medium text-primary">
           {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
         </div>
         <div className="mt-2 space-y-1.5">
@@ -238,7 +279,7 @@ function CalendarUserGroup({
             </div>
           ))}
           {hiddenCategoryCount > 0 && (
-            <div className="text-[10px] font-medium text-text-muted">+{hiddenCategoryCount} more categories</div>
+            <div className="text-sm font-medium text-slate-700">+{hiddenCategoryCount} more categories</div>
           )}
         </div>
         <div className="mt-2 truncate text-[11px] text-primary-dark/70">{name}</div>

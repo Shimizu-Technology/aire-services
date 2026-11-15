@@ -16,6 +16,7 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { isUserRole, ROLE_DETAILS, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { teamCountSummary } from '../../components/team/teamCounts'
 
 export default function Users() {
   useEffect(() => {
@@ -210,14 +211,9 @@ export default function Users() {
     myPayFilter !== 'all' ||
     publicTeamFilter !== 'all',
   )
-  const filteredUsers = useMemo(() => {
+  const matchingUsers = useMemo(() => {
     return users.filter((user) => {
       if (roleFilter !== 'all' && user.role !== roleFilter) return false
-
-      if (statusFilter === 'active' && (!user.is_active || user.is_pending)) return false
-      if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
-      if (statusFilter === 'inactive' && user.employment_status !== 'inactive') return false
-      if (statusFilter === 'terminated' && user.employment_status !== 'terminated') return false
 
       const userDepartmentKeys = user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])
       if (departmentFilter === 'unassigned' && userDepartmentKeys.length > 0) return false
@@ -262,7 +258,17 @@ export default function Users() {
 
       return searchableText.includes(normalizedSearchTerm)
     })
-  }, [departmentFilter, myPayFilter, myPayForEveryone, normalizedSearchTerm, publicTeamFilter, roleFilter, signInFilter, statusFilter, users])
+  }, [departmentFilter, myPayFilter, myPayForEveryone, normalizedSearchTerm, publicTeamFilter, roleFilter, signInFilter, users])
+
+  const filteredUsers = matchingUsers.filter(user => {
+    if (statusFilter === 'active' && (!user.is_active || user.is_pending)) return false
+    if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
+    if (statusFilter === 'inactive' && user.employment_status !== 'inactive') return false
+    if (statusFilter === 'terminated' && user.employment_status !== 'terminated') return false
+    return true
+  })
+  const endedMatches = statusFilter === 'active' && normalizedSearchTerm
+    ? matchingUsers.filter(user => user.employment_status === 'terminated').length : 0
 
   const resetFilters = () => {
     const next = new URLSearchParams(query)
@@ -488,10 +494,10 @@ export default function Users() {
             moreFilters={teamFilters}
             activeFilterCount={activeFilterCount}
             onClear={resetFilters}
-            resultSummary={hasActiveFilters ? `Showing ${filteredUsers.length} of ${users.length}` : undefined}
+            resultSummary={hasActiveFilters ? teamCountSummary(filteredUsers.length, users) : undefined}
           />
           {filteredUsers.length === 0 ? (
-            <EmptyState title="No one matches." description="Try another name, or clear the filters." action={<Button variant="secondary" onClick={resetFilters}>Clear filters</Button>} />
+            <EmptyState title={endedMatches ? 'No active match.' : 'No one matches.'} description={endedMatches ? `${endedMatches} ended ${endedMatches === 1 ? 'person matches' : 'people match'}.` : 'Try another name, or clear the filters.'} action={endedMatches ? <Button variant="secondary" onClick={() => { const next = new URLSearchParams(query); next.set('status', 'terminated'); setQuery(next) }}>Show ended</Button> : <Button variant="secondary" onClick={resetFilters}>Clear filters</Button>} />
           ) : (
             <TeamList
               users={filteredUsers}

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { reviewEntry } from '../../test/approvalFixtures'
 import OrdinaryGroups from './OrdinaryGroups'
@@ -52,6 +52,7 @@ it('shows full overtime secondary copy without truncation or current-year noise'
           review_kind: 'needs_look',
           work_date: '2026-11-06',
           hours: 11.5,
+          approval_status: 'approved',
           overtime_status: 'pending',
           pending_overtime_hours: 6,
           exceptions: [{ key: 'overtime', label: 'Overtime' }],
@@ -60,7 +61,65 @@ it('shows full overtime secondary copy without truncation or current-year noise'
       onReview={vi.fn()}
     />,
   )
-  const meta = screen.getByText(/Fri, Nov 6 · 11.5h · 6.0h overtime this week/)
+  const meta = screen.getByText(/Fri, Nov 6 · 11.5h · 6.0h overtime waiting/)
   expect(meta).toHaveClass('whitespace-normal')
   expect(meta).not.toHaveClass('truncate')
+})
+
+it('groups exceptional shifts by person and Sun–Sat week, with totals, tiny-shift warning and two priority chips', () => {
+  const onReview = vi.fn()
+  const base = reviewEntry(1, 1, {
+    review_kind: 'needs_look',
+    approval_status: 'approved',
+    overtime_status: 'pending',
+    pending_overtime_hours: 8,
+    exceptions: [
+      { key: 'after_lock', label: 'After the lock' },
+      { key: 'overtime', label: 'Overtime' },
+      { key: 'edited', label: 'Edited by Ethan' },
+    ],
+  })
+  render(
+    <NeedsLookList
+      rows={[
+        base,
+        {
+          ...base,
+          id: 2,
+          work_date: '2026-11-11',
+          pending_overtime_hours: 5.6,
+          hours: 0,
+          clock_out_at: '2026-11-09T22:00:30Z',
+        },
+        { ...base, id: 3, work_date: '2026-11-15', pending_overtime_hours: 0 },
+      ]}
+      onReview={onReview}
+    />,
+  )
+  expect(screen.getByText(/2 shifts this week.*13.6h overtime waiting/)).toBeInTheDocument()
+  expect(screen.getAllByText('Edited by Ethan')).toHaveLength(2)
+  expect(screen.queryByText('After the lock')).not.toBeInTheDocument()
+  expect(screen.getByText('Under 1 minute, probably a mis-tap')).toBeInTheDocument()
+  expect(screen.getByText(/0.0h overtime to review/)).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /^Review Marcus/ })).toHaveLength(2)
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Review Marcus Quinata, week of Sun, Nov 8' }),
+  )
+  expect(onReview).toHaveBeenCalledWith(base)
+})
+
+it('counts only approved-time overtime as waiting in a mixed group', () => {
+  render(<NeedsLookList rows={[
+    reviewEntry(11, 1, { hours: 10, approval_status: 'pending', overtime_status: 'pending', pending_overtime_hours: 2, exceptions: [{ key: 'overtime', label: 'Overtime' }] }),
+    reviewEntry(12, 1, { hours: 8, approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 3, exceptions: [{ key: 'overtime', label: 'Overtime' }] }),
+  ]} onReview={vi.fn()} />)
+  expect(screen.getByText(/10.0h time waiting · 3.0h overtime waiting/)).toBeInTheDocument()
+  expect(screen.getByText('Projected overtime')).toBeInTheDocument()
+  expect(screen.queryByText(/5.0h overtime waiting/)).not.toBeInTheDocument()
+})
+
+it('labels time-pending overtime as projected without waiting totals', () => {
+  render(<NeedsLookList rows={[reviewEntry(11, 1, { approval_status: 'pending', overtime_status: 'pending', pending_overtime_hours: 2, exceptions: [{ key: 'overtime', label: 'Overtime' }] })]} onReview={vi.fn()} />)
+  expect(screen.getByText('Projected overtime')).toBeInTheDocument()
+  expect(screen.queryByText(/overtime waiting/)).not.toBeInTheDocument()
 })

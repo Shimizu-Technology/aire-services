@@ -13,8 +13,9 @@ module Reports
     ].freeze
 
     SUMMARY_HEADERS = [
-      "Export Reference", "Employee", "Departments", "Employee Type", "Regular Hours",
-      "Overtime Hours", "Total Hours", "Break Hours", "Entries", "Report Status"
+      "Export Reference", "Employee", "Departments", "Employee Type", "Approved regular hours",
+      "Approved overtime hours", "Approved for payroll", "Break Hours", "Entries", "Report Status",
+      "Time waiting for approval", "Overtime waiting for approval — not included", "Worked hours (approved + waiting)"
     ].freeze
 
     def self.detailed(report:, export:)
@@ -56,12 +57,15 @@ module Reports
             employee[:full_name],
             Array(employee[:approval_group_labels]).presence&.join(" | ") || employee[:approval_group_label],
             employee[:employee_type],
-            format_hours(employee[:regular_hours]),
-            format_hours(employee[:overtime_hours]),
-            format_hours(employee[:total_hours]),
+            format_hours(employee.fetch(:payroll_hours).fetch(:approved_regular_hours)),
+            format_hours(employee.fetch(:payroll_hours).fetch(:approved_overtime_hours)),
+            format_hours(employee.fetch(:payroll_hours).fetch(:approved_hours)),
             format_hours(employee[:break_hours]),
             employee[:entries_count],
-            employee[:ready] ? "Complete" : "Draft - needs review"
+            employee[:ready] && employee[:approval_complete] ? "Complete" : "Draft - needs review",
+            format_hours(employee.fetch(:payroll_hours).fetch(:time_waiting_hours)),
+            format_hours(employee.fetch(:payroll_hours).fetch(:overtime_waiting_hours)),
+            format_hours(employee[:worked_hours])
           ])
         end
       end

@@ -40,7 +40,7 @@ class SettingsCatalog
   ENTRIES = [
     {
       id: "payroll_cutoff_reminder_emails",
-      label: "Cutoff reminder recipients",
+      label: "Lock reminder recipients",
       section: :time_approvals,
       setting_keys: %w[payroll_cutoff_reminder_emails],
       capability: :manage_settings,

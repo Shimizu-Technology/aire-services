@@ -65,14 +65,14 @@ describe('App time-section routes', () => {
   it('opens Reports without the period from a dated Approvals view', async () => {
     window.history.pushState({}, '', '/admin/approvals?start_date=2026-08-01&end_date=2026-08-15')
     render(<App />)
-    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' })))
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' }), expect.any(AbortSignal)))
     fireEvent.click(await screen.findByRole('button', { name: /Filters/ }, { timeout: 10_000 }))
     expect(await screen.findByDisplayValue('2026-08-01')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 
     fireEvent.click(screen.getByRole('link', { name: 'Go to Reports' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reports' }, { timeout: 10_000 })).toBeInTheDocument()
     await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalled())
     expect(apiMock.getHoursReport).not.toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01' }))
     expect(screen.queryByDisplayValue('2026-08-01')).not.toBeInTheDocument()

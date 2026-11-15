@@ -7,9 +7,14 @@ import { payStubsApi, type PayStubRequest } from '../../lib/payStubsApi'
 import { approvalsApi } from '../../lib/api/approvals'
 import { ToastProvider } from '../../components/ui'
 import Approvals from './Approvals'
+import { ShellChromeContext } from '../../components/layouts/shellChrome'
 import { reviewEntry } from '../../test/approvalFixtures'
 const auth = vi.hoisted(() => ({
-  currentUser: { id: 10, approval_group: 'cfi', time_tracking_enabled: true },
+  currentUser: {
+    id: 10,
+    approval_group: 'cfi' as string | null,
+    time_tracking_enabled: true,
+  },
   isClerkEnabled: true,
   userRole: 'manager',
 }))
@@ -24,7 +29,7 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 vi.mock('../../lib/api/approvals', () => ({
-  approvalsApi: { pending: vi.fn(), review: vi.fn(), undo: vi.fn() },
+  approvalsApi: { entry: vi.fn().mockResolvedValue({}), pending: vi.fn(), review: vi.fn(), undo: vi.fn(), approvedLeave: vi.fn() },
 }))
 vi.mock('../../lib/payStubsApi', () => ({
   payStubsApi: { requests: vi.fn().mockResolvedValue({ requests: [] }) },
@@ -74,6 +79,7 @@ const renderInbox = (url = '/admin/approvals') =>
 beforeEach(() => {
   vi.clearAllMocks()
   auth.userRole = 'manager'
+  auth.currentUser.approval_group = 'cfi'
   vi.mocked(payStubsApi.requests).mockResolvedValue({ requests: [], open_count: 0 })
   localStorage.clear()
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
@@ -95,6 +101,12 @@ beforeEach(() => {
     },
   })
   vi.mocked(api.getWhosWorking).mockResolvedValue({ data: { workers: [] } })
+  vi.mocked(approvalsApi.approvedLeave).mockResolvedValue({
+    data: {
+      leave_requests: [],
+      pagination: { current_page: 1, per_page: 100, total_pages: 1, total_count: 0 },
+    },
+  })
   vi.mocked(approvalsApi.pending).mockResolvedValue(response())
   vi.mocked(approvalsApi.review).mockResolvedValue({
     data: {
@@ -109,7 +121,9 @@ describe('Approvals inbox', () => {
   it('approves exactly the displayed person group, excluding overtime and own time', async () => {
     renderInbox()
     await screen.findByText('Ordinary shifts · 3 · 24.0h')
-    fireEvent.click(screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }),
+    )
     await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
     expect(vi.mocked(approvalsApi.review).mock.calls[0][0]).toEqual([
       { id: 1, version: 11, approve_time: true, approve_overtime: false },
@@ -131,7 +145,7 @@ describe('Approvals inbox', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Approve 3 shifts' }))
     await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
     expect(
-      vi.mocked(approvalsApi.review).mock.calls[0][0].map(item => [item.id, item.version]),
+      vi.mocked(approvalsApi.review).mock.calls[0][0].map((item) => [item.id, item.version]),
     ).toEqual([
       [1, 11],
       [2, 12],
@@ -150,12 +164,16 @@ describe('Approvals inbox', () => {
       screen.getAllByRole('checkbox', { name: 'Select Marcus Quinata, 2026-11-10' }),
     ).toHaveLength(2)
     await user.keyboard(' ')
-    expect(screen.getByRole('region', { name: 'Selected shifts' })).toHaveTextContent('2 shifts')
+    expect(screen.getByRole('region', { name: 'Selected shifts' })).toHaveTextContent(
+      '2 shifts',
+    )
     await user.keyboard('a')
     expect(approvalsApi.review).not.toHaveBeenCalled()
     await user.keyboard('{Shift>}a{/Shift}')
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Approve 2 shifts?')
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }),
+    )
     first.focus()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('region', { name: 'Selected shifts' })).not.toBeInTheDocument()
@@ -174,10 +192,14 @@ describe('Approvals inbox', () => {
       }),
     )
     fireEvent.click(
-      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Approve 3 shifts' }),
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Approve 3 shifts',
+      }),
     )
     await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
-    expect(vi.mocked(approvalsApi.review).mock.calls[0][0].map(item => item.id)).toEqual([1, 2, 3])
+    expect(vi.mocked(approvalsApi.review).mock.calls[0][0].map((item) => item.id)).toEqual([
+      1, 2, 3,
+    ])
   })
   it('disables saving while offline with the reason', async () => {
     renderInbox()
@@ -225,7 +247,10 @@ const stubRequest: PayStubRequest = {
 }
 
 it('hides the Pay stubs chip for a zero visible count and falls back from kind=stubs to Time', async () => {
-  vi.mocked(payStubsApi.requests).mockResolvedValue({ requests: [stubRequest], open_count: 1 })
+  vi.mocked(payStubsApi.requests).mockResolvedValue({
+    requests: [stubRequest],
+    open_count: 1,
+  })
   renderInbox('/admin/approvals?kind=stubs&user_id=10')
   await screen.findByText('Ordinary shifts · 3 · 24.0h')
   expect(screen.queryByRole('tab', { name: /Pay stubs/ })).not.toBeInTheDocument()
@@ -234,20 +259,30 @@ it('hides the Pay stubs chip for a zero visible count and falls back from kind=s
 })
 
 it('shows Pay stubs only when the viewer can send them and visible requests exist', async () => {
-  vi.mocked(payStubsApi.requests).mockResolvedValue({ requests: [stubRequest], open_count: 1 })
-  renderInbox('/admin/approvals?kind=stubs&user_id=1')
+  vi.mocked(payStubsApi.requests).mockResolvedValue({
+    requests: [stubRequest],
+    open_count: 1,
+  })
+  renderInbox('/admin/approvals?kind=stubs&user_id=1&dept=all')
   expect(await screen.findByRole('tab', { name: 'Pay stubs 1' })).toHaveAttribute(
     'aria-selected',
     'true',
   )
-  expect(await screen.findByText('An owner or admin needs to send this one')).toBeInTheDocument()
+  expect(
+    await screen.findByText('An owner or admin needs to send this one'),
+  ).toBeInTheDocument()
 })
 
-it('asks before approving a By day group spanning people', async () => {
+it('asks before approving a By day group spanning people and keeps focus inside confirmation', async () => {
+  const pending = response()
+  pending.data.pending_entries = [...rows, row(6, 3, { work_date: '2026-11-11' })]
+  vi.mocked(approvalsApi.pending).mockResolvedValue(pending)
   renderInbox('/admin/approvals?group=day')
   fireEvent.click(await screen.findByRole('button', { name: /Approve 3 shifts for/ }))
   expect(approvalsApi.review).not.toHaveBeenCalled()
   expect(screen.getByRole('alertdialog')).toHaveTextContent('2 people')
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)) })
+  expect(screen.getByRole('alertdialog').contains(document.activeElement)).toBe(true)
   fireEvent.click(
     within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Approve 3 shifts' }),
   )
@@ -260,7 +295,9 @@ it('group approval removes only its committed IDs from a cross-person selection'
   fireEvent.click(screen.getByRole('checkbox', { name: 'Select Grace Torres' }))
   fireEvent.click(screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
   await waitFor(() =>
-    expect(screen.getByRole('region', { name: 'Selected shifts' })).toHaveTextContent('1 shift'),
+    expect(screen.getByRole('region', { name: 'Selected shifts' })).toHaveTextContent(
+      '1 shift',
+    ),
   )
   expect(screen.getByRole('checkbox', { name: 'Select Grace Torres' })).toBeChecked()
   expect(screen.getByRole('checkbox', { name: 'Select Marcus Quinata' })).not.toBeChecked()
@@ -288,11 +325,11 @@ it('keeps the full disabled reason on a Shift+A confirmation after going offline
 
 it.each(['leave', 'stubs'])(
   'waits for people and shows retryable errors for kind=%s',
-  async kind => {
+  async (kind) => {
     let resolve!: (value: Awaited<ReturnType<typeof api.getUsers>>) => void
     vi.mocked(api.getUsers).mockImplementationOnce(
       () =>
-        new Promise(done => {
+        new Promise((done) => {
           resolve = done
         }),
     )
@@ -300,7 +337,9 @@ it.each(['leave', 'stubs'])(
     expect(await screen.findByText('Loading departments and people…')).toBeInTheDocument()
     expect(screen.queryByText('No leave requests waiting.')).not.toBeInTheDocument()
     await act(async () => resolve({ error: "Couldn't load departments and people." }))
-    expect(await screen.findByText("Couldn't load departments and people.")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Couldn't load departments and people."),
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(api.getUsers).toHaveBeenCalledTimes(2))
   },
@@ -309,8 +348,13 @@ it.each(['leave', 'stubs'])(
 it('drops a remembered department that no longer exists', async () => {
   localStorage.setItem('aire.approvals.department.10', 'removed-team')
   renderInbox('/admin/approvals?kind=leave')
-  await waitFor(() => expect(localStorage.getItem('aire.approvals.department.10')).toBe('all'))
-  expect(screen.getByRole('tab', { name: 'Everyone' })).toHaveAttribute('aria-selected', 'true')
+  await waitFor(() =>
+    expect(localStorage.getItem('aire.approvals.department.10')).toBe('all'),
+  )
+  expect(screen.getByRole('tab', { name: 'Everyone' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
 })
 
 it('links tracking supervisors to their own leave page from the Leave chip', async () => {
@@ -323,43 +367,66 @@ it('links tracking supervisors to their own leave page from the Leave chip', asy
 
 it.each(['gone', 'needs-look'])(
   'prunes invisible selection after a 409 when selected rows are %s',
-  async changed => {
+  async (changed) => {
     const refreshed = response()
-    refreshed.data.pending_entries = rows.filter(row => row.id > 2)
+    refreshed.data.pending_entries = rows.filter((row) => row.id > 2)
     if (changed === 'needs-look')
       refreshed.data.pending_entries.push({
         ...rows[0],
         review_kind: 'needs_look',
         exceptions: [{ key: 'edited', label: 'Edited elsewhere' }],
       })
-    vi.mocked(approvalsApi.pending).mockResolvedValueOnce(response()).mockResolvedValue(refreshed)
+    vi.mocked(approvalsApi.pending)
+      .mockResolvedValueOnce(response())
+      .mockResolvedValue(refreshed)
     vi.mocked(approvalsApi.review).mockResolvedValueOnce({
       status: 409,
       error: 'These shifts changed. Nothing was approved.',
     })
     renderInbox()
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Marcus Quinata' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }),
+    )
     await waitFor(() => expect(approvalsApi.pending).toHaveBeenCalledTimes(2))
     await waitFor(() =>
-      expect(screen.queryByRole('region', { name: 'Selected shifts' })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole('region', { name: 'Selected shifts' }),
+      ).not.toBeInTheDocument(),
     )
     const calls = vi.mocked(approvalsApi.pending).mock.calls.length
     act(() => window.dispatchEvent(new Event('focus')))
     await waitFor(() => expect(approvalsApi.pending).toHaveBeenCalledTimes(calls + 1))
     fireEvent.click(screen.getByRole('tab', { name: 'By day' }))
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'By day' })).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByRole('tab', { name: 'By day' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
     )
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   },
 )
 
 it.each([
-  ['finalized past period', '2026-10-16', '2026-10-31', '2026-11-09T13:23:00Z', 'none', false],
+  [
+    'finalized past period',
+    '2026-10-16',
+    '2026-10-31',
+    '2026-11-09T13:23:00Z',
+    'none',
+    false,
+  ],
   ['no period', null, null, null, 'none', false],
   ['upcoming period', '2099-11-01', '2099-11-15', '2099-11-18T07:00:00Z', 'none', true],
-  ['lock in progress', '2020-11-01', '2020-11-15', '2020-11-18T07:00:00Z', 'finalizing', true],
+  [
+    'lock in progress',
+    '2020-11-01',
+    '2020-11-15',
+    '2020-11-18T07:00:00Z',
+    'finalizing',
+    true,
+  ],
 ] as const)('describes only an active lock: %s', async (_, start, end, at, stage, active) => {
   vi.mocked(api.getPayrollCutoff).mockResolvedValue({
     data: {
@@ -393,10 +460,208 @@ it.each([
 
 it('keeps zero-hour pending overtime out of every ordinary approval payload', async () => {
   renderInbox()
-  expect(await screen.findByText(/Overtime to review/)).toBeInTheDocument()
+  expect(await screen.findByText('Projected overtime')).toBeInTheDocument()
+  expect(screen.queryByText(/overtime waiting/)).not.toBeInTheDocument()
   expect(screen.queryByText(/0.0h overtime this week/)).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Approve all 3' }))
   fireEvent.click(screen.getByRole('button', { name: 'Approve 3 shifts' }))
   await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
-  expect(vi.mocked(approvalsApi.review).mock.calls[0][0].map(item => item.id)).toEqual([1, 2, 3])
+  expect(vi.mocked(approvalsApi.review).mock.calls[0][0].map((item) => item.id)).toEqual([
+    1, 2, 3,
+  ])
+})
+
+it('defaults to the manager department, follows its clock banners, and shows the configured hour limit', async () => {
+  auth.currentUser.approval_group = null
+  const { data } = response()
+  vi.mocked(approvalsApi.pending).mockResolvedValue({
+    data: {
+      ...data,
+      review_summary: { ...data.review_summary, ordinary_max_shift_hours: 10 },
+    },
+  })
+  const person = (id: number, group: string) => ({
+    id,
+    full_name: `Clock Person ${id}`,
+    approval_group_keys: [group],
+  })
+  vi.mocked(api.getUsers).mockResolvedValue({
+    data: {
+      users: [
+        person(1, 'cfi'),
+        person(2, 'ops'),
+        person(10, 'cfi'),
+      ] as import('../../lib/api').UserSummary[],
+      approval_groups: [
+        { key: 'cfi', label: 'CFI' },
+        { key: 'ops', label: 'Ops/Maint' },
+      ],
+    },
+  })
+  vi.mocked(api.getWhosWorking).mockResolvedValue({
+    data: {
+      workers: [1, 2].map((id) => ({
+        user: { id, full_name: `Clock Person ${id}` },
+        open_since_work_date: '2026-11-11',
+        open_entry_id: id,
+        clock_in_at: '2026-11-11T03:30:00Z',
+      })) as import('../../lib/api').WorkerStatus[],
+    },
+  })
+  renderInbox()
+  await screen.findByText(/under 10 hours/)
+  expect(approvalsApi.pending).toHaveBeenCalledWith(
+    expect.objectContaining({ approval_group: 'cfi' }),
+    expect.any(AbortSignal),
+  )
+  expect(screen.getByRole('tab', { name: 'CFI' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByText('Clock Person 1')).toBeInTheDocument()
+  expect(screen.queryByText('Clock Person 2')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Everyone' }))
+  expect(await screen.findByText('Clock Person 2')).toBeInTheDocument()
+})
+
+it('explains default badge versus Today and keeps Everyone and Unassigned directly available', async () => {
+  const refresh = vi.fn()
+  render(
+    <MemoryRouter initialEntries={['/admin/approvals?user_id=1&time_category_id=2']}>
+      <ShellChromeContext.Provider
+        value={{
+          selectionBarActive: false,
+          registerSelectionBar: () => () => undefined,
+          approvalCount: 7,
+          allApprovalCount: 10,
+          refreshApprovalCount: refresh,
+        }}
+      >
+        <ToastProvider>
+          <Approvals />
+        </ToastProvider>
+      </ShellChromeContext.Provider>
+    </MemoryRouter>,
+  )
+  expect(
+    await screen.findByText(
+      'The badge counts all 7 waiting in CFI. 3 more waiting in other departments. Today counts everyone.',
+    ),
+  ).toBeInTheDocument()
+  await waitFor(() => expect(refresh).toHaveBeenCalled())
+  expect(screen.getByRole('tablist', { name: 'Department' })).toHaveClass('flex-wrap')
+  fireEvent.click(screen.getByRole('tab', { name: 'Unassigned' }))
+  await waitFor(() =>
+    expect(approvalsApi.pending).toHaveBeenCalledWith(
+      expect.objectContaining({ approval_group: 'unassigned' }),
+      expect.any(AbortSignal),
+    ),
+  )
+  fireEvent.click(screen.getByRole('tab', { name: 'Everyone' }))
+  await waitFor(() =>
+    expect(vi.mocked(approvalsApi.pending).mock.lastCall?.[0].approval_group).toBeUndefined(),
+  )
+})
+
+it('keeps the initial pay-stub failure and retry reachable instead of falling back to time', async () => {
+  vi.mocked(payStubsApi.requests)
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValue({ requests: [stubRequest], open_count: 1 })
+  renderInbox('/admin/approvals?kind=stubs&dept=all')
+  expect(await screen.findByText("Couldn't load pay stub requests.")).toBeInTheDocument()
+  expect(screen.queryByText('Ordinary shifts · 3 · 24.0h')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  expect(
+    await screen.findByText('An owner or admin needs to send this one'),
+  ).toBeInTheDocument()
+})
+it('applies the leave date range to visible requests and the Leave count', async () => {
+  const request = (id: number, start: string, end: string) =>
+    ({
+      id,
+      user: { id, full_name: `Leave person ${id}` },
+      leave_type: 'sick',
+      start_date: start,
+      end_date: end,
+      total_days: 1,
+      reason: `Request ${id}`,
+    }) as import('../../lib/api').LeaveRequest
+  vi.mocked(api.getLeaveRequests).mockResolvedValue({
+    data: {
+      leave_requests: [
+        request(1, '2026-11-10', '2026-11-11'),
+        request(2, '2026-11-20', '2026-11-22'),
+        request(3, '2026-11-23', '2026-11-24'),
+      ],
+      pagination: { current_page: 1, total_pages: 1, per_page: 100, total_count: 3 },
+    },
+  })
+  renderInbox(
+    '/admin/approvals?kind=leave&dept=all&start_date=2026-11-21&end_date=2026-11-22',
+  )
+  expect(await screen.findByText('Request 2')).toBeInTheDocument()
+  expect(screen.queryByText('Request 1')).not.toBeInTheDocument()
+  expect(screen.queryByText('Request 3')).not.toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Leave 1' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+})
+
+
+it.each(['cfi', 'ops'])('accepts displayed fallback department %s when group metadata is empty', async (department) => {
+  vi.mocked(api.getUsers).mockResolvedValue({ data: { users: [], approval_groups: [] } })
+  renderInbox('/admin/approvals?dept=all')
+  const chip = await screen.findByRole('tab', {
+    name: department === 'cfi' ? 'CFI' : 'Ops/Maint',
+  })
+  await waitFor(() => expect(screen.queryByText('Loading departments and people…')).not.toBeInTheDocument())
+  fireEvent.click(chip)
+  await waitFor(() => expect(chip).toHaveAttribute('aria-selected', 'true'))
+  await waitFor(() => expect(approvalsApi.pending).toHaveBeenLastCalledWith(
+    expect.objectContaining({ approval_group: department }),
+    expect.any(AbortSignal),
+  ))
+})
+
+it.each([403, 422, 409])('keeps a %s refusal visible in the banner after the toast is gone', async status => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status, error: 'Approval refused by server.' })
+  renderInbox()
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+  await waitFor(() => expect(screen.getAllByText(/Approval refused by server/).length).toBeGreaterThanOrEqual(2))
+})
+
+it('ignores older extras success and errors after a newer retry completes', async () => {
+  let oldStubs!: (value: Awaited<ReturnType<typeof payStubsApi.requests>>) => void
+  let oldWorkers!: (value: Awaited<ReturnType<typeof api.getWhosWorking>>) => void
+  let newStubs!: (value: Awaited<ReturnType<typeof payStubsApi.requests>>) => void
+  vi.mocked(api.getWhosWorking)
+    .mockResolvedValueOnce({ error: 'Unavailable' })
+    .mockImplementationOnce(() => new Promise(resolve => { oldWorkers = resolve }))
+    .mockResolvedValue({ data: { workers: [] } })
+  vi.mocked(payStubsApi.requests)
+    .mockResolvedValueOnce({ requests: [], open_count: 0 })
+    .mockImplementationOnce(() => new Promise(resolve => { oldStubs = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { newStubs = resolve }))
+  renderInbox('/admin/approvals?kind=stubs&dept=all')
+  fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(api.getWhosWorking).toHaveBeenCalledTimes(2))
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(api.getWhosWorking).toHaveBeenCalledTimes(3))
+  await act(async () => { newStubs({ requests: [stubRequest], open_count: 1 }) })
+  expect(await screen.findByText('An owner or admin needs to send this one')).toBeInTheDocument()
+  expect(screen.queryByText("Couldn't check open clocks.")).not.toBeInTheDocument()
+  await act(async () => { oldStubs({ requests: [], open_count: 0 }); oldWorkers({ error: 'Old error' }) })
+  expect(screen.getByText('An owner or admin needs to send this one')).toBeInTheDocument()
+  expect(screen.queryByText("Couldn't check open clocks.")).not.toBeInTheDocument()
+})
+
+it('keeps a partial approval refusal and its earlier Undo visible', async () => {
+  const pending = response()
+  pending.data.review_summary.batch_limit = 1
+  vi.mocked(approvalsApi.pending).mockResolvedValue(pending)
+  vi.mocked(approvalsApi.review)
+    .mockResolvedValueOnce({ data: { review_batch_id: 'partial', undo_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), approved_count: 1, time_entries: [] } })
+    .mockResolvedValueOnce({ status: 422, error: 'Remaining shift refused.' })
+  renderInbox()
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+  await waitFor(() => expect(screen.getAllByText(/Remaining shift refused/).length).toBeGreaterThanOrEqual(2))
+  expect(screen.getByRole('region', { name: 'Recent approvals' })).toHaveTextContent('Marcus Quinata · 1 shift')
 })

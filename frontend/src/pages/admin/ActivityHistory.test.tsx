@@ -64,6 +64,23 @@ describe('ActivityHistory', () => {
     })
   })
 
+  it.each(['create', 'update', 'delete', 'destroy'])('marks refused %s as Not saved and labels the application source plainly', async (action) => {
+    const failed = { ...event, outcome: 'failed', action: `time_entry.${action}`, summary: 'Chels tried to change Daniel’s clock-out — a reason was required' }
+    const response = await apiMock.getAuditLogs()
+    apiMock.getAuditLogs.mockResolvedValue({ data: { ...response.data, audit_logs: [failed] } })
+    renderPage()
+    expect(await screen.findByText('Not saved', { exact: true })).toBeVisible()
+    expect(screen.queryByText(/in AIRE Ops/)).not.toBeInTheDocument()
+  })
+
+  it('does not mark a refused download as Not saved', async () => {
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [{ ...event, action: 'report.downloaded', outcome: 'denied' }],
+      pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    await screen.findByText(event.summary)
+    expect(screen.queryByText('Not saved')).not.toBeInTheDocument()
+  })
+
   it('loads the permanent event list and opens complete event context', async () => {
     renderPage()
 
@@ -90,7 +107,7 @@ describe('ActivityHistory', () => {
     expect(within(panel).getByText('Entered by a supervisor')).toBeInTheDocument()
     expect(within(panel).getByText('No')).toBeInTheDocument()
     expect(within(panel).queryByText(/time category id/i)).not.toBeInTheDocument()
-    const technical = within(panel).getByText('Technical details').closest('details') as HTMLDetailsElement
+    const technical = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
     expect(technical.open).toBe(false)
     expect(within(technical).getByText('time_entry.approved')).toBeInTheDocument()
   })
@@ -223,4 +240,89 @@ describe('ActivityHistory', () => {
    await waitFor(() => expect(screen.queryByText(/Showing history for/)).not.toBeInTheDocument())
  })
 
+
+  it('explains a saved shift edit in plain sentences with Guam time, and keeps the raw change behind Details', async () => {
+    const edited = {
+      ...event,
+      id: 92,
+      action: 'time_entry.updated',
+      summary: 'Chels edited 7.5 hours on November 14',
+      occurred_at: '2026-11-14T05:42:00Z',
+      actor: { id: 2, name: 'Chels', email: 'chels@example.com', role: 'admin', kind: 'user' },
+      changes: { end_time: { from: '3:30 PM', to: '3:00 PM' }, hours: { from: 8, to: 7.5 } },
+      details: { correction_reason: 'Left early', hours: 7.5 },
+    }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [edited], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(edited.summary, 'i') }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText('Chels changed clock-out from 3:30 PM to 3:00 PM.')).toBeInTheDocument()
+    expect(within(panel).getByText('Hours changed from 8.0 to 7.5.')).toBeInTheDocument()
+    expect(within(panel).getByText('Reason: Left early')).toBeInTheDocument()
+    expect(within(panel).getByText(/3:42 PM Guam time/)).toBeInTheDocument()
+    const details = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(within(details).getByText(/"from": "3:30 PM"/)).toBeInTheDocument()
+    expect(within(panel).queryByText('Correction Reason')).not.toBeInTheDocument()
+  })
+
+  it('offers a link back to the person, date and shift it came from', async () => {
+    renderPage('/admin/activity?subject_type=TimeEntry&subject_id=44&shift_person=Daniel%20Cruz&shift_date=2026-11-14&return_to=%2Fadmin%2Ftimecards%3Fuser_id%3D7%26period%3D2026-11-01%26entry_id%3D44')
+    expect(await screen.findByText(event.summary)).toBeInTheDocument()
+    const back = screen.getByRole('link', { name: "Back to Daniel Cruz's Nov 14 shift" })
+    expect(back).toHaveAttribute('href', '/admin/timecards?user_id=7&period=2026-11-01&entry_id=44')
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
+    expect(screen.getByRole('link', { name: "Back to Daniel Cruz's Nov 14 shift" })).toBeInTheDocument()
+  })
+
+  it('uses a plain possessive for names that end in s', async () => {
+    renderPage('/admin/activity?subject_type=TimeEntry&subject_id=44&shift_person=Chris&shift_date=2026-11-02&return_to=%2Fadmin%2Ftimecards')
+    expect(await screen.findByRole('link', { name: "Back to Chris' Nov 2 shift" })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['time_entry.clock_ended', 'Ana ended the clock at 5:00 PM.'],
+    ['time_entry.denied_resubmitted', 'Ana changed the shift and sent it back for approval.'],
+    ['payroll_cockpit.time_entry_corrected', 'Ana corrected the shift from Payroll: Matches the timesheet.'],
+    ['time_entry.some_future_action', 'Ana made a change to this shift.'],
+  ])('puts the snapshots of %s behind Details and keeps plain sentences on the page', async (action, sentence) => {
+    const before = { work_date: '2026-11-13', end_time: null, clock_out_at: null, hours: 0, time_category_id: 1, breaks: [] }
+    const after = { work_date: '2026-11-13', end_time: '2026-11-13T07:00:00.000000Z', clock_out_at: '2026-11-13T07:00:00.000000Z', hours: 8, time_category_id: 1, breaks: [{ start_time: '2026-11-13T02:00:00.000000Z' }] }
+    const snapshotEvent = {
+      ...event, id: 95, action, summary: 'Ana did something to a shift',
+      actor: { id: 3, name: 'Ana', email: 'ana@example.com', role: 'manager', kind: 'user' },
+      changes: {}, details: { reason: 'Matches the timesheet', correction_reason: action === 'time_entry.some_future_action' ? undefined : 'Matches the timesheet', before, after, requires_approval: true },
+    }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [snapshotEvent], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Ana did something to a shift/ }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText(sentence)).toBeInTheDocument()
+    const details = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    // Nothing that looks like recorded data sits outside the Details disclosure.
+    const outside = panel.cloneNode(true) as HTMLElement
+    outside.querySelector('details')?.remove()
+    expect(outside.textContent).not.toMatch(/[{}[\]]|"work_date"|clock_out_at|time_category_id/)
+    expect(within(details).getAllByText(/clock_out_at/).length).toBeGreaterThan(0)
+  })
+
+  it('says a failed request in words and keeps its request data under Details', async () => {
+    const failed = {
+      ...event, id: 96, action: 'time_entries.update', outcome: 'failed', summary: 'Chels Santos · Time entries: update',
+      actor: { id: 2, name: 'Chels', email: 'chels@example.com', role: 'admin', kind: 'user' },
+      changes: {}, details: { http_method: 'PATCH', path: '/api/v1/time_entries/44', response_status: 422, changed_fields: ['time_entry.end_time'], error_message: 'Correction reason is required' },
+    }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [failed], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Time entries: update/ }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText("Chels tried to change this shift, but it wasn't saved: Correction reason is required.")).toBeInTheDocument()
+    const outside = panel.cloneNode(true) as HTMLElement
+    outside.querySelector('details')?.remove()
+    expect(outside.textContent).not.toMatch(/HTTP METHOD|Http Method|\/api\/v1|Response Status|422|PATCH/i)
+    const details = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
+    expect(details.textContent).toContain('/api/v1/time_entries/44')
+    expect(details.textContent).toContain('422')
+  })
 })

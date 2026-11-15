@@ -622,6 +622,9 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  original_employee_change?: { restorable?: boolean; restoration_reason?: string | null; formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
+  rejected_employee_change?: { note: string; manager: string; at: string } | null;
+  payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
   payroll_cutoff_missed?: boolean;
   payroll_status?: EmployeePayrollStatus | null;
   version?: number;
@@ -940,7 +943,17 @@ export interface PendingApprovalsResponse {
   sort?: { field: string; direction: 'asc' | 'desc' };
 }
 
+/** The lock's approval gate, calculated by Payroll::ApprovalHours on the API. */
+export interface PayrollApprovalHours {
+  approved_regular_hours: number;
+  approved_overtime_hours: number;
+  approved_hours: number;
+  time_waiting_hours: number;
+  overtime_waiting_hours: number;
+}
+
 export interface HoursReportEntry {
+  payroll_hours?: PayrollApprovalHours;
   id: number;
   version?: number;
   work_date: string;
@@ -1113,6 +1126,9 @@ export interface HoursReportWeek {
 }
 
 export interface HoursReportEmployee {
+  worked_hours?: number;
+  payroll_hours?: PayrollApprovalHours;
+  approval_complete?: boolean;
   id: number;
   email: string | null;
   first_name: string | null;
@@ -1180,6 +1196,8 @@ export interface HoursReportResponse {
   quality: HoursReportQuality;
   filters: HoursReportFilters;
   summary: {
+    worked_hours?: number;
+    payroll_hours?: PayrollApprovalHours;
     employee_count: number;
     total_hours: number;
     regular_hours: number;
@@ -1237,7 +1255,7 @@ export interface AuditLogEntry {
   actor: {
     id: number | null;
     name: string | null;
-    email: string | null;
+    email?: string | null;
     role: string | null;
     kind: string;
   };
@@ -1248,7 +1266,7 @@ export interface AuditLogEntry {
   };
   changes: Record<string, unknown>;
   details: Record<string, unknown>;
-  request: {
+  request?: {
     id: string | null;
     ip_address: string | null;
     user_agent: string | null;
@@ -1621,7 +1639,9 @@ export interface PayrollLockTimeRequest {
   cutoff_at?: string;
   request_id: string;
 }
-export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null; lock_control?: PayrollLockControl | null }
+/** The soonest scheduled lock still ahead; staff responses only. */
+export interface PayrollNextLock { period: NonNullable<PayrollCutoff['period']>; cutoff_at: string }
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; next_lock?: PayrollNextLock | null; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null; lock_control?: PayrollLockControl | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {
@@ -1991,6 +2011,9 @@ export const api = {
       body: JSON.stringify({ entry_ids: entryIds, ...(note ? { note } : {}) }),
     }),
 
+  rejectTimeEntryChange: (id: number, expected_version: number, note: string) =>
+    fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/reject_change`, { method: 'POST', body: JSON.stringify({ expected_version, note }) }),
+
   denyTimeEntry: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny`, {
       method: 'POST',
@@ -2061,6 +2084,15 @@ export const api = {
     fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/cancel`, {
       method: 'POST',
     }),
+
+  lockKiosk: (kiosk_access_token: string, pin: string) =>
+    fetchApi<void>('/api/v1/aire/kiosk/lock', { method: 'POST', body: JSON.stringify({ kiosk_access_token, pin }) }),
+
+  revokeKioskSession: (kiosk_access_token: string) =>
+    fetchApi<void>('/api/v1/aire/kiosk/revoke', { method: 'POST', body: JSON.stringify({ kiosk_access_token }) }),
+
+  lockAllKiosks: () =>
+    fetchApi<{ revoked_count: number }>('/api/v1/admin/kiosk_session/lock_all', { method: 'POST' }),
 
   createAdminKioskSession: () =>
     fetchApi<KioskSessionResponse>('/api/v1/admin/kiosk_session', {
@@ -2137,7 +2169,7 @@ export const api = {
     }),
 
   // Activity history
-  getAuditLog: (id: number) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}`),
+  getAuditLog: (id: number, scope?: { subject_type: string; subject_id: number }) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}${scope ? `?${new URLSearchParams({ subject_type: scope.subject_type, subject_id: String(scope.subject_id) })}` : ''}`),
 
   getAuditLogs: (filters: AuditLogFilters = {}) => {
     const searchParams = new URLSearchParams();
@@ -2282,3 +2314,6 @@ export interface AdminUser {
 export interface PublicTeamMember {
   bio?: string | null;
 }
+
+/** Department memberships returned for the signed-in viewer. */
+export interface CurrentUser { approval_group_keys?: ApprovalGroup[] }

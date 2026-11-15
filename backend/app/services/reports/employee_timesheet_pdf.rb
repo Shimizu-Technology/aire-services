@@ -43,7 +43,7 @@ module Reports
 
     def metadata
       {
-        Title: "AIRE Employee Timesheet - #{employee[:full_name]}",
+        Title: HoursReportDisclosure.filtered_label(report, "AIRE Employee Timesheet - #{employee[:full_name]}"),
         Author: "AIRE Services",
         Subject: "Employee time entries from #{report[:start_date]} to #{report[:end_date]}",
         Creator: "AIRE Operations"
@@ -54,7 +54,7 @@ module Reports
       top = pdf.cursor
       pdf.fill_color NAVY
       pdf.text_box "AIRE", at: [ 0, top ], width: 150, height: 28, size: 25, style: :bold, character_spacing: 1.2
-      pdf.text_box "EMPLOYEE TIMESHEET", at: [ 260, top - 4 ], width: 280, height: 22, align: :right, size: 15, style: :bold
+      pdf.text_box HoursReportDisclosure.filtered_label(report, "EMPLOYEE TIMESHEET"), overflow: :shrink_to_fit, at: [ 260, top - 4 ], width: 280, height: 22, align: :right, size: 15, style: :bold
       pdf.move_down 32
       pdf.stroke_color CYAN
       pdf.line_width 2
@@ -76,6 +76,8 @@ module Reports
 
     def render_status(pdf)
       HoursReportDisclosure.new(report: report, export: export).render(pdf)
+      pdf.text HoursReportDisclosure::APPROVAL_FACTS_NOTE, size: 7.5
+      pdf.move_down 5
     end
 
     def render_entries(pdf)
@@ -83,7 +85,7 @@ module Reports
       pdf.text "Time Entries", size: 12, style: :bold
       pdf.move_down 6
 
-      rows = [ [ "Date", "Start", "End", "Break", "Category", "Regular", "OT", "Total" ] ]
+      rows = [ [ "Date", "Start", "End", "Break", "Category", "Approved regular", "Approved OT", "Approved for payroll", "OT waiting (not included)" ] ]
       Array(employee[:days]).each do |day|
         Array(day[:entries]).each do |entry|
           rows << [
@@ -92,20 +94,21 @@ module Reports
             entry[:formatted_end_time] || "Open",
             entry[:break_minutes].to_i.zero? ? "-" : "#{entry[:break_minutes]}m",
             entry.dig(:time_category, :name) || "Uncategorized",
-            hours(entry[:regular_hours]),
-            hours(entry[:overtime_hours]),
-            hours(entry[:total_hours])
+            hours(entry.dig(:payroll_hours, :approved_regular_hours)),
+            hours(entry.dig(:payroll_hours, :approved_overtime_hours)),
+            hours(entry.dig(:payroll_hours, :approved_hours)),
+            hours(entry.dig(:payroll_hours, :overtime_waiting_hours))
           ]
         end
       end
-      rows << [ { content: "No included entries for this period.", colspan: 8 } ] if rows.one?
+      rows << [ { content: "No included entries for this period.", colspan: 9 } ] if rows.one?
 
-      pdf.table(rows, header: true, width: pdf.bounds.width, column_widths: [ 58, 52, 52, 45, 195, 48, 42, 48 ], cell_style: { size: 7.5, padding: [ 6, 4 ], border_color: BORDER }) do |table|
+      pdf.table(rows, header: true, width: pdf.bounds.width, column_widths: [ 55, 45, 45, 35, 110, 60, 60, 65, 65 ], cell_style: { size: 7.5, padding: [ 6, 4 ], border_color: BORDER }) do |table|
         table.row_colors = [ "FFFFFF", "F7FAFB" ] if rows.length > 2
         table.row(0).background_color = NAVY
         table.row(0).text_color = "FFFFFF"
         table.row(0).font_style = :bold
-        table.columns(5..7).align = :right
+        table.columns(5..8).align = :right
       end
       pdf.move_down 16
     end
@@ -117,13 +120,13 @@ module Reports
       pdf.fill_color NAVY
       pdf.text "Weekly Totals", size: 11, style: :bold
       pdf.move_down 5
-      rows = [ [ "Week", "Hours in Period", "Regular", "Overtime", "Full Week Total" ] ]
+      rows = [ [ "Week", "Approved for payroll", "Approved regular", "Approved overtime", "Full week worked hours" ] ]
       weeks.each do |week|
         rows << [
           "#{format_date(week[:week_start])} to #{format_date(week[:week_end])}",
-          hours(week[:period_hours]),
-          hours(week[:regular_hours]),
-          hours(week[:overtime_hours]),
+          hours(week.dig(:payroll_hours, :approved_hours)),
+          hours(week.dig(:payroll_hours, :approved_regular_hours)),
+          hours(week.dig(:payroll_hours, :approved_overtime_hours)),
           hours(week[:weekly_total_hours])
         ]
       end
@@ -138,9 +141,11 @@ module Reports
 
     def render_grand_totals(pdf)
       rows = [
-        [ "Regular Hours", "Overtime Hours", "Total Hours", "Break Hours", "Entries" ],
-        [ hours(employee[:regular_hours]), hours(employee[:overtime_hours]), hours(employee[:total_hours]), hours(employee[:break_hours]), employee[:entries_count].to_i.to_s ]
+        [ "Approved regular", "Approved overtime", "Approved for payroll", "Time waiting for approval", "Overtime waiting for approval — not included" ],
+        [ hours(employee.dig(:payroll_hours, :approved_regular_hours)), hours(employee.dig(:payroll_hours, :approved_overtime_hours)), hours(employee.dig(:payroll_hours, :approved_hours)), hours(employee.dig(:payroll_hours, :time_waiting_hours)), hours(employee.dig(:payroll_hours, :overtime_waiting_hours)) ]
       ]
+      pdf.text "Worked hours (approved + waiting): #{hours(employee[:worked_hours])}", size: 9
+      pdf.move_down 6
       pdf.table(rows, width: pdf.bounds.width, cell_style: { align: :center, padding: [ 8, 5 ], border_color: BORDER }) do |table|
         table.row(0).background_color = NAVY
         table.row(0).text_color = "FFFFFF"
@@ -155,7 +160,7 @@ module Reports
 
     def render_notes(pdf)
       pdf.fill_color MUTED
-      pdf.text "Hours are net of recorded breaks. Overtime is allocated after 40.00 hours in each Sunday-Saturday workweek. This document is a point-in-time report and does not require a finalized-week lock.", size: 7.5, leading: 2
+      pdf.text "Waiting hours are not included in payroll totals. Hours are net of recorded breaks. Overtime is allocated after 40.00 hours in each Sunday-Saturday workweek. This document is a point-in-time report and does not require a finalized-week lock.", size: 7.5, leading: 2
       pdf.move_down 5
       pdf.text "Generated by #{generated_by.full_name} through AIRE Operations.", size: 7.5
     end

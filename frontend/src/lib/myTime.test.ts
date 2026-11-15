@@ -88,11 +88,12 @@ it('counts only this period’s part of an overnight shift', () => {
       start_time: '22:00',
       end_time: '06:00',
       hours: 8,
+      payroll_hours_by_date: [{ work_date: '2026-11-15', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 2, overtime_waiting_hours: 0 }, { work_date: '2026-11-16', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 6, overtime_waiting_hours: 0 }],
     }),
   ]
   expect(
     periodTotals(entries, { start: '2026-11-16', end: '2026-11-30' }),
-  ).toEqual({
+  ).toMatchObject({
     total: 6,
     approved: 0,
     waiting: 6,
@@ -101,7 +102,7 @@ it('counts only this period’s part of an overnight shift', () => {
 
 it('keeps the weekly overtime capacity across a pay-period boundary', () => {
   const entries = [
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 1,
       work_date: '2026-11-15',
       hours: 38,
@@ -109,7 +110,7 @@ it('keeps the weekly overtime capacity across a pay-period boundary', () => {
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 2,
       work_date: '2026-11-16',
       hours: 8,
@@ -191,7 +192,7 @@ it('does not spend the browser acquisition timeout while a permission prompt is 
   await result
 })
 
-it('excludes denied hours and treats completed null approvals explicitly as waiting', () => {
+it('uses the API approval gate, including standard clock time and unreviewed manual time', () => {
   const entries = [
     shift({ id: 1, hours: 3, approval_status: 'approved' }),
     shift({ id: 2, hours: 2, approval_status: 'pending' }),
@@ -203,7 +204,7 @@ it('excludes denied hours and treats completed null approvals explicitly as wait
     start: '2026-11-01',
     end: '2026-11-15',
   })
-  expect(totals).toEqual({ total: 10, approved: 3, waiting: 7 })
+  expect(totals).toMatchObject({ total: 10, approved: 4, waiting: 6 })
   expect(totals.total).toBe(totals.approved + totals.waiting)
 })
 
@@ -214,12 +215,33 @@ it('keeps the displayed total equal to approved plus waiting after rounding to t
     shift({ id: 3, hours: 2, approval_status: 'denied' }),
   ]
   const period = { start: '2026-11-01', end: '2026-11-15' }
-  expect(displayPeriodTotals(entries, period)).toEqual({
+  expect(displayPeriodTotals(entries, period)).toMatchObject({
     total: 70.1,
     approved: 57.5,
     waiting: 12.6,
   })
   expect(periodTotals(entries, period).total).toBeCloseTo(70.05)
+})
+
+it('preserves explicit null fixture approval data so unavailable totals can be exercised', () => {
+  const unavailable = shift({ payroll_hours_by_date: null })
+  expect(unavailable.payroll_hours_by_date).toBeNull()
+  expect(periodTotals([unavailable], { start: '2026-11-01', end: '2026-11-15' }).complete).toBe(false)
+  expect(shift().payroll_hours_by_date).toHaveLength(1)
+  expect(shift({ payroll_hours_by_date: [] }).payroll_hours_by_date).toEqual([])
+})
+
+it('derives displayed waiting and total from all three rounded components', () => {
+  const entries = [
+    shift({ id: 1, hours: 8.07, approval_status: 'approved', pending_overtime_hours: 0.07 }),
+    shift({ id: 2, hours: 0.07, approval_status: 'pending' }),
+  ]
+  const period = { start: '2026-11-01', end: '2026-11-15' }
+  const displayed = displayPeriodTotals(entries, period)
+  expect(displayed).toMatchObject({ approved: 8, timeWaiting: 0.1, overtimeWaiting: 0.1, waiting: 0.2, total: 8.2 })
+  expect(displayed.waiting).toBeCloseTo(displayed.timeWaiting + displayed.overtimeWaiting)
+  expect(displayed.total).toBeCloseTo(displayed.approved + displayed.timeWaiting + displayed.overtimeWaiting)
+  expect(periodTotals(entries, period).total).toBeCloseTo(8.14) // clock math retains exact quantities
 })
 
 it('loads the preceding full week for a Sunday period carry-in', () => {
@@ -231,7 +253,7 @@ it('loads the preceding full week for a Sunday period carry-in', () => {
 
 it('counts only this week’s portions and overtime of overnight carry-in and carry-out shifts', () => {
   const entries = [
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 1,
       work_date: '2026-11-06',
       hours: 40,
@@ -239,7 +261,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 2,
       work_date: '2026-11-07',
       hours: 4,
@@ -247,7 +269,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: '02:00',
       overtime_status: 'pending',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 3,
       work_date: '2026-11-09',
       hours: 39,
@@ -255,7 +277,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 4,
       work_date: '2026-11-14',
       hours: 4,
@@ -263,7 +285,7 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
       end_time: '02:00',
       overtime_status: 'pending',
     }),
-    shift({
+    shift({ payroll_hours_by_date: null,
       id: 5,
       work_date: '2026-11-10',
       hours: 8,
@@ -275,4 +297,23 @@ it('counts only this week’s portions and overtime of overnight carry-in and ca
     hours: 43,
     overtime: 2,
   })
+})
+
+ it('refuses a stop before clock-in, a future stop and shifts over twelve hours', async () => {
+  const { stoppedAt } = await import('./myTime')
+  const now = Date.parse('2026-11-15T16:00:00+10:00')
+  expect(stoppedAt('2026-11-14T15:05:00+10:00', '14:00', now)).toBeNull()
+  expect(stoppedAt('2026-11-15T07:00:00+10:00', '17:00', now)).toBeNull()
+  expect(stoppedAt('2026-11-14T01:00:00+10:00', '14:00', now)).toBeNull()
+  expect(stoppedAt('2026-11-14T13:30:00+10:00', '17:30', now)?.toISOString()).toBe('2026-11-14T07:30:00.000Z')
+ })
+
+it('keeps time and overtime waiting separate for Clock and My Hours', () => {
+  const entries = [
+    shift({ id: 1041, hours: 6.33, approval_status: 'pending', overtime_status: 'pending', payroll_hours_by_date: [{ work_date: '2026-11-14', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 6.33, overtime_waiting_hours: 0 }] }),
+    shift({ id: 1040, hours: 10.5, approval_status: 'approved', overtime_status: 'pending', payroll_hours_by_date: [{ work_date: '2026-11-13', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 0, overtime_waiting_hours: 10.5 }] }),
+  ]
+  expect(periodTotals(entries, { start: '2026-11-01', end: '2026-11-15' })).toMatchObject({ timeWaiting: 6.33, overtimeWaiting: 10.5, waiting: 16.83 })
+  expect(displayPeriodTotals(entries, { start: '2026-11-01', end: '2026-11-15' })).toMatchObject({ timeWaiting: 6.3, overtimeWaiting: 10.5, waiting: 16.8 })
+  expect(withOvertimeHours(entries).map(entry => entry.pending_overtime_hours)).toEqual([0, 10.5])
 })

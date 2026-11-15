@@ -112,7 +112,7 @@ function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSave
       open
       onClose={() => { if (!saving) onClose() }}
       title="Log missed time"
-      description="It goes to Approvals as an added shift, so another supervisor sees it."
+      description="It goes to Approvals as an added shift and waits there until someone approves it."
       initialFocus={prefilled ? '#log-missed-time-day' : undefined}
       footer={(
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

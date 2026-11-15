@@ -4,7 +4,7 @@ import { outcomeUnknown, timecardsApi } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
 import { formatHours, guamDate, previewClockOut } from '../../lib/timecards'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
-import { Button, Field, Input, Select, Textarea } from '../ui'
+import { Button, Field, Input, Select, Textarea, useToast } from '../ui'
 
 export interface FixClockOutFormProps {
   entry: TimeEntry
@@ -28,6 +28,7 @@ const dayLabel = (date: string) => formatDateOnly(date, { weekday: 'short', mont
 export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload, blockedReason = null }: FixClockOutFormProps) {
   const ids = useId()
   const online = useOnlineStatus()
+  const toast = useToast()
   const timeRef = useRef<HTMLInputElement>(null)
   const assigned = categories.filter(category => entry.user.time_category_ids?.includes(category.id))
   const keepsCategory = entry.time_category && assigned.some(category => category.id === entry.time_category?.id)
@@ -71,6 +72,9 @@ export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload
       }
       return
     }
+    // The fixed shift goes back to waiting; say where it went.
+    const firstName = entry.user.full_name.split(' ')[0]
+    toast.show({ message: `Saved. ${firstName}'s ${formatDateOnly(entry.work_date, { weekday: 'short' })} shift is back in Approvals.` })
     onSaved()
   }
 

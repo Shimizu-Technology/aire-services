@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
-import type { HoursReportEntry, HoursReportResponse } from '../../lib/api'
+import type { HoursReportEmployee, HoursReportEntry, HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
   getSchedule: vi.fn(),
@@ -53,6 +53,8 @@ function TimeRouteHarness() {
   )
 }
 
+const approvedHours = (hours: number) => ({ approved_regular_hours: hours, approved_overtime_hours: 0, approved_hours: hours, time_waiting_hours: 0, overtime_waiting_hours: 0 })
+
 function makeHoursReport(startDate: string, endDate: string, totalHours: number): HoursReportResponse {
   return {
     start_date: startDate,
@@ -65,6 +67,7 @@ function makeHoursReport(startDate: string, endDate: string, totalHours: number)
     filters: {},
     summary: {
       employee_count: 0,
+      payroll_hours: approvedHours(totalHours),
       total_hours: totalHours,
       regular_hours: totalHours,
       overtime_hours: 0,
@@ -93,22 +96,25 @@ function linkedFixture(id = 90) {
   }
 }
 
-function prepareLinkedReport() {
+function prepareLinkedReport(employeeChanges: Partial<HoursReportEmployee> = {}) {
   const entry = linkedFixture()
   const report = makeHoursReport('2026-08-16', '2026-08-31', 4)
   report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
     id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee', full_name: 'Casey Employee',
     role: 'employee', is_intern: false, status: 'active', terminated_at: null, termination_effective_on: null,
     total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries_count: 1, days_worked: 1,
     first_work_date: entry.work_date, last_work_date: entry.work_date, ready: true,
     quality: report.quality, issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
     categories: [], weeks: [], days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [{ ...entry, quality_flags: [] }] }],
+    ...employeeChanges,
   }]
   apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: entry } })
   apiMock.getHoursReport.mockResolvedValue({ data: report })
   apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
   apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey Employee', time_category_ids: [3] }] } })
   apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: { ...entry, description: 'Saved change' } } })
+  if (employeeChanges.payroll_hours) report.summary.payroll_hours = employeeChanges.payroll_hours
   const query = new URLSearchParams({ tab: 'reports', start_date: report.start_date, end_date: report.end_date, user_id: '7', entry_id: '90', return_to: '/admin/users/7?tab=hours&period=2026-08-16' })
   render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
 }
@@ -122,7 +128,7 @@ async function saveLinkedReportEdit() {
 }
 
 function cutoffEntryId() {
-  return new URL(screen.getByRole('link', { name: 'Open payroll cutoffs' }).getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')
+  return new URL(screen.getByRole('link', { name: 'View payroll progress', hidden: true }).getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')
 }
 
 describe('TimeTracking routed report periods', () => {
@@ -136,6 +142,45 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
+  })
+
+  it('keeps payment problems ahead of waiting time and opens warning details', async () => {
+    const lifecycle = { status: 'payment_failed' as const, label: 'Payment failed', settlements: [], payment_method: null, payment_reference: null }
+    const entry = { ...linkedFixture(), payroll_lifecycle: lifecycle }
+    prepareLinkedReport({ payroll_hours: { ...approvedHours(4), time_waiting_hours: 2 },
+      days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [entry] }] })
+    const response = await apiMock.getHoursReport()
+    response.data.summary.payroll_statuses = { payment_failed: 1, payment_attested_pending_evidence: 1 }
+    await waitFor(() => expect(screen.getAllByText(/Payment (?:failed|problem)/).length).toBeGreaterThan(0))
+    expect(screen.queryByText('Some time still waiting')).not.toBeInTheDocument()
+    const notice = screen.getByText('Live hours, not a finalized payroll record')
+    expect(notice.closest('details')).toBeNull()
+    expect(screen.getByText('More detail').closest('details')).toHaveAttribute('open')
+    expect(screen.getByText('Needs attention')).toBeVisible()
+    expect(screen.getByText('Payment proof still needed')).toBeVisible()
+  })
+
+  it('does not offer a zero-approved-OT button when only waiting overtime exists', async () => {
+    prepareLinkedReport({ overtime_hours: 3.42, approval_complete: false, payroll_hours: { ...approvedHours(4), overtime_waiting_hours: 3.42 } })
+    await screen.findByRole('button', { name: 'Review hours for Casey Employee' })
+    expect(screen.queryByTitle('View weekly overtime breakdown')).not.toBeInTheDocument()
+  })
+
+  it('labels an approved shift with waiting overtime as Draft on desktop and mobile', async () => {
+    prepareLinkedReport({ approval_complete: false, payroll_hours: { ...approvedHours(4), overtime_waiting_hours: 3.42 } })
+    const row = (await screen.findByRole('button', { name: 'Review hours for Casey Employee' })).closest('tr')!
+    expect(within(row).getByText('Draft - needs review')).toBeInTheDocument()
+    expect(screen.getAllByText('Draft - needs review')).toHaveLength(3) // banner, desktop row, mobile card
+    expect(screen.queryByText('Ready for cutoff')).not.toBeInTheDocument()
+    const mobileCard = screen.getByRole('button', { name: /Casey Employee.*Approved regular/ })
+    expect(within(mobileCard).getByText('Draft - needs review')).toBeInTheDocument()
+  })
+
+  it('labels completed approval review consistently even with stale pending-OT flags', async () => {
+    prepareLinkedReport({ issues: { pending_count: 0, denied_count: 1, pending_overtime_count: 1, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 } })
+    const row = (await screen.findByRole('button', { name: 'Review hours for Casey Employee' })).closest('tr')!
+    expect(within(row).getByText('Complete')).toBeInTheDocument()
+    expect(within(row).queryByText('Draft - needs review')).not.toBeInTheDocument()
   })
 
   it.each([
@@ -345,6 +390,7 @@ describe('TimeTracking routed report periods', () => {
       overtime_status: 'none', time_category: { id: 3, name: 'Operations' }, breaks: [], quality_flags: [],
     }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
       full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
       termination_effective_on: null, total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0,
@@ -389,14 +435,14 @@ describe('TimeTracking routed report periods', () => {
     })))
   })
 
-  it.each(['Prepare payroll cutoff', 'Open payroll cutoffs'])('keeps the selected report and employee context through %s', async (name) => {
+  it.each(['Open the pay period', 'View payroll progress'])('keeps the selected report and employee context through %s', async (name) => {
     apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
     apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
     const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
     const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
     render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
 
-    const link = await screen.findByRole('link', { name })
+    const link = await screen.findByRole('link', { name, hidden: true })
     await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
     const href = new URL(link.getAttribute('href')!, 'https://local.invalid')
     expect(href.pathname).toBe('/admin/payroll')
@@ -412,7 +458,7 @@ describe('TimeTracking routed report periods', () => {
     const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
     const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
     render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
-    const link = await screen.findByRole('link', { name: 'Open payroll cutoffs' })
+    const link = await screen.findByRole('link', { name: 'View payroll progress', hidden: true })
     await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
 
     if (scope === 'employee') {
@@ -471,6 +517,36 @@ describe('TimeTracking routed report periods', () => {
     fireEvent.change(screen.getByDisplayValue('2026-08-15'), { target: { value: '2026-07-31' } })
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-07-16&end_date=2026-07-31'))
     expect(screen.getByTestId('location-path')).toHaveTextContent('/admin/reports')
+  })
+
+  describe('coming back from a shift\'s history', () => {
+    beforeEach(() => {
+      apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: linkedFixture(90) } })
+      apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+      apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey Employee', time_category_ids: [3] }] } })
+    })
+
+    it('opens Edit shift in the classic week view, on the week the shift is in now', async () => {
+      render(<MemoryRouter initialEntries={['/admin/time?date=2026-08-02&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
+      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('return=edit'))
+      expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
+      expect(screen.getByTestId('location-search')).toHaveTextContent('entry_id=90')
+    })
+
+    it('opens Edit shift over the classic approvals queue', async () => {
+      render(<MemoryRouter initialEntries={['/admin/approvals?start_date=2026-08-01&end_date=2026-08-15&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
+      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('return=edit'))
+      expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-08-01')
+    })
+
+    it('says so when the shift is gone', async () => {
+      apiMock.getTimeEntry.mockResolvedValue({ error: 'Not found', status: 404 })
+      render(<MemoryRouter initialEntries={['/admin/time?date=2026-08-02&entry_id=90&return=edit']}><TimeRouteHarness /></MemoryRouter>)
+      expect(await screen.findByText(/deleted or can't be edited any more/)).toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
+    })
   })
 
   it('opens the locked-period approval queue with its existing range filters', async () => {
@@ -604,7 +680,7 @@ describe('TimeTracking routed report periods', () => {
 
     expect(screen.getAllByText('22.00')).not.toHaveLength(0)
     expect(screen.queryByText('11.00')).not.toBeInTheDocument()
-    for (const link of screen.getAllByRole('link', { name: /payroll cutoff/i })) {
+    for (const link of screen.getAllByRole('link', { name: /View payroll progress/i, hidden: true })) {
       expect(link.getAttribute('href')).toMatch(/^\/admin\/payroll\?start_date=2026-07-01&end_date=2026-07-15/)
     }
   })
@@ -665,7 +741,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const metric = await screen.findByText('Check evidence pending')
+    const metric = await screen.findByText('Payment proof still needed')
     expect(metric.parentElement).toHaveTextContent('1')
     expect(screen.getByText('Paid').parentElement).toHaveTextContent('0')
   })
@@ -683,6 +759,7 @@ describe('TimeTracking routed report periods', () => {
     const pending: HoursReportEntry = { ...first, id: 91, start_time: '14:00', end_time: '16:00', formatted_start_time: '2:00 PM', formatted_end_time: '4:00 PM', total_hours: 2, regular_hours: 0, break_minutes: 0, description: 'Pending additional work', entry_method: 'manual', clock_source: 'admin', approval_status: 'pending', overtime_status: 'pending', breaks: [], payroll_lifecycle: { status: 'awaiting_approval', label: 'Awaiting approval', payment_method: null, payment_reference: null, settlements: [] } }
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1, pending_count: 1 }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
       full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
       termination_effective_on: null, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0.25,
@@ -724,6 +801,8 @@ describe('TimeTracking routed report periods', () => {
     await interaction.clear(description)
     await interaction.type(description, 'Unsaved review note')
     await interaction.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    // Unsaved edits now ask before they are thrown away.
+    await interaction.click(within(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).getByRole('button', { name: 'Discard changes' }))
     expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
     expect(edit).toHaveFocus()
     expect(expand).toHaveAttribute('aria-expanded', 'true')
@@ -737,6 +816,7 @@ describe('TimeTracking routed report periods', () => {
     const report = makeHoursReport('2026-08-01', '2026-08-15', 9)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
       full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
       termination_effective_on: null, total_hours: 9, regular_hours: 9, overtime_hours: 0, break_hours: 0,
@@ -769,6 +849,7 @@ describe('TimeTracking routed report periods', () => {
     const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 5,
       email: 'kami@example.com',
       first_name: 'Kami',
@@ -819,7 +900,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Approved for payroll.*6\.10h.*Complete/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
     fireEvent.click(employeeCard)
@@ -846,6 +927,7 @@ describe('TimeTracking routed report periods', () => {
     report.breakdowns.by_category = [{ id: null, key: null, name: 'Uncategorized', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
     report.breakdowns.by_source = [{ source: 'legacy', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 2,
       email: 'legacy@example.com',
       first_name: 'Legacy',
@@ -893,7 +975,7 @@ describe('TimeTracking routed report periods', () => {
     expect(qualityPanel).not.toBeNull()
     expect(within(qualityPanel!).getByText('Missing categories')).toBeInTheDocument()
     expect(within(qualityPanel!).getByText('1')).toBeInTheDocument()
-    expect(screen.getAllByText('Missing category', { exact: true }).length).toBeGreaterThan(0)
+    expect(screen.getAllByTitle('Missing category').length).toBeGreaterThan(0)
     expect(await screen.findByRole('row', { name: /Sun, Aug 16 Legacy Entry.*Uncategorized.*3.00.*Edit/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(await screen.findByRole('heading', { name: 'Edit Time Entry' })).toBeInTheDocument()
@@ -904,7 +986,7 @@ describe('TimeTracking routed report periods', () => {
     report.summary = { ...report.summary, allocation_hold_count: 1, uncategorized_count: missing }
     apiMock.getHoursReport.mockResolvedValue({ data: report })
     render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
-    await screen.findByText('Action required before cutoff')
+    await screen.findByText('Draft - needs review')
     expect(screen.getByText(/Overnight time or break placement needs administrator review/)).toBeInTheDocument()
     if (missing > 0) {
       expect(screen.getByText(/2 approved entries are missing a work category/)).toBeInTheDocument()

@@ -4,13 +4,19 @@ module Api
   module V1
     class TimeEntriesController < BaseController
       PENDING_APPROVAL_SORTS = %w[work_date created_at employee hours approval_type category].freeze
+      DELETE_LOCK_TIMEOUT = "5s"
+      PAYROLL_BUSY_MESSAGE = "Payroll is working on this period right now. Try again in a minute.".freeze
       PENDING_APPROVAL_DIRECTIONS = %w[asc desc].freeze
       PENDING_APPROVAL_TYPES = %w[time_entry overtime both].freeze
 
+      rescue_from ActiveRecord::Deadlocked, ActiveRecord::LockWaitTimeout do
+        render json: { error: PAYROLL_BUSY_MESSAGE, code: "payroll_busy" }, status: :conflict
+      end
+
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval, :review_history ]
+      before_action :set_time_entry, only: [ :show, :update, :destroy, :reject_change, :approve, :deny, :approve_overtime, :deny_overtime ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :reject_change, :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval, :review_history ]
 
       around_action :check_expected_time_entry_version, only: [ :update, :approve, :deny, :approve_overtime, :deny_overtime ]
 
@@ -62,6 +68,7 @@ module Api
         total_count = summary[:entry_count]
         @time_entries = @time_entries.offset((page - 1) * per_page).limit(per_page)
 
+        @approval_hours = ::Payroll::ApprovalHours.for_entries(@time_entries.to_a)
         @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: @time_entries.to_a, viewer: current_user).call
 
         render json: {
@@ -109,27 +116,35 @@ module Api
         @time_entry.approval_status = "pending"
 
         saved = false
+        overlap_error = nil
         TimeEntry.transaction do
-          saved = @time_entry.save
-          raise ActiveRecord::Rollback unless saved
+          ::Payroll::AffectedOvertimeReview.lock([ entry_owner.id ]) do
+            overlap_error = TimeEntryOverlap.error_for(@time_entry, actor: current_user)
+            raise ActiveRecord::Rollback if overlap_error
 
-          AuditLog.record!(
-            action: "time_entry.created",
-            auditable: @time_entry,
-            actor: current_user,
-            event_category: "time_tracking",
-            metadata: {
-              employee_id: @time_entry.user_id,
-              employee_name: @time_entry.user&.full_name,
-              hours: @time_entry.hours.to_f,
-              work_date: @time_entry.work_date.iso8601,
-              entry_method: "manual",
-              approval_status: @time_entry.approval_status
-            }
-          )
+            saved = @time_entry.save
+            raise ActiveRecord::Rollback unless saved
+
+            AuditLog.record!(
+              action: "time_entry.created",
+              auditable: @time_entry,
+              actor: current_user,
+              event_category: "time_tracking",
+              metadata: {
+                employee_id: @time_entry.user_id,
+                employee_name: @time_entry.user&.full_name,
+                hours: @time_entry.hours.to_f,
+                work_date: @time_entry.work_date.iso8601,
+                entry_method: "manual",
+                approval_status: @time_entry.approval_status
+              }
+            )
+          end
         end
 
-        if saved
+        if overlap_error
+          render json: { error: overlap_error, code: "overlapping_shift" }, status: :unprocessable_entity
+        elsif saved
           render json: { time_entry: serialize_time_entry(@time_entry) }, status: :created
         else
           render json: { error: @time_entry.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -146,6 +161,12 @@ module Api
 
         return unless require_correction_reason_for_payroll_entry!
 
+        was_denied = @time_entry.approval_status == "denied"
+        supervisor_edit = current_user.can_manage_team_time? && !own_time_needs_another_approver?(@time_entry)
+        if !supervisor_edit && @time_entry.approval_status == "denied"
+          return render json: { error: "This shift was denied. Ask a manager to review it before making changes." }, status: :unprocessable_entity
+        end
+        original_change = EmployeeTimeChange.capture(@time_entry)
         old_values = {
           hours: @time_entry.hours.to_f,
           work_date: @time_entry.work_date.iso8601,
@@ -177,8 +198,8 @@ module Api
 
         @time_entry.assign_attributes(update_params)
         # A manager whose own time needs another approver edits it like an employee.
-        supervisor_edit = current_user.can_manage_team_time? && !own_time_needs_another_approver?(@time_entry)
-        if !supervisor_edit || payroll_relevant_changes?(@time_entry, break_update)
+        pay_changed = payroll_relevant_changes?(@time_entry, break_update)
+        if !supervisor_edit || pay_changed
           update_params[:approval_status] = "pending"
           update_params[:approved_by] = nil
           update_params[:approved_at] = nil
@@ -188,10 +209,23 @@ module Api
           )
         end
 
+        if !supervisor_edit && @time_entry.clock_entry? && @time_entry.status == "completed"
+          update_params[:original_employee_change] = original_change["approval_status"] == "pending" ? (@time_entry.original_employee_change.presence || original_change) : original_change
+          update_params[:rejected_employee_change] = nil
+        elsif supervisor_edit && pay_changed
+          update_params[:original_employee_change] = nil
+          update_params[:rejected_employee_change] = nil
+        end
+
         saved = false
         break_replace_error = nil
+        overlap_error = nil
         @time_entry.transaction do
           ::Payroll::AffectedOvertimeReview.around(@time_entry, force: true) do
+            @time_entry.assign_attributes(update_params)
+            overlap_error = TimeEntryOverlap.error_for(@time_entry, actor: current_user)
+            raise ActiveRecord::Rollback if overlap_error
+
             saved = @time_entry.update(update_params)
             if saved && break_update
               break_replace_error = if break_update[:retain_ids]
@@ -204,7 +238,8 @@ module Api
             raise ActiveRecord::Rollback unless saved
 
             if @time_entry.status == "completed" &&
-               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
+               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601 ||
+                (was_denied && @time_entry.approval_status == "pending"))
               new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
               overtime_attrs = { overtime_status: new_overtime }
 
@@ -254,7 +289,9 @@ module Api
           end
         end
 
-        if break_replace_error
+        if overlap_error
+          render json: { error: overlap_error, code: "overlapping_shift" }, status: :unprocessable_entity
+        elsif break_replace_error
           render json: { error: break_replace_error }, status: :unprocessable_entity
         elsif saved
           render json: { time_entry: serialize_time_entry(@time_entry) }
@@ -265,16 +302,21 @@ module Api
 
       # DELETE /api/v1/time_entries/:id
       def destroy
-        unless @time_entry.deletable_by?(current_user)
-          return render json: { error: "You can only delete your own time entries" }, status: :forbidden
-        end
+        return render_delete_refusal unless @time_entry.deletable_by?(current_user)
 
         return unless require_correction_reason_for_payroll_entry!
 
         entry_info = "#{@time_entry.hours}h on #{@time_entry.work_date}"
         entry_id = @time_entry.id
 
+        refused = false
         TimeEntry.transaction do
+          lock_entry_for_delete!
+          unless @time_entry.deletable_by?(current_user)
+            refused = true
+            raise ActiveRecord::Rollback
+          end
+
           ::Payroll::SettlementCaseCoordinator.record_deletion!(@time_entry, actor: current_user)
           @time_entry.destroy!
 
@@ -293,8 +335,11 @@ module Api
 
           invalidate_payroll_exports!
         end
+        return render_delete_refusal if refused
 
         head :no_content
+      rescue ActiveRecord::LockWaitTimeout, ActiveRecord::Deadlocked
+        render json: { error: PAYROLL_BUSY_MESSAGE, code: "payroll_busy" }, status: :conflict
       end
 
       # ── Clock Actions ──
@@ -456,6 +501,18 @@ module Api
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
+      def reject_change
+        entry = EmployeeTimeChange.reject!(entry: @time_entry, actor: current_user,
+                                           version: params[:expected_version], note: params[:note])
+        render json: { time_entry: serialize_time_entry(entry) }
+      rescue EmployeeTimeChange::Stale
+        render_stale_time_entry
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
+      rescue TimeClockService::ClockError, ActiveRecord::RecordInvalid => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
 
@@ -659,6 +716,7 @@ module Api
           ordinary_hours: by_kind.fetch(::Approvals::ReviewClassifier::ORDINARY, []).sum { |entry| entry.hours.to_f }.round(2),
           needs_look_count: by_kind.fetch(::Approvals::ReviewClassifier::NEEDS_LOOK, []).size,
           batch_limit: ::Approvals::ApproveReviewBatch::MAX_ITEMS,
+          ordinary_max_shift_hours: Setting.auto_approve_max_shift_hours,
           by_person: entries.group_by(&:user_id).map do |_user_id, rows|
             user = rows.first.user
             ordinary = rows.select { |entry| @review_kinds.dig(entry.id, :review_kind) == ::Approvals::ReviewClassifier::ORDINARY }
@@ -734,6 +792,26 @@ module Api
         allocation.present? && allocation[:hold_reason].blank?
       end
 
+      # Taken before the delete's eligibility check, so nothing that would make
+      # the entry ineligible can commit in between:
+      # - Payroll finalization holds time_entries IN SHARE MODE until its batch
+      #   commits; ROW EXCLUSIVE conflicts with it, so either this delete
+      #   commits first (the finalizer then never sees the row) or it waits and
+      #   the check reads the finalized batch.
+      # - Approvals take the employee lock and this row; lock! takes both.
+      # - A protecting export takes FOR SHARE on its entries (ReportExport),
+      #   which conflicts with the FOR UPDATE row lock lock! takes.
+      def lock_entry_for_delete!
+        connection = TimeEntry.connection
+        connection.execute("SET LOCAL lock_timeout = #{connection.quote(DELETE_LOCK_TIMEOUT)}")
+        connection.execute("LOCK TABLE time_entries IN ROW EXCLUSIVE MODE")
+        @time_entry.lock!
+      end
+
+      def render_delete_refusal
+        render json: { error: TimeEntry::EMPLOYEE_DELETE_REFUSAL, code: "delete_not_allowed" }, status: :forbidden
+      end
+
       def approval_change_reason(action, note = params[:note])
         note.present? ? "#{action}; note: #{note.to_s.strip}" : action
       end
@@ -760,7 +838,9 @@ module Api
         return true if correction_reason.present?
 
         render json: {
-          error: "A correction reason is required because this entry is referenced by a finalized payroll batch.",
+          error: finalized_payroll_batches.any? ?
+            "This shift is included in a locked payroll batch. Add a short reason so the payroll history stays clear." :
+            "You downloaded a complete report that includes this shift. Add a short reason so the report history stays clear.",
           code: "correction_reason_required",
           export_references: active_payroll_exports.map(&:public_id),
           payroll_batch_ids: finalized_payroll_batches.map(&:public_id)
@@ -1116,8 +1196,11 @@ module Api
       def serialize_time_entry(entry)
         tz = TimeClockService::BUSINESS_TIMEZONE
         {
+          payroll_hours_by_date: @approval_hours&.segments_for(entry),
           id: entry.id,
           version: entry.lock_version,
+          original_employee_change: EmployeeTimeChange.presentation(entry),
+          rejected_employee_change: entry.rejected_employee_change,
           work_date: entry.work_date.iso8601,
           start_time: entry.start_time&.in_time_zone(tz)&.strftime("%H:%M"),
           end_time: entry.end_time&.in_time_zone(tz)&.strftime("%H:%M"),
@@ -1464,7 +1547,7 @@ module Api
       def pending_approval_entries_scope
         entries = TimeEntry
           .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
-          .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
+          .merge(AttentionQuery.waiting_scope)
 
         approval_group = params[:approval_group].to_s
         return entries if approval_group.blank?

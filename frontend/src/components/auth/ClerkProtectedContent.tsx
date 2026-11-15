@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { useAuth, useUser, RedirectToSignIn } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { Link, useInRouterContext } from 'react-router-dom'
+import { workAreaFor } from '../../lib/workArea'
 import { capabilitiesFor, type Capability } from '../../lib/roles'
 
 interface ClerkProtectedContentProps {
@@ -21,6 +23,7 @@ export default function ClerkProtectedContent({ children, requiredRole, required
     refreshCurrentUser,
   } = useAuthContext()
 
+  const inRouter = useInRouterContext()
   const authStatus = useMemo(() => {
     if (!isLoaded || authLoading) return 'loading' as const
 
@@ -79,6 +82,7 @@ export default function ClerkProtectedContent({ children, requiredRole, required
   }
 
   if (authStatus === 'access_denied') {
+    const workArea = workAreaFor(userRole)
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md mx-auto text-center p-8">
@@ -87,7 +91,7 @@ export default function ClerkProtectedContent({ children, requiredRole, required
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h1>
           <p className="text-gray-600 mb-6">
             {authError || "You don't have permission to access this area."}
             {!authError && requiredCapability && ' Ask an owner or admin if you need it.'}
@@ -95,12 +99,27 @@ export default function ClerkProtectedContent({ children, requiredRole, required
           <p className="text-sm text-gray-500">
             Signed in as: {clerkUser?.primaryEmailAddress?.emailAddress}
           </p>
-          <a
-            href="/"
-            className="mt-6 inline-block px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
-          >
-            Return to Home
-          </a>
+          {workArea ? (
+            <>
+              {inRouter ? (
+                <Link to={workArea.href} className="mt-6 inline-flex min-h-11 items-center px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors">
+                  {workArea.label}
+                </Link>
+              ) : (
+                <a href={workArea.href} className="mt-6 inline-flex min-h-11 items-center px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors">
+                  {workArea.label}
+                </a>
+              )}
+
+            </>
+          ) : (
+            <a
+              href="/"
+              className="mt-6 inline-block px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+            >
+              View public website
+            </a>
+          )}
         </div>
       </div>
     )

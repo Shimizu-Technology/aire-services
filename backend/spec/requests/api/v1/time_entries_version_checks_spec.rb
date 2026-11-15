@@ -91,6 +91,36 @@ RSpec.describe "Time entry optimistic version checks", type: :request do
     end
   end
 
+  context "reject_change" do
+    before do
+      entry.update!(entry_method: "clock", clock_in_at: Time.current - 8.hours, clock_out_at: Time.current)
+      entry.update!(original_employee_change: EmployeeTimeChange.capture(entry))
+    end
+
+    [ :stale, :missing, :malformed ].each do |kind|
+      it "rejects a #{kind} required version without side effects" do
+        export = protecting_export
+        before_export = export.attributes
+        before_entry = entry.reload.attributes
+        before_breaks = entry.time_entry_breaks.order(:id).map(&:attributes)
+        version = { stale: entry.lock_version - 1, missing: nil, malformed: "#{entry.lock_version}oops" }.fetch(kind)
+        expect(Payroll::AffectedOvertimeReview).not_to receive(:reconcile)
+        expect(ReportExport).not_to receive(:invalidate_for_entry!)
+
+        expect do
+          post "/api/v1/time_entries/#{entry.id}/reject_change", headers: headers,
+            params: { note: "Keep original", **(kind == :missing ? {} : { expected_version: version }) }
+        end.not_to change(AuditLog, :count)
+
+        expect(response).to have_http_status(:conflict)
+        expect(response.parsed_body).to include("code" => "stale_entry", "error" => "This shift changed since you opened it. Nothing was saved.")
+        expect(entry.reload.attributes).to eq(before_entry)
+        expect(entry.time_entry_breaks.reload.order(:id).map(&:attributes)).to eq(before_breaks)
+        expect(export.reload.attributes).to eq(before_export)
+      end
+    end
+  end
+
   it "rejects an employee PATCH after another client's update between GET and PATCH" do
     employee_headers = { "Authorization" => "Bearer test_token_#{employee.id}" }
     get "/api/v1/time_entries/#{entry.id}", headers: employee_headers

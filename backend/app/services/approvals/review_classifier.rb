@@ -24,7 +24,8 @@ module Approvals
     # overtime reset is the week's recalculation after another shift's review,
     # so these rows aren't edits either.
     REVIEW_AUDIT_ACTIONS = %w[
-      time_entry.approved time_entry.overtime_approved time_entry.approval_undone time_entry.overtime_reset
+      time_entry.approved time_entry.denied time_entry.overtime_approved time_entry.overtime_denied
+      time_entry.approval_undone time_entry.overtime_reset
     ].freeze
     NOT_EDITS = (ORDINARY_SHIFT_AUDIT_ACTIONS + REVIEW_AUDIT_ACTIONS).freeze
     # In-memory shift chaining looks this far around the loaded entries. A
@@ -47,9 +48,10 @@ module Approvals
       allocation_hold: "Payroll can't place this time yet",
       too_many_segments: "Too many work category switches",
       over_max_hours: "Over %{hours}h",
-      after_lock: "After the lock (goes to the next payroll)",
+      after_lock: "Goes to the next payroll",
       crosses_period: "Crosses into the next period",
-      needs_time_review: "Needs time review"
+      needs_time_review: "Needs time review",
+      overlaps: "Overlaps another shift"
     }.freeze
 
     # Why a completed clock entry's shift may not be auto-approved. An empty
@@ -109,7 +111,11 @@ module Approvals
       elsif rules.include?(:not_completed_clock)
         found << exception(:not_completed)
       end
-      found << exception(:edited, editor ? "Edited by #{editor}" : nil) if editor || (rules.include?(:edited) && !entry.manual_entry?)
+      if entry.rejected_employee_change.present?
+        found << exception(:edited, "Kept original time · #{entry.rejected_employee_change['manager']}")
+      elsif editor || (rules.include?(:edited) && !entry.manual_entry?)
+        found << exception(:edited, editor ? "Edited by #{editor}" : nil)
+      end
       found << exception(:clocked_by_supervisor) if rules.include?(:not_self_service) && entry.clock_entry?
       found << exception(:corrected_clock_out) if entry.approval_note.to_s.downcase.include?("corrected clock-out")
       found << exception(:administrator_correction) if entry.needs_administrator_correction?
@@ -119,6 +125,7 @@ module Approvals
       found << exception(:over_max_hours, format(LABELS[:over_max_hours], hours: max_hours.to_f.round(2).to_s.delete_suffix(".0"))) if rules.include?(:too_long)
       found << exception(:after_lock) if rules.include?(:late_hours)
       found << exception(:crosses_period) if rules.include?(:crosses_period)
+      found << exception(:overlaps) if rules.include?(:overlaps)
       # Every rule that fired must show up as a reason, or the shift would look
       # ordinary. Waiting time with an unlisted note (an auto-close, say) lands here.
       found << exception(:needs_time_review) if found.empty? && rules.any?
@@ -205,6 +212,7 @@ module Approvals
         @batch_ranges = dates.empty? ? [] : PayrollBatch.where("start_date <= ? AND end_date >= ?", dates.max, dates.min).pluck(:start_date, :end_date)
         @cutoff_warning_ids = Payroll::EntryCutoffWarnings.call(@segments)
         @cutoffs = load_cutoffs
+        @overlapping_ids = TimeEntryOverlap.overlapping_ids(@segments)
       end
 
       # TimeClockService's ordinary-shift rules, minus the setting and role.
@@ -229,6 +237,9 @@ module Approvals
         exceptions << :too_long if exceptions.exclude?(:not_completed_clock) && ReviewClassifier.shift_span_hours(segments) >= max_hours
         exceptions << :late_hours if segments.any? { |segment| late_hours?(segment) }
         exceptions << :crosses_period if exceptions.exclude?(:not_completed_clock) && crosses_period_or_cutoff?(segments)
+        # Two shifts at once can't both be paid: never auto-approved and never
+        # in a batch, so a person picks. The clock itself still records it.
+        exceptions << :overlaps if segments.any? { |segment| @overlapping_ids.include?(segment.id) }
         exceptions
       end
 

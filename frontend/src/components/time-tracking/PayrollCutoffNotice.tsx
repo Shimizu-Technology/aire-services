@@ -11,6 +11,7 @@ import { withPayrollPeriod } from '../../lib/payrollPeriods'
 import { ADMIN_PATHS, timeSectionPath } from '../../lib/adminRoutes'
 import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
+import { formatPayPeriod } from '../../lib/payPeriods'
 
 interface Props {
   kiosk?: { accessToken: string; employeeToken: string; sessionKey: string; notice: PayrollCutoffResponse | null }
@@ -36,6 +37,12 @@ function periodLabel(period: NonNullable<PayrollCutoff['period']>) {
   return `${format(`${period.start_date}T12:00:00+10:00`, { month: 'long', day: 'numeric' })}–${format(`${period.end_date}T12:00:00+10:00`, { day: 'numeric' })}`
 }
 
+// "Oct 16–31", the way the Timecards header names a pay period.
+const shortPeriod = (period: NonNullable<PayrollCutoff['period']>) =>
+  formatPayPeriod({ start: period.start_date, end: period.end_date }, { year: 'never' })
+const lockMoment = (value: string) =>
+  `${format(value, { weekday: 'short', month: 'short', day: 'numeric' })} at ${format(value, { hour: 'numeric', minute: '2-digit' })}`
+
 function copy(cutoff: PayrollCutoff, stale: boolean) {
   const dateKey = (value: string) => format(value, { year: 'numeric', month: '2-digit', day: '2-digit' })
   const period = cutoff.period ? periodLabel(cutoff.period) : ''
@@ -44,9 +51,9 @@ function copy(cutoff: PayrollCutoff, stale: boolean) {
     if (dateKey(cutoff.now) === dateKey(cutoff.cutoff_at)) when = ' today'
     else if (dateKey(new Date(new Date(cutoff.now).getTime() + 86400000).toISOString()) === dateKey(cutoff.cutoff_at)) when = ' tomorrow'
   }
-  const title = cutoff.stage === 'finalizing' ? 'Cutoff reached; payroll is finalizing.'
-    : cutoff.stage === 'passed' ? 'The payroll cutoff has passed.'
-    : stale ? `${period} payroll cutoff` : `Your ${period} hours lock${when}`
+  const title = cutoff.stage === 'finalizing' ? 'Lock reached; payroll is finalizing.'
+    : cutoff.stage === 'passed' ? 'The payroll lock has passed.'
+    : stale ? `${period} payroll lock` : `Your ${period} hours lock${when}`
   const absolute = cutoff.cutoff_at ? `${format(cutoff.cutoff_at, { month: 'long', day: 'numeric', year: 'numeric' })} at ${format(cutoff.cutoff_at, { hour: 'numeric', minute: '2-digit' })} ChST (UTC+10)` : ''
   return { title, period, absolute }
 }
@@ -64,7 +71,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   const [validated, setValidated] = useState(false)
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
   const [ackError, setAckError] = useState(false)
-  const [pending, setPending] = useState<number | null>(null)
+  // The waiting count for one period. Unknown (loading, failed, or another period) is null.
+  const [pendingCount, setPendingCount] = useState<{ periodId: number; count: number | null } | null>(null)
   const bannerRef = useRef<HTMLElement>(null)
   const requestSequence = useRef(0)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -83,11 +91,11 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     }
     else setStale(true)
     const period = result.data?.cutoff.period
-    setPending(null)
     if (reviewsTeam && period && result.data?.cutoff.stage !== 'none' && result.data?.connected_payroll?.enabled !== false) {
+      // The last count stays on screen while a refresh runs, so the notice doesn't flicker.
       const approvals = await api.getPendingApprovals({ per_page: 1, start_date: period.start_date, end_date: period.end_date })
-      if (session === activeSession.current && sequence === requestSequence.current) setPending(approvals.data?.summary?.entry_count ?? approvals.data?.count ?? null)
-    }
+      if (session === activeSession.current && sequence === requestSequence.current) setPendingCount({ periodId: period.id, count: approvals.data?.summary?.entry_count ?? approvals.data?.count ?? null })
+    } else setPendingCount(null)
   }, [accessToken, reviewsTeam])
   useEffect(() => {
     let active = true
@@ -145,6 +153,23 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   if (!cutoff) return attentionNotice
   if (!cutoff.period) return attentionNotice || (managesPayroll && connection?.enabled === true ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null)
   if (cutoff.stage === 'none') return attentionNotice
+  const pending = pendingCount && pendingCount.periodId === cutoff.period.id ? pendingCount.count : null
+  // A lock that already happened is history, not an alarm. Only a team reviewer whose count
+  // for that period came back as exactly 0 gets the quiet status. While the count is
+  // loading or failed, the full warning and its approvals link stay.
+  if (cutoff.stage === 'passed' && reviewsTeam && !stale && validated && pending !== null) {
+    const nextLock = response?.next_lock
+    const upcoming = nextLock && nextLock.period.id !== cutoff.period.id ? nextLock : null
+    return <>
+      {attentionNotice}
+      <section aria-label="Payroll lock status" className="cutoff-status">
+        {shortPeriod(cutoff.period)} is locked
+        {pending > 0 && <> · {pending} {pending === 1 ? 'shift' : 'shifts'} still waiting <Link className="inline-flex min-h-11 items-center font-semibold underline" to={withPayrollPeriod(ADMIN_PATHS.approvals, { start: cutoff.period.start_date, end: cutoff.period.end_date })}>→ Review</Link></>}
+        {pending === 0 && '.'}
+        {pending === 0 && upcoming && <> {shortPeriod(upcoming.period)} locks {lockMoment(upcoming.cutoff_at)}.</>}
+      </section>
+    </>
+  }
   const banner = copy(cutoff, stale || (!validated && !kiosk?.notice))
   const modal = noticeCutoff ? copy(noticeCutoff, stale) : banner
   const modalPeriod = noticeCutoff?.period || cutoff.period

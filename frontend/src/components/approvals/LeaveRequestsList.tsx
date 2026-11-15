@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type LeaveRequest } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
-import { formatWorkDate } from '../../lib/dateUtils'
+import { leaveDateRange, leaveType } from './reviewPresentation'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import {
   Avatar,
@@ -27,6 +27,8 @@ export default function LeaveRequestsList({
 }) {
   const online = useOnlineStatus()
   const toast = useToast()
+  const [overlapError, setOverlapError] = useState(false)
+  const [overlapAttempt, setOverlapAttempt] = useState(0)
   const [approved, setApproved] = useState<LeaveRequest[]>([])
   const [declining, setDeclining] = useState<LeaveRequest | null>(null)
   const [note, setNote] = useState('')
@@ -34,12 +36,12 @@ export default function LeaveRequestsList({
   const [error, setError] = useState('')
   const lock = useRef(false)
   const requestKey = requests
-    .map(request => `${request.id}:${request.start_date}:${request.end_date}`)
+    .map((request) => `${request.id}:${request.start_date}:${request.end_date}`)
     .sort()
     .join('|')
-  const rangeStart = requests.map(request => request.start_date).sort()[0]
+  const rangeStart = requests.map((request) => request.start_date).sort()[0]
   const rangeEnd = requests
-    .map(request => request.end_date)
+    .map((request) => request.end_date)
     .sort()
     .at(-1)
   useEffect(() => {
@@ -49,10 +51,18 @@ export default function LeaveRequestsList({
         setApproved([])
         return
       }
+      setOverlapError(false)
+      setApproved([])
       const rows: LeaveRequest[] = []
       for (let page = 1; ; page++) {
-        const response = await approvalsApi.approvedLeave(rangeStart, rangeEnd, page)
-        if (!response.data || !active) return
+        const response = await approvalsApi
+          .approvedLeave(rangeStart, rangeEnd, page)
+          .catch(() => ({ data: undefined }))
+        if (!active) return
+        if (!response.data) {
+          setOverlapError(true)
+          return
+        }
         rows.push(...response.data.leave_requests)
         if (page >= response.data.pagination.total_pages) break
       }
@@ -62,7 +72,7 @@ export default function LeaveRequestsList({
     return () => {
       active = false
     }
-  }, [requestKey, rangeStart, rangeEnd])
+  }, [requestKey, rangeStart, rangeEnd, overlapAttempt])
   const save = async (request: LeaveRequest, decline = false) => {
     if (lock.current || !online || request.user.id === viewerId) return
     lock.current = true
@@ -77,7 +87,7 @@ export default function LeaveRequestsList({
         return
       }
       toast.show({
-        message: `${decline ? 'Declined' : 'Approved'} ${name(request)}'s time off, ${formatWorkDate(request.start_date)}–${formatWorkDate(request.end_date)}`,
+        message: `${decline ? 'Declined' : 'Approved'} ${name(request)}'s time off, ${leaveDateRange(request.start_date, request.end_date)}`,
       })
       setDeclining(null)
       setNote('')
@@ -91,18 +101,27 @@ export default function LeaveRequestsList({
   return (
     <>
       {error && (
-        <p
-          role="alert"
-          className="text-body-sm text-danger"
-        >
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}
+      {overlapError && (
+        <p className="text-body-sm text-ink-muted">
+          Couldn't check overlaps.{' '}
+          <button
+            type="button"
+            className="min-h-11 font-semibold text-primary underline"
+            onClick={() => setOverlapAttempt((value) => value + 1)}
+          >
+            Try again
+          </button>
+        </p>
+      )}
       <ListGroup label="Leave requests">
-        {requests.map(request => {
+        {requests.map((request) => {
           const own = request.user.id === viewerId
           const alsoOff = approved.filter(
-            other =>
+            (other) =>
               other.user.id !== request.user.id &&
               other.start_date <= request.end_date &&
               other.end_date >= request.start_date,
@@ -113,16 +132,14 @@ export default function LeaveRequestsList({
               title={name(request)}
               leading={
                 <span className="hidden sm:inline-flex">
-                  <Avatar
-                    name={name(request)}
-                    size="sm"
-                  />
+                  <Avatar name={name(request)} size="sm" />
                 </span>
               }
               meta={
                 <>
-                  {request.leave_type.replaceAll('_', ' ')} · {formatWorkDate(request.start_date)}–
-                  {formatWorkDate(request.end_date)} · {request.total_days} days
+                  {leaveType(request.leave_type)} ·{' '}
+                  {leaveDateRange(request.start_date, request.end_date)} ·{' '}
+                  {request.total_days} {request.total_days === 1 ? 'day' : 'days'}
                   {request.reason && (
                     <span className="block whitespace-normal">{request.reason}</span>
                   )}
@@ -130,7 +147,10 @@ export default function LeaveRequestsList({
                     <span className="block whitespace-normal">
                       Also off:{' '}
                       {alsoOff
-                        .map(other => `${name(other)} (${other.start_date}–${other.end_date})`)
+                        .map(
+                          (other) =>
+                            `${name(other)} (${leaveDateRange(other.start_date, other.end_date)})`,
+                        )
                         .join(', ')}
                     </span>
                   )}
@@ -194,10 +214,7 @@ export default function LeaveRequestsList({
         }
       >
         <Field label="Note (optional)">
-          <Textarea
-            value={note}
-            onChange={event => setNote(event.target.value)}
-          />
+          <Textarea value={note} onChange={(event) => setNote(event.target.value)} />
         </Field>
         {error && <p role="alert">{error}</p>}
       </Sheet>

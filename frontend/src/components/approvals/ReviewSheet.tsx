@@ -7,6 +7,8 @@ import {
   type ReviewItem,
 } from '../../lib/api/approvals'
 import { addDateDays, businessWeekStart, formatWorkDate } from '../../lib/dateUtils'
+import { isTinyShift, personNote, reasonChips, reviewStatus } from './reviewPresentation'
+import { formatApprovalDate } from '../../lib/approvalsDates'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { Button, ErrorState, Field, Sheet, StatusPill, Textarea } from '../ui'
 import type { ApprovalResult } from './useReviewBatch'
@@ -26,11 +28,15 @@ export default function ReviewSheet({
   busy,
   categories,
   onDirty,
+  weekEntries = [],
+  onSelectEntry,
 }: {
   entry: ReviewEntry
+  weekEntries?: ReviewEntry[]
+  onSelectEntry?: (entry: ReviewEntry) => void
   onClose: (saved?: boolean, message?: string) => void
   onApprove: (items: ReviewItem[], label: string) => Promise<ApprovalResult>
-  onReload: () => Promise<void>
+  onReload: () => Promise<ReadonlyMap<number, number> | void>
   busy: boolean
   categories: TimeCategory[]
   onDirty: (dirty: boolean) => void
@@ -43,22 +49,33 @@ export default function ReviewSheet({
   const [historyAttempt, setHistoryAttempt] = useState(0)
   const [week, setWeek] = useState<TimeEntry[] | null>(null)
   const [weekError, setWeekError] = useState('')
-  const [denying, setDenying] = useState<'time' | 'overtime' | null>(null)
+  const [denying, setDenying] = useState<'time' | 'overtime' | 'change' | null>(null)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [unknown, setUnknown] = useState(false)
   const [editing, setEditing] = useState(false)
   const attemptedDecision = useRef<ReviewItem | null>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
   const lock = useRef(false)
+  const pendingChange =
+    entry.entry_method === 'clock' &&
+    entry.approval_status === 'pending' &&
+    Boolean(entry.original_employee_change)
+  const canKeepOriginal = pendingChange && entry.original_employee_change?.restorable !== false
   const overtime = entry.overtime_status === 'pending'
+  useEffect(() => {
+    if (!denying) return
+    noteRef.current?.focus({ preventScroll: true })
+    noteRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [denying])
   useEffect(() => {
     onDirty(Boolean(note.trim()))
     return () => onDirty(false)
   }, [note, onDirty])
   useEffect(() => {
     let active = true
-    approvalsApi.history(entry.id).then(response => {
+    approvalsApi.history(entry.id).then((response) => {
       if (active) {
         setHistory(response.data?.changes ?? null)
         setHistoryError(!response.data)
@@ -78,7 +95,7 @@ export default function ReviewSheet({
         end_date: addDateDays(start, 6),
         per_page: 500,
       })
-      .then(response => {
+      .then((response) => {
         if (!active) return
         if (response.data) setWeek(response.data.time_entries)
         else setWeekError(response.error || "Couldn't load this week's shifts.")
@@ -127,6 +144,36 @@ export default function ReviewSheet({
     setSaving(true)
     setError('')
     try {
+      if (denying === 'change') {
+        const response = await api.rejectTimeEntryChange(
+          entry.id,
+          entry.version,
+          note.trim(),
+        )
+        if (!response.data) {
+          const message =
+            response.status === 409
+              ? response.code === 'payroll_busy'
+                ? 'Payroll is working on this period right now. Try again in a minute. Nothing was changed.'
+                : 'This shift changed since you opened it. Review it again before keeping the original time.'
+              : response.status === 422
+                ? "The original time couldn't be restored. Ask a manager to correct this shift. The requested change is still waiting."
+                : response.error ||
+                  "Couldn't confirm whether the original time was restored. Reload and check the shift before trying again."
+          await onReload()
+          onDirty(false)
+          onClose(true, message)
+          return
+        }
+        await onReload()
+        onDirty(false)
+        const restored = response.data.time_entry
+        onClose(
+          true,
+          `Kept the original time for ${entry.user.full_name}. They'll see your reason.${restored.approval_status === 'pending' ? ' Still waiting for approval.' : ''}`,
+        )
+        return
+      }
       const fresh = await api.getTimeEntry(entry.id)
       if (!fresh.data) {
         setError(fresh.error || "Couldn't check the current shift. Nothing was denied.")
@@ -150,7 +197,12 @@ export default function ReviewSheet({
       }
       onDirty(false)
       await onReload()
-      onClose(true)
+      const subject = denying === 'time' ? 'shift' : 'overtime'
+      const pronoun = "They'll"
+      onClose(
+        true,
+        `Denied ${entry.user.full_name}'s ${formatApprovalDate(entry.work_date)} ${subject}. ${pronoun} see your note.`,
+      )
     } finally {
       lock.current = false
       setSaving(false)
@@ -185,7 +237,7 @@ export default function ReviewSheet({
   const reloadDecision = async () => {
     setSaving(true)
     try {
-      await onReload()
+      const confirmed = await onReload()
       const fresh = await api.getTimeEntry(entry.id)
       if (!fresh.data) {
         setError(fresh.error || "Couldn't reload this shift. Try again.")
@@ -196,6 +248,7 @@ export default function ReviewSheet({
       if (
         unknown &&
         decision &&
+        confirmed?.get(entry.id) === row.version &&
         (!decision.approve_time || row.approval_status === 'approved') &&
         (!decision.approve_overtime || row.overtime_status === 'approved')
       ) {
@@ -205,7 +258,10 @@ export default function ReviewSheet({
       }
       if (row.version !== entry.version) {
         onDirty(false)
-        onClose(true, 'This shift changed since you opened it. Nothing was approved.')
+        onClose(
+          true,
+          'This shift changed since this approval attempt. Review its current values before deciding again.',
+        )
         return
       }
       setUnknown(false)
@@ -221,7 +277,11 @@ export default function ReviewSheet({
       <Sheet
         open={!editing}
         title={`Review ${entry.user.full_name}`}
-        description={formatWorkDate(entry.work_date)}
+        description={
+          weekEntries.length > 1
+            ? `Week of ${formatApprovalDate(businessWeekStart(entry.work_date))}`
+            : formatApprovalDate(entry.work_date)
+        }
         onClose={() => {
           if (!busy && !saving) onClose()
         }}
@@ -237,7 +297,7 @@ export default function ReviewSheet({
                   Back
                 </Button>
                 <Button
-                  variant="danger"
+                  variant={denying === 'change' ? 'primary' : 'danger'}
                   onClick={() => {
                     void deny()
                   }}
@@ -245,8 +305,18 @@ export default function ReviewSheet({
                   disabled={blocked || !note.trim()}
                   title={!online ? 'Reconnect to deny' : undefined}
                 >
-                  Deny {denying === 'overtime' ? 'overtime' : 'shift'}
+                  {denying === 'change'
+                    ? 'Keep the original time'
+                    : pendingChange && denying === 'time'
+                      ? 'Deny the whole shift'
+                      : `Deny ${denying === 'overtime' ? 'overtime' : 'shift'}`}
                 </Button>
+                {!note.trim() && (
+                  <p className="w-full text-body-sm text-ink-muted">
+                    Write a short note for {entry.user.full_name.split(' ')[0]} to{' '}
+                    {denying === 'change' ? 'keep the original time' : 'deny'}.
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -258,10 +328,10 @@ export default function ReviewSheet({
                     disabled={blocked}
                     title={!online ? 'Reconnect to approve' : undefined}
                   >
-                    Approve time
+                    {pendingChange ? 'Approve the change' : 'Approve time'}
                   </Button>
                 )}
-                {overtime && (
+                {overtime && (!pendingChange || canKeepOriginal) && (
                   <Button
                     onClick={() => {
                       void approve(true)
@@ -270,24 +340,42 @@ export default function ReviewSheet({
                     title={!online ? 'Reconnect to approve' : undefined}
                   >
                     Approve {entry.approval_status === 'pending' ? 'time + ' : ''}
-                    {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime
+                    {(entry.pending_overtime_hours ?? 0) > 0
+                      ? `${entry.pending_overtime_hours!.toFixed(1)}h overtime`
+                      : 'overtime'}
                   </Button>
                 )}
-                <Button
-                  variant="secondary"
-                  onClick={() => setDenying(overtime ? 'overtime' : 'time')}
-                  disabled={blocked}
-                  title={!online ? 'Reconnect to deny' : undefined}
-                >
-                  Deny{overtime ? ' overtime' : ''}…
-                </Button>
-                {entry.approval_status === 'pending' && overtime && (
+                {canKeepOriginal && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDenying('change')}
+                    disabled={blocked}
+                  >
+                    Keep the original time
+                  </Button>
+                )}
+                {(!pendingChange || (overtime && canKeepOriginal)) && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDenying(overtime ? 'overtime' : 'time')}
+                    disabled={blocked}
+                    title={!online ? 'Reconnect to deny' : undefined}
+                  >
+                    Deny{overtime ? ' overtime' : ''}…
+                  </Button>
+                )}
+                {entry.approval_status === 'pending' && (overtime || pendingChange) && (
                   <Button
                     variant="ghost"
+                    className={
+                      pendingChange
+                        ? 'w-full border-t border-line pt-3 text-danger'
+                        : undefined
+                    }
                     onClick={() => setDenying('time')}
                     disabled={blocked}
                   >
-                    Deny shift…
+                    {pendingChange ? 'Deny the whole shift…' : 'Deny shift…'}
                   </Button>
                 )}
               </>
@@ -296,27 +384,66 @@ export default function ReviewSheet({
         }
       >
         <div className="space-y-4">
+          {weekEntries.length > 1 && (
+            <section className="space-y-2" aria-label="Shifts to review this week">
+              <p className="text-body-sm text-ink-muted">
+                Choose a shift below. Each decision applies to that shift only.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {weekEntries.map((row) => (
+                  <Button
+                    key={row.id}
+                    variant={entry.id === row.id ? 'primary' : 'secondary'}
+                    aria-pressed={entry.id === row.id}
+                    disabled={busy || saving || unknown}
+                    onClick={() => onSelectEntry?.(row)}
+                  >
+                    {formatApprovalDate(row.work_date)} · {row.hours.toFixed(1)}h
+                  </Button>
+                ))}
+              </div>
+            </section>
+          )}
+          {isTinyShift(entry) && (
+            <p className="font-medium text-amber-800">
+              Under 1 minute, probably a mis-tap
+            </p>
+          )}
+          <p className="text-body-sm font-semibold">
+            {formatApprovalDate(entry.work_date)}
+          </p>
           <div className="flex flex-wrap gap-1">
-            {entry.exceptions.map(reason => (
-              <StatusPill
-                key={reason.key}
-                tone="waiting"
-              >
+            {reasonChips([entry]).map((reason) => (
+              <StatusPill key={reason.key} tone="waiting">
                 {reason.label}
               </StatusPill>
             ))}
           </div>
+          {pendingChange && (
+            <p className="text-body-sm">
+              Original: {entry.original_employee_change!.formatted_range} ·{' '}
+              {entry.user.full_name.split(' ')[0]} asked for{' '}
+              {entry.formatted_start_time || entry.start_time}–
+              {entry.formatted_end_time || entry.end_time}
+            </p>
+          )}
+          {pendingChange && !canKeepOriginal && (
+            <p className="text-body-sm">The original clock-out was missing, so there's no original time to keep.</p>
+          )}
           <dl className="space-y-1 text-body-sm">
             <div>
               <dt className="inline font-semibold">Time: </dt>
               <dd className="inline">
                 {entry.formatted_start_time || entry.start_time || '—'}–
-                {entry.formatted_end_time || entry.end_time || '—'} · {entry.hours.toFixed(1)}h
+                {entry.formatted_end_time || entry.end_time || '—'} ·{' '}
+                {entry.hours.toFixed(1)}h
               </dd>
             </div>
             <div>
-              <dt className="inline font-semibold">Category: </dt>
-              <dd className="inline">{entry.time_category?.name || 'No work category'}</dd>
+              <dt className="inline font-semibold">Work: </dt>
+              <dd className="inline">
+                {entry.time_category?.name || 'No work category'}
+              </dd>
             </div>
             <div>
               <dt className="inline font-semibold">Break: </dt>
@@ -324,12 +451,14 @@ export default function ReviewSheet({
             </div>
             <div>
               <dt className="inline font-semibold">Time approval: </dt>
-              <dd className="inline">{entry.approval_status || 'Standard'}</dd>
+              <dd className="inline">{reviewStatus(entry.approval_status)}</dd>
             </div>
           </dl>
           {entry.description && <p className="text-body-sm">{entry.description}</p>}
-          {entry.approval_note && (
-            <p className="text-body-sm text-ink-muted">{entry.approval_note}</p>
+          {personNote(entry.approval_note) && (
+            <p className="text-body-sm text-ink-muted">
+              {personNote(entry.approval_note)}
+            </p>
           )}
           <Button
             variant="ghost"
@@ -350,17 +479,19 @@ export default function ReviewSheet({
               ) : week ? (
                 <>
                   <p className="text-body-sm">
-                    {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week ·{' '}
-                    {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime waiting on this shift
+                    {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week
+                    ·{' '}
+                    {(entry.pending_overtime_hours ?? 0) > 0
+                      ? entry.approval_status === 'pending'
+                        ? `Would add ${entry.pending_overtime_hours!.toFixed(1)}h overtime`
+                        : `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
+                      : `${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime to review`}
                   </p>
                   <ul className="divide-y divide-line text-body-sm">
-                    {week.map(row => (
-                      <li
-                        key={row.id}
-                        className="py-2"
-                      >
+                    {week.map((row) => (
+                      <li key={row.id} className="py-2">
                         {formatWorkDate(row.work_date)} · {row.hours.toFixed(1)}h ·{' '}
-                        {row.approval_status || 'standard'}
+                        {reviewStatus(row.approval_status)}
                         {row.id === entry.id ? ' · Shift being reviewed' : ''}
                       </li>
                     ))}
@@ -376,7 +507,7 @@ export default function ReviewSheet({
             {historyError ? (
               <ErrorState
                 title="Couldn't load the change history."
-                onRetry={() => setHistoryAttempt(value => value + 1)}
+                onRetry={() => setHistoryAttempt((value) => value + 1)}
               />
             ) : history === null ? (
               <p className="text-body-sm">Loading change history…</p>
@@ -393,11 +524,8 @@ export default function ReviewSheet({
                     <p className="text-ink-muted">
                       {change.actor?.full_name || 'System'} · {when(change.at)}
                     </p>
-                    {change.fields.map(field => (
-                      <p
-                        key={field.field}
-                        className="break-words"
-                      >
+                    {change.fields.map((field) => (
+                      <p key={field.field} className="break-words">
                         {field.label}:{' '}
                         {field.before === null ? 'Not recorded' : String(field.before)} →{' '}
                         {field.after === null ? 'Not recorded' : String(field.after)}
@@ -409,14 +537,21 @@ export default function ReviewSheet({
               </ol>
             )}
           </section>
+          {pendingChange && denying === 'time' && (
+            <p role="alert" className="text-body-sm font-semibold text-danger">
+              Deny the whole shift: no hours from this shift will count.
+              {canKeepOriginal && ' To keep the hours they worked, choose Keep the original time instead.'}
+            </p>
+          )}
           {denying && (
             <Field
-              label={`Why is this denied? ${entry.user.full_name.split(' ')[0]} will see this.`}
+              label={`${denying === 'change' ? 'Why keep the original time?' : 'Why is this denied?'} ${entry.user.full_name.split(' ')[0]} will see this.`}
               required
             >
               <Textarea
+                ref={noteRef}
                 value={note}
-                onChange={event => setNote(event.target.value)}
+                onChange={(event) => setNote(event.target.value)}
                 maxLength={2000}
               />
             </Field>
@@ -439,10 +574,7 @@ export default function ReviewSheet({
             </Button>
           )}
           {error && (
-            <p
-              role="alert"
-              className="text-body-sm text-danger"
-            >
+            <p role="alert" className="text-body-sm text-danger">
               {error}
             </p>
           )}
@@ -461,7 +593,7 @@ export default function ReviewSheet({
           void onReload()
           onClose()
         }}
-        onError={message => setError(message || '')}
+        onError={(message) => setError(message || '')}
       />
     </>
   )

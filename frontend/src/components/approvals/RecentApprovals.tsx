@@ -58,7 +58,7 @@ export default function RecentApprovals({ batches, busy, online, onUndo }: Recen
           className="flex w-full flex-wrap items-center gap-2"
         >
           <span>
-            {recentBatchLabel(batch)} · until {formatBusinessTime(new Date(batch.expiresAt))}
+            {recentBatchLabel(batch)}
           </span>
           <Button
             variant="ghost"
@@ -70,7 +70,7 @@ export default function RecentApprovals({ batches, busy, online, onUndo }: Recen
               setNow(Date.now())
             }}
           >
-            Undo
+            Undo until {formatBusinessTime(new Date(batch.expiresAt))}
           </Button>
         </div>
       ))}

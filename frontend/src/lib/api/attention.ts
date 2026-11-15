@@ -31,12 +31,15 @@ export interface ClockAttentionItem extends AttentionBase {
 export interface ApprovalsSummary {
   count: number
   total_hours: number
+  time_waiting_hours?: number
+  overtime_waiting_hours?: number
   oldest_work_date: string | null
   by_kind: { time: number; overtime: number; added: number; clocked: number }
 }
 
 export interface ApprovalsAttentionItem extends AttentionBase, ApprovalsSummary {
   type: 'approvals_waiting'
+  earlier_periods?: Array<{ start_date: string; end_date: string; hours: number }>
 }
 
 export interface OvertimeAttentionItem extends AttentionBase {
@@ -124,6 +127,8 @@ export interface AttentionPeriod {
   label: string
   label_provisional: boolean
   people: number
+  time_waiting_hours?: number
+  overtime_waiting_hours?: number
   approved_hours: number
   waiting_hours: number
   waiting_count: number
@@ -152,6 +157,7 @@ export interface PayrollConnectionStatus {
     occurred_at: string
     period: { start_date: string; end_date: string } | null
   } | null
+  latest_locked_period_delivery?: { status: 'pending' | 'failed' | 'delivered' | null; delivered_at: string | null; period: { start_date: string; end_date: string } } | null
   undelivered: { count: number; failed_count: number; stuck_count: number }
   account_link: { linked_at: string; connected: boolean } | null
 }

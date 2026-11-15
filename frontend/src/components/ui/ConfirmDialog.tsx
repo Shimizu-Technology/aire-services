@@ -25,6 +25,8 @@ export interface ConfirmDialogProps {
   confirmDisabledReason?: string
   /** When set, the action stays disabled until this exact text is typed. */
   requireText?: string
+  /** A third choice between Cancel and the action, e.g. "Discard changes". */
+  alternate?: { label: string; onClick: () => void; tone?: 'default' | 'danger' }
   onConfirm: () => void
   onCancel: () => void
 }
@@ -45,6 +47,7 @@ function OpenConfirmDialog({
   confirmDisabled = false,
   confirmDisabledReason,
   requireText,
+  alternate,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -53,7 +56,8 @@ function OpenConfirmDialog({
   const [typed, setTyped] = useState('')
   const danger = tone === 'danger'
   const initialFocus = requireText ? '[data-confirm-input]' : danger ? '[data-confirm-cancel]' : '[data-confirm-action]'
-  useDialogFocus(true, dialogRef, () => { if (!busy) onCancel() }, initialFocus)
+  useDialogFocus(true, dialogRef, () => { if (!busy) onCancel() }, `[data-confirm-initial-focus], ${initialFocus}`)
+  const buttonWidth = alternate ? 'w-full' : 'w-full sm:w-auto'
   const blocked = Boolean(requireText) && typed.trim() !== requireText
 
   return createPortal(
@@ -68,9 +72,9 @@ function OpenConfirmDialog({
         aria-labelledby={`${ids}-title`}
         aria-describedby={description || details ? `${ids}-body` : undefined}
         tabIndex={-1}
-        className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-card bg-surface p-5 shadow-2xl transition duration-200 ease-out-strong starting:translate-y-2 starting:scale-[0.98] starting:opacity-0 motion-reduce:transform-none sm:p-6"
+        className="max-h-[90dvh] w-full max-w-md flex flex-col overflow-y-auto rounded-card bg-surface p-5 shadow-2xl transition duration-200 ease-out-strong starting:translate-y-2 starting:scale-[0.98] starting:opacity-0 motion-reduce:transform-none sm:p-6"
       >
-        <div className="flex gap-3">
+        <div className="flex shrink-0 gap-3">
           {danger && (
             <span aria-hidden="true" className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
               <AlertTriangle className="size-5" />
@@ -87,7 +91,7 @@ function OpenConfirmDialog({
           </div>
         </div>
         {requireText && (
-          <div className="mt-4">
+          <div className="mt-4 shrink-0">
             <label htmlFor={`${ids}-typed`} className="block text-sm font-medium text-ink">
               Type <span className="font-semibold">{requireText}</span> to confirm
             </label>
@@ -104,10 +108,21 @@ function OpenConfirmDialog({
             />
           </div>
         )}
-        <div className={cx('mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end')}>
-          <Button data-confirm-cancel variant="secondary" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
+        {/* Three choices don't fit side by side in a dialog this narrow, so they stack. */}
+        <div className={cx('mt-6 flex shrink-0 flex-col-reverse gap-2', !alternate && 'sm:flex-row sm:justify-end')}>
+          <Button data-confirm-cancel variant="secondary" onClick={onCancel} disabled={busy} className={buttonWidth}>
             {cancelLabel}
           </Button>
+          {alternate && (
+            <Button
+              variant={alternate.tone === 'danger' ? 'danger-outline' : 'secondary'}
+              onClick={alternate.onClick}
+              disabled={busy}
+              className={buttonWidth}
+            >
+              {alternate.label}
+            </Button>
+          )}
           <Button
             data-confirm-action
             variant={danger ? 'danger' : 'primary'}
@@ -115,7 +130,7 @@ function OpenConfirmDialog({
             loading={busy}
             disabled={blocked || confirmDisabled}
             title={confirmDisabled ? confirmDisabledReason : undefined}
-            className="w-full sm:w-auto"
+            className={buttonWidth}
           >
             {confirmLabel}
           </Button>

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider, Link } from 'react-router-dom'
 import { beforeEach, expect, it, vi } from 'vitest'
@@ -28,7 +28,7 @@ const settings = Object.fromEntries(
     .flatMap((page) => page.keys)
     .map((key) => [
       key,
-      key.endsWith('emails')
+      key === 'clock_in_location_enforced' ? 'true' : key.endsWith('emails')
         ? ''
         : ['clock_in_location_name'].includes(key)
           ? 'AIRE'
@@ -81,7 +81,7 @@ for (const [page, config] of Object.entries(settingsPages)) {
           : key === 'clock_in_location_longitude'
             ? 'Longitude'
             : fixture.find((entry) => (entry.setting_keys as string[]).includes(key))!.label
-      await screen.findByText(label, { selector: 'label' })
+      await screen.findAllByText(label)
       const control = screen.queryByRole('switch', { name: label })
       if (control) await user.click(control)
       else {
@@ -127,19 +127,50 @@ it('keeps editing or discards on navigation', async () => {
   await user.click(screen.getByRole('button', { name: 'Discard changes' }))
   expect(await screen.findByText('Away')).toBeInTheDocument()
 })
-it('rejects malformed reminder recipients', async () => {
+it('says what is wrong with a reminder address under the field, and keeps what was typed', async () => {
   const user = userEvent.setup({ delay: null })
   mount('approvals')
-  await user.type(await screen.findByLabelText('Cutoff reminder recipients'), 'invalid{Enter}')
-  await user.click(screen.getByRole('button', { name: 'Save changes' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Enter valid reminder email addresses')
+  const field = await screen.findByLabelText('Lock reminder recipients')
+  await user.type(field, 'chels{Enter}')
+  const message = "Lock reminder recipients: 'chels' is missing an email domain, for example chels@example.com."
+  expect(screen.getByText(message)).toBeInTheDocument()
+  expect(field).toHaveAttribute('aria-invalid', 'true')
+  expect(field).toHaveAccessibleDescription(message)
+  expect(field).toHaveFocus()
+  expect(field).toHaveValue('chels')
   expect(mocks.save).not.toHaveBeenCalled()
+})
+it('stops a Save with an address that was typed but not added', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('approvals')
+  const field = await screen.findByLabelText('Lock reminder recipients')
+  await user.type(field, 'chels')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText(/'chels' is missing an email domain/)).toBeInTheDocument()
+  await waitFor(() => expect(field).toHaveFocus())
+  expect(field).toHaveValue('chels')
+  expect(mocks.save).not.toHaveBeenCalled()
+  expect(screen.getAllByText('You have unsaved changes').length).toBeGreaterThan(0)
+})
+it('shows each reminder address once as a chip with Add and Remove', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('approvals')
+  const field = await screen.findByLabelText('Lock reminder recipients')
+  await user.type(field, 'ops@example.com')
+  await user.click(screen.getByRole('button', { name: 'Add email address' }))
+  expect(field).toHaveValue('')
+  const list = screen.getByRole('list', { name: 'Lock reminder recipients: current addresses' })
+  expect(within(list).getByText('ops@example.com')).toBeInTheDocument()
+  expect(screen.queryByDisplayValue('ops@example.com')).toBeNull()
+  await user.click(screen.getByRole('button', { name: 'Remove ops@example.com' }))
+  expect(screen.queryByRole('list', { name: /current addresses/ })).toBeNull()
+  expect(screen.queryByText('You have unsaved changes')).toBeNull()
 })
 it('lowercases and de-duplicates reminder recipients before saving', async () => {
   const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.type(
-    await screen.findByLabelText('Cutoff reminder recipients'),
+    await screen.findByLabelText('Lock reminder recipients'),
     'Ops@Example.com, ops@example.com',
   )
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -238,7 +269,7 @@ it('asks the full auto-approval question when turning it on', async () => {
   const dialog = await screen.findByRole('alertdialog')
   expect(dialog).toHaveTextContent('Turn on auto-approval?')
   expect(dialog).toHaveTextContent(
-    'Chels and the CEO must agree before this is turned on. Employees’ ordinary kiosk and mobile shifts will be approved at clock-out without a manager looking at them.',
+    'An administrator and the owner must agree before this is turned on. Employees’ ordinary kiosk and mobile shifts will be approved at clock-out without a manager looking at them.',
   )
   expect(dialog).toHaveTextContent(
     'Overtime, edits, manual entries, missed clock-outs, late hours and supervisors’ own time still go to the queue.',
@@ -259,11 +290,40 @@ it('shows the server message when the recipient list is refused', async () => {
     new PayStubError("These don't look like email addresses: nope", 'invalid_email', 422),
   )
   mount('pay-stubs')
-  await user.type(await screen.findByLabelText('Heads-up emails for kiosk requests'), 'nope')
+  const field = await screen.findByLabelText('Heads-up emails for kiosk requests')
+  await user.type(field, 'nope@example.com')
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    "These don't look like email addresses: nope",
-  )
+  const message = "Heads-up emails for kiosk requests: These don't look like email addresses: nope"
+  expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(field).toHaveAccessibleDescription(message)
+  expect(field).toHaveValue('nope@example.com')
+})
+it('holds the pay stub heads-up list to the stricter server rule, and reminders to the looser one', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('pay-stubs')
+  const field = await screen.findByLabelText('Heads-up emails for kiosk requests')
+  await user.type(field, 'a@b{Enter}')
+  expect(screen.getByText("Heads-up emails for kiosk requests: 'a@b' needs a domain with a dot, for example a@example.com.")).toBeInTheDocument()
+  expect(field).toHaveAttribute('aria-invalid', 'true')
+  cleanup()
+  mount('approvals')
+  const reminders = await screen.findByLabelText('Lock reminder recipients')
+  await user.type(reminders, 'a@b{Enter}')
+  expect(screen.getByRole('list', { name: /current addresses/ })).toHaveTextContent('a@b')
+})
+it('will not save a fractional radius or a hex threshold', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  const radius = await screen.findByLabelText('Allowed radius')
+  await user.clear(radius)
+  await user.type(radius, '0.5')
+  const daily = screen.getByLabelText('Daily hours review alert')
+  await user.clear(daily)
+  await user.type(daily, '0x10')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText('Daily hours review alert: enter a number of hours.')).toBeInTheDocument()
+  expect(screen.getByText('Allowed radius: enter a whole number of meters.')).toBeInTheDocument()
+  expect(mocks.save).not.toHaveBeenCalled()
 })
 it('shows the Pay stubs form only once switches and recipients have both loaded', async () => {
   let release: (value: { emails: string[]; editable: boolean }) => void = () => {}
@@ -288,18 +348,22 @@ it('shows an error with a retry when the recipient list cannot be loaded', async
   expect(await screen.findByRole('switch', { name: 'Pay stub requests at the kiosk' })).toBeInTheDocument()
 })
 for (const [key, label, ask] of [
-  ['overtime_daily_threshold_hours', 'Daily hours review alert', 'Enter a number of hours'],
-  ['early_clock_in_buffer_minutes', 'Early clock-in buffer', 'Enter a number of minutes'],
-  ['clock_in_location_radius_meters', 'Allowed radius', 'Enter a distance in meters'],
-  ['clock_in_location_name', 'Location label', 'Enter a location name'],
+  ['overtime_daily_threshold_hours', 'Daily hours review alert', 'enter a number of hours'],
+  ['early_clock_in_buffer_minutes', 'Early clock-in buffer', 'enter a whole number of minutes'],
+  ['clock_in_location_radius_meters', 'Allowed radius', 'enter a whole number of meters'],
+  ['clock_in_location_name', 'Location label', 'enter a location name'],
 ] as const) {
   it(`will not save ${label} when it is cleared`, async () => {
     const user = userEvent.setup({ delay: null })
     load({ [key]: key === 'clock_in_location_name' ? 'AIRE' : '8' })
     mount('time-clock')
-    await user.clear(await screen.findByLabelText(label))
+    const field = await screen.findByLabelText(label)
+    await user.clear(field)
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(`${label}: ${ask}.`)
+    expect(await screen.findByText(`${label}: ${ask}.`)).toBeInTheDocument()
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(field).toHaveAccessibleDescription(`${label}: ${ask}.`)
+    await waitFor(() => expect(field).toHaveFocus())
     expect(mocks.save).not.toHaveBeenCalled()
     expect(screen.getAllByText('You have unsaved changes').length).toBeGreaterThan(0)
   })
@@ -310,14 +374,103 @@ it('will not save a number field that is not a number', async () => {
   await user.clear(await screen.findByLabelText('Weekly hours review alert'))
   await user.type(screen.getByLabelText('Weekly hours review alert'), 'forty')
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Enter a number of hours')
+  expect(await screen.findByText('Weekly hours review alert: enter a number of hours.')).toBeInTheDocument()
   expect(mocks.save).not.toHaveBeenCalled()
+})
+it('names the field the owner edited when the alert is not above zero, keeping the draft', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  const field = await screen.findByLabelText('Daily hours review alert')
+  await user.clear(field)
+  await user.type(field, '-1')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  const message = 'Daily hours review alert: enter a number greater than 0.'
+  expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(field).toHaveAttribute('aria-invalid', 'true')
+  expect(field).toHaveAccessibleDescription(message)
+  await waitFor(() => expect(field).toHaveFocus())
+  expect(field).toHaveValue('-1')
+  expect(screen.queryByText(/threshold/i)).toBeNull()
+  expect(mocks.save).not.toHaveBeenCalled()
+  await user.clear(field)
+  expect(field).not.toHaveAttribute('aria-invalid')
+  expect(screen.queryByText(message)).toBeNull()
+})
+it('focuses the first invalid field in page order when several are wrong', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  const weekly = await screen.findByLabelText('Weekly hours review alert')
+  const daily = screen.getByLabelText('Daily hours review alert')
+  await user.clear(weekly)
+  await user.type(weekly, '0')
+  await user.clear(daily)
+  await user.type(daily, '0')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() => expect(daily).toHaveFocus())
+  expect(weekly).toHaveAttribute('aria-invalid', 'true')
+})
+it("shows the server's refusal under the field using the label on the page", async () => {
+  const user = userEvent.setup({ delay: null })
+  mocks.save.mockResolvedValue({ error: 'Clock-in radius must be greater than 0 meters before enabling location enforcement' })
+  mount('time-clock')
+  const field = await screen.findByLabelText('Allowed radius')
+  await user.clear(field)
+  await user.type(field, '5')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  const message = 'Allowed radius must be greater than 0 meters before enabling location enforcement.'
+  expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(field).toHaveAccessibleDescription(message)
+  expect(field).toHaveValue('5')
+  expect(screen.queryByText(/Clock-in radius/)).toBeNull()
+})
+it('collapses the location search while the location check is off and opens it for Change location', async () => {
+  mocks.get.mockResolvedValue({ data: { settings: { ...settings, clock_in_location_enforced: 'false' }, catalog: fixture } })
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  await screen.findByText('Clock-in location')
+  expect(screen.queryByLabelText('Find location by address')).toBeNull()
+  expect(screen.queryByLabelText('Latitude')).toBeNull()
+  expect(screen.queryByLabelText('Longitude')).toBeNull()
+  expect(screen.queryByLabelText('Allowed radius')).toBeNull()
+  expect(screen.getByText(/location check is off/)).toBeInTheDocument()
+  const toggle = screen.getByRole('button', { name: 'Change location' })
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await user.click(toggle)
+  expect(screen.getByLabelText('Find location by address')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Hide location search' })).toHaveAttribute('aria-expanded', 'true')
+})
+it('opens the location search by itself once the location check is turned on', async () => {
+  mocks.get.mockResolvedValue({ data: { settings: { ...settings, clock_in_location_enforced: 'false' }, catalog: fixture } })
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  await user.click(await screen.findByRole('switch', { name: 'Clock-in location restriction' }))
+  expect(screen.getByLabelText('Find location by address')).toBeInTheDocument()
+})
+it('shows each switch label once and keeps the switch named by it', async () => {
+  mount('approvals')
+  const toggle = await screen.findByRole('switch', { name: 'Managers can approve their own time' })
+  expect(toggle).toBeInTheDocument()
+  const visible = screen.getAllByText('Managers can approve their own time').filter((node) => !node.classList.contains('sr-only'))
+  expect(visible).toHaveLength(1)
+})
+it('puts the kiosk page first: open and unlock, where to do it, and where the pay stub switch is', async () => {
+  load({ pay_stub_kiosk_requests_enabled: 'true' })
+  mount('kiosk')
+  const open = await screen.findByRole('link', { name: /Open and unlock kiosk/ })
+  expect(open).toHaveAttribute('href', '/kiosk')
+  expect(open).toHaveAttribute('target', '_blank')
+  expect(open).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  expect(open).toHaveTextContent('(opens in a new tab)')
+  expect(screen.getByText(/shared office device/)).toBeInTheDocument()
+  expect(screen.queryByRole('switch')).toBeNull()
+  expect(screen.getByText(/Pay stub requests at the kiosk are on/)).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Change this in Pay stubs' })).toHaveAttribute('href', '/admin/settings/pay-stubs')
 })
 it('accepts the reminder addresses the server accepts', async () => {
   const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.type(
-    await screen.findByLabelText('Cutoff reminder recipients'),
+    await screen.findByLabelText('Lock reminder recipients'),
     "a@b, o'brien+pay@example.com",
   )
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -329,9 +482,9 @@ it('accepts the reminder addresses the server accepts', async () => {
 it('refuses reminder addresses the server would refuse', async () => {
   const user = userEvent.setup({ delay: null })
   mount('approvals')
-  await user.type(await screen.findByLabelText('Cutoff reminder recipients'), 'two words@example.com')
+  await user.type(await screen.findByLabelText('Lock reminder recipients'), 'two words@example.com')
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Enter valid reminder email addresses')
+  expect(await screen.findByText(/'two words@example.com' isn't a valid email address/)).toBeInTheDocument()
   expect(mocks.save).not.toHaveBeenCalled()
 })
 it('allows 10 reminder recipients and refuses 11', async () => {
@@ -339,13 +492,13 @@ it('allows 10 reminder recipients and refuses 11', async () => {
   const list = (count: number) =>
     Array.from({ length: count }, (_, index) => `p${index}@example.com`).join(', ')
   mount('approvals')
-  const field = await screen.findByLabelText('Cutoff reminder recipients')
+  const field = await screen.findByLabelText('Lock reminder recipients')
   // Paste rather than type: typing ~200 characters key by key is what made
   // this test time out when the machine was busy.
   await user.click(field)
   await user.paste(list(11))
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Use 10 addresses or fewer.')
+  expect(await screen.findByText('Lock reminder recipients: use 10 addresses or fewer.')).toBeInTheDocument()
   expect(mocks.save).not.toHaveBeenCalled()
   await user.clear(field)
   await user.paste(list(10))
@@ -389,4 +542,18 @@ it('forgets the remembered Require after Discard', async () => {
   await user.click(use)
   await user.click(use)
   expect(await requireSwitch()).toBeChecked()
+})
+
+it('drops hidden invalid location edits when enforcement is turned off', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  const radius = await screen.findByLabelText('Allowed radius')
+  await user.clear(radius)
+  await user.type(radius, '0.5')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText('Allowed radius: enter a whole number of meters.')).toBeInTheDocument()
+  await user.click(screen.getByRole('switch', { name: 'Clock-in location restriction' }))
+  expect(screen.queryByLabelText('Allowed radius')).toBeNull()
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ clock_in_location_enforced: 'false' }))
 })

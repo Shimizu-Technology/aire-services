@@ -18,6 +18,7 @@ export interface ReviewSummary {
   ordinary_hours: number
   needs_look_count: number
   batch_limit: number
+  ordinary_max_shift_hours?: number
   by_person: {
     user_id: number
     full_name: string
@@ -40,6 +41,7 @@ export interface ReviewItem {
   overtime_hours?: number
 }
 export interface ReviewBatch {
+  undone?: boolean
   review_batch_id: string
   undo_expires_at: string
   approved_count: number
@@ -72,12 +74,12 @@ export const approvalsApi = {
       `/api/v1/leave_requests?${query}`,
     )
   },
-  pending: (params: PendingApprovalsParams) => {
+  pending: (params: PendingApprovalsParams, signal?: AbortSignal) => {
     const query = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== '') query.set(key, String(value))
     })
-    return fetchApi<ApprovalsResponse>(`/api/v1/time_entries/pending_approvals?${query}`)
+    return fetchApi<ApprovalsResponse>(`/api/v1/time_entries/pending_approvals?${query}`, { signal })
   },
   review: (items: readonly ReviewItem[], key: string, mode: 'ordinary' | 'reviewed' = 'ordinary') =>
     fetchApi<ReviewBatch>('/api/v1/time_entries/review_batch', {

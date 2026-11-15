@@ -18,6 +18,24 @@ RSpec.describe AuditLogPresenter do
 
   after { Current.reset }
 
+  it "names a refused clock-out edit and the real reason" do
+    text = summary_for("time_entries.update", outcome: "failed", metadata: {
+      employee_name: "Daniel", work_date: "2026-11-03", changed_fields: [ "time_entry.end_time" ], error_message: "A reason was required"
+    })
+    expect(text).to eq("Roke Reyes tried to change Daniel's Nov 3, 2026 clock-out — A reason was required")
+  end
+
+  it "uses lock wording and Guam time for a refused lock request" do
+    text = summary_for("payroll_calendar_period.cutoff_change_requested", outcome: "denied", metadata: {
+      requested_cutoff_at: "2026-11-19T07:00:00Z", error: "This period is already locked"
+    })
+    expect(text).to eq("Roke Reyes asked to move the lock to Thu, Nov 19, 5:00 PM — refused: This period is already locked")
+  end
+
+  it "supports pay stub admin downloads without exposing delivery identifiers" do
+    expect(summary_for("pay_documents.admin_pdf_downloaded")).to eq("Roke Reyes downloaded Ethan Cruz's pay stub")
+  end
+
   describe "review batches from the Approvals inbox" do
     let(:other) { create(:user, :employee, first_name: "Marcus", last_name: "Quinata") }
 
@@ -58,6 +76,11 @@ RSpec.describe AuditLogPresenter do
       expect(summary_for("time_entry.overtime_reset", metadata: clock_metadata.merge(overtime_status: "none")))
         .to eq("Roke Reyes cleared Ethan Cruz's approved overtime for Nov 10, 2026 (the week no longer has that overtime)")
     end
+  end
+
+  it "says that rejecting the change kept dated original time without approving the change" do
+    expect(summary_for("time_entry.change_rejected", metadata: clock_metadata(worker, work_date: "2026-11-14")))
+      .to eq("Roke Reyes kept Ethan Cruz's original time for Sat, Nov 14 and didn't approve the change")
   end
 
   it "describes clock events as plain sentences" do

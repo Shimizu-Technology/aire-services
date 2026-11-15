@@ -19,6 +19,10 @@ class AuditLogPresenter
     "time_entry.updated" => "Edited",
     "time_entry.deleted" => "Deleted",
     "time_entry.submitted" => "Submitted",
+    "time_entry.change_rejected" => "Kept original time for",
+    "kiosk.locked" => "Locked the kiosk",
+    "kiosk.all_locked" => "Locked all kiosks",
+    "kiosk.lock_failed" => "Failed to lock the kiosk",
     "time_entry.approved" => "Approved",
     "time_entry.auto_approved" => "Auto-approved",
     "time_entry.denied" => "Denied",
@@ -52,6 +56,7 @@ class AuditLogPresenter
     "pay_documents.link_sent" => "Sent a pay stub link to",
     "pay_documents.link_revoked" => "Revoked a pay stub link for",
     "pay_documents.link_downloaded" => "Downloaded a pay stub for",
+    "pay_documents.admin_pdf_downloaded" => "Downloaded a pay stub for",
     "pay_documents.link_download_denied" => "Was denied a pay stub download for"
   }.freeze
 
@@ -67,6 +72,7 @@ class AuditLogPresenter
     "time_entry.auto_closed" => { other: "automatically clocked out %{employee} after a long open shift" },
     "time_entry.clock_ended" => { other: "entered the missed clock-out for %{employee}%{on_date}" },
     "time_entry.created" => { self: "added %{hours} of their own time%{on_date}", other: "added %{hours} for %{employee}%{on_date}" },
+    "time_entry.change_rejected" => { other: "kept %{employee_possessive} original time%{on_date} and didn't approve the change" },
     "time_entry.approved" => { other: "approved %{employee_possessive} time%{on_date}" },
     "time_entry.denied" => { other: "denied %{employee_possessive} time%{on_date}" },
     "time_entry.overtime_approved" => { other: "approved %{employee_possessive} overtime%{on_date}" },
@@ -82,6 +88,7 @@ class AuditLogPresenter
   # The worker is both actor and subject of their own My Pay views; previews
   # name the worker whose pay an admin looked at.
   MY_PAY_SENTENCES = {
+    "pay_documents.admin_pdf_downloaded" => "downloaded %{subject_possessive} pay stub",
     "my_pay.statements_viewed" => "viewed their pay statements",
     "my_pay.statement_viewed" => "opened one of their pay statements",
     "my_pay.statement_pdf_downloaded" => "downloaded one of their pay statements",
@@ -120,9 +127,28 @@ class AuditLogPresenter
   end
 
   def summary
+    if audit_log.outcome.in?(%w[failed denied]) && audit_log.action.end_with?(".update")
+      reason = metadata["error_message"].presence || "the change was refused"
+      fields = Array(metadata["changed_fields"]).map { |field| field.to_s.split(".").last }
+      field = fields.include?("end_time") ? "clock-out" : fields.include?("start_time") ? "clock-in" : "shift"
+      whose = metadata["employee_name"].presence
+      target = whose ? "#{possessive(whose)} #{metadata['work_date']} #{field}" : subject
+      return readable_dates("#{actor} tried to change #{target} — #{reason}")
+    end
+    if audit_log.action == "payroll_calendar_period.cutoff_change_requested"
+      target = metadata["requested_cutoff_at"]
+      moment = target.present? ? Time.iso8601(target).in_time_zone("Guam").strftime("%a, %b %-d, %-I:%M %p") : "now"
+      refused = audit_log.outcome.in?(%w[failed denied]) ? " — refused: #{metadata['error'].presence || 'the request was not accepted'}" : ""
+      return "#{actor} asked to move the lock to #{moment}#{refused}"
+    end
     sentence = employee_sentence || my_pay_sentence || access_sentence || review_batch_sentence
     return readable_dates("#{actor} #{sentence}".squish) if sentence
 
+    if audit_log.auditable_type == "PayDocumentDelivery"
+      employee = metadata["employee_name"].presence || metadata["recipient_name"].presence || audit_log.subject_name.presence || "this employee"
+      verb = VERBS[audit_log.action] || "Updated a pay stub for"
+      return "#{actor} #{verb.downcase} #{employee}"
+    end
     verb = VERBS[audit_log.action]
     return fallback_summary unless verb
     return "#{actor} #{verb.downcase}".squish if SUBJECTLESS_ACTIONS.include?(audit_log.action)
@@ -156,6 +182,9 @@ class AuditLogPresenter
     return unless pattern
 
     work_date = metadata["work_date"].presence
+    if audit_log.action == "time_entry.change_rejected" && work_date
+      work_date = Date.iso8601(work_date).strftime("%a, %b %-d")
+    end
     format(pattern, employee: own ? "themselves" : employee.to_s,
            employee_possessive: own ? "their own" : possessive(employee),
            on_date: work_date ? " for #{work_date}" : "", hours: hours_phrase(metadata["hours"]), subject: subject)

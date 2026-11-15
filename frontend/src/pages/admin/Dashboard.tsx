@@ -2,16 +2,13 @@ import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNot
 import PayrollLockControl from '../../components/payroll/PayrollLockControl'
 import { useState, useEffect, useCallback } from 'react'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
-import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { businessDateISO, businessWeekStart } from '../../lib/dateUtils'
 import { useCapabilities } from '../../lib/useCapabilities'
 import type { Capabilities, Capability } from '../../lib/roles'
-import type { TimeEntry } from '../../lib/api'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, payrollPreparationPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
-import { ADMIN_PATHS, landingPathFor, timeSectionHref } from '../../lib/adminRoutes'
-import { useAuthContext } from '../../contexts/AuthContext'
+import { ADMIN_PATHS, landingPathFor } from '../../lib/adminRoutes'
 import { useSchedulesEnabled } from '../../lib/useSchedulesEnabled'
 import Today from './Today'
 
@@ -68,175 +65,8 @@ export default function Dashboard() {
 
   if (showsToday) return <Today />
   if (supervises) return <AdminDashboard capabilities={capabilities} />
-  return <MyTimeHome />
-}
-
-/** My Time (/admin/my-time): your clock, today's activity and leave. Employees land here. */
-export function MyTimeHome() {
-  const capabilities = useCapabilities()
-  const { currentUser } = useAuthContext()
-  const schedulesEnabled = useSchedulesEnabled()
-  // Supervisors' own entries live in Timecards, filtered to them.
-  const myHoursHref = capabilities.manage_team_time
-    ? timeSectionHref('entries', currentUser ? { user_id: String(currentUser.id) } : undefined)
-    : ADMIN_PATHS.myHours
-  useEffect(() => { document.title = 'My Time | AIRE Ops' }, [])
-  const [mySchedule, setMySchedule] = useState<{ work_date: string; formatted_start_time: string; formatted_end_time: string; hours: number; notes?: string | null; approved_leave_conflict?: boolean }[]>([])
-  const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([])
-  const [loadingTodayEntries, setLoadingTodayEntries] = useState(true)
-
-  const todayStr = businessDateISO()
-  const loadDashboardData = useCallback(async () => {
-    try {
-      // Shifts are only fetched while "Use schedules" is on.
-      const [scheduleRes, entriesRes] = await Promise.all([
-        schedulesEnabled ? api.getMySchedule() : Promise.resolve(null),
-        api.getTimeEntries({ date: todayStr, per_page: 20 }),
-      ])
-
-      if (scheduleRes?.data?.schedules) setMySchedule(scheduleRes.data.schedules)
-      if (entriesRes.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
-    } catch {
-      // Employee dashboard is best-effort.
-    } finally {
-      setLoadingTodayEntries(false)
-    }
-  }, [todayStr, schedulesEnabled])
-
-  useEffect(() => {
-    loadDashboardData()
-  }, [loadDashboardData])
-
-  return (
-    <div className="space-y-6">
-      <PayrollCutoffNotice />
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">My Time</h1>
-        <p className="mt-1 text-sm text-slate-600">{schedulesEnabled ? 'Clock in, track breaks, and view your schedule.' : 'Clock in, track breaks, and see today’s time.'}</p>
-      </div>
-
-      <ClockInOutCard onStatusChange={loadDashboardData} />
-
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Today&apos;s Activity</h2>
-          <p className="mt-0.5 text-sm text-slate-500">Your clock-ins, active time, and completed entries for today.</p>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {loadingTodayEntries ? (
-            <div className="px-5 py-8 text-center text-sm text-slate-500">Loading today&apos;s activity…</div>
-          ) : todayEntries.length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-slate-500">No time logged today yet.</div>
-          ) : (
-            todayEntries.map((entry) => {
-              const badge =
-                entry.status === 'on_break'
-                  ? { label: 'On break', className: 'border-amber-200 bg-amber-50 text-amber-700' }
-                  : entry.status === 'clocked_in'
-                    ? { label: 'Clocked in', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
-                    : entry.approval_status === 'pending'
-                      ? { label: 'Pending review', className: 'border-amber-200 bg-amber-50 text-amber-700' }
-                      : { label: 'Completed', className: 'border-slate-200 bg-slate-50 text-slate-700' }
-
-              return (
-                <div key={entry.id} className="flex items-center justify-between gap-4 px-5 py-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {entry.time_category?.name ?? 'General'}
-                      </p>
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${badge.className}`}>
-                        {badge.label}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {entry.formatted_start_time ?? '—'}
-                      {entry.formatted_end_time ? ` — ${entry.formatted_end_time}` : ' — In progress'}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-slate-900">{entry.hours.toFixed(2)}h</p>
-                    <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{entry.entry_method}</p>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </section>
-
-      {schedulesEnabled && <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">My Upcoming Schedule</h2>
-          <p className="mt-0.5 text-sm text-slate-500">Your upcoming shifts.</p>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {mySchedule.length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-slate-500">No upcoming shifts scheduled.</div>
-          ) : (
-            mySchedule.map((s, i) => {
-              const isToday = s.work_date === todayStr
-              return (
-                <div key={i} className={`flex items-center justify-between px-5 py-3 ${isToday ? 'bg-cyan-50/50' : ''}`}>
-                  <div>
-                    <p className={`text-sm font-medium ${isToday ? 'text-cyan-700' : 'text-slate-900'}`}>
-                      {new Date(s.work_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      {isToday && <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-xs font-medium text-cyan-700">Today</span>}
-                    </p>
-                    {s.approved_leave_conflict && <p className="mt-1 text-sm font-medium text-amber-800">Approved leave overlaps this shift. Check with your scheduler.</p>}
-                    {s.notes && <p className="mt-0.5 text-xs text-slate-500">{s.notes}</p>}
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-slate-700">{s.formatted_start_time} — {s.formatted_end_time}</p>
-                    <p className="text-xs text-slate-500">{s.hours}h</p>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </section>}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Link
-          to={myHoursHref}
-          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition hover:bg-slate-50"
-        >
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">My Hours</h3>
-            <p className="mt-0.5 text-xs text-slate-500">View and manage your logged hours.</p>
-          </div>
-          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </Link>
-        <Link
-          to={ADMIN_PATHS.leave}
-          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition hover:bg-slate-50"
-        >
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Request Leave</h3>
-            <p className="mt-0.5 text-xs text-slate-500">Submit and track your time-off requests.</p>
-          </div>
-          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </Link>
-        {schedulesEnabled && <Link
-          to="/admin/schedule"
-          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition hover:bg-slate-50"
-        >
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Full Schedule</h3>
-            <p className="mt-0.5 text-xs text-slate-500">See the team schedule for the week.</p>
-          </div>
-          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </Link>}
-      </div>
-    </div>
-  )
+  // Employees land on the Clock (AdminLanding redirects them first).
+  return <Navigate replace to={ADMIN_PATHS.myTime} />
 }
 
 // Owners, admins and managers. Managers see the same staffing and approval

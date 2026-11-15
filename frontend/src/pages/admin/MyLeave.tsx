@@ -19,6 +19,7 @@ import {
   Sheet,
   StatusPill,
   Textarea,
+  useToast,
 } from '../../components/ui'
 
 const TYPES: Record<LeaveRequest['leave_type'], string> = {
@@ -39,6 +40,7 @@ export default function MyLeave() {
   const [busy, setBusy] = useState<number | null>(null)
   const [uncertain, setUncertain] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const toast = useToast()
   const loadGeneration = useRef(0)
   const today = todayInGuam()
   const monthStart = `${today.slice(0, 7)}-01`
@@ -83,8 +85,14 @@ export default function MyLeave() {
       return
     ++loadGeneration.current
     setBusy(request.id)
+    setMessage(null)
     const result = await myTimeApi.cancelLeave(request.id)
-    if (result.data) setMessage('Your request was cancelled.')
+    if (result.data)
+      toast.show({
+        message: `Cancelled your ${employeeDateRange(request.start_date, request.end_date)} request.`,
+        action: { label: 'Undo', onAction: () => void restore(request),
+          expiresAt: result.data.undoExpiresAt ?? 0 },
+      })
     else
       setMessage(
         outcomeUnknown(result)
@@ -93,6 +101,21 @@ export default function MyLeave() {
       )
     setUncertain(true)
     setBusy(null)
+    await load()
+  }
+
+  // Undo restores the same row and its original queue position.
+  const restore = async (request: LeaveRequest) => {
+    ++loadGeneration.current
+    const result = await myTimeApi.undoCancelLeave(request.id)
+    if (result.data)
+      toast.show({ message: 'Your request is back and waiting for approval.' })
+    else
+      setMessage(
+        outcomeUnknown(result)
+          ? "We couldn't confirm your request was sent again. Check your requests below."
+          : `${result.error || "Couldn't send it again."} Use Request time off to ask again.`,
+      )
     await load()
   }
 
@@ -116,6 +139,13 @@ export default function MyLeave() {
           Check latest requests
         </Button>
       )}
+      <Button
+        fullWidth
+        disabled={!online || uncertain || !!error || requests === null}
+        onClick={() => setOpen(true)}
+      >
+        Request time off
+      </Button>
       {error ? (
         <ErrorState
           title="Couldn't load your requests."
@@ -135,6 +165,11 @@ export default function MyLeave() {
               </p>
               <p className="text-body-sm text-ink-muted">
                 {employeeDateRange(request.start_date, request.end_date)}
+              </p>
+              <p className="text-body-sm text-ink-muted">
+                {new Date(`${request.start_date}T12:00:00+10:00`).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'long' })}
+                {request.end_date !== request.start_date && `–${new Date(`${request.end_date}T12:00:00+10:00`).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'long' })}`}
+                {request.reviewed_by && ` · ${request.status === 'approved' ? 'Approved' : 'Declined'} by ${request.reviewed_by.full_name}`}
               </p>
               <StatusPill
                 tone={
@@ -179,12 +214,6 @@ export default function MyLeave() {
           ))}
         </ul>
       )}
-      <Button
-        disabled={!online || uncertain || !!error || requests === null}
-        onClick={() => setOpen(true)}
-      >
-        Request time off
-      </Button>
       {open && (
         <LeaveForm
           onSubmitting={() => {
@@ -196,7 +225,8 @@ export default function MyLeave() {
           }}
           onSaved={() => {
             setOpen(false)
-            setMessage('Your request was sent for approval.')
+            setMessage(null)
+            toast.show({ message: 'Your request was sent for approval.' })
             void load()
           }}
           onUncertain={() => {
@@ -228,9 +258,15 @@ function LeaveForm({
   const [saving, setSaving] = useState(false)
   const [uncertain, setUncertain] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [missing, setMissing] = useState(false)
+  const backwards = !!start && !!end && end < start
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!online || saving || uncertain) return
+    if (!start || !end || backwards) {
+      setMissing(!start || !end)
+      return
+    }
     onSubmitting()
     setSaving(true)
     const response = await myTimeApi.requestLeave({
@@ -272,7 +308,12 @@ function LeaveForm({
         </Button>
       }
     >
-      <form id="request-leave" onSubmit={submit} className="space-y-4">
+      <form
+        id="request-leave"
+        noValidate
+        onSubmit={submit}
+        className="space-y-4"
+      >
         <Field label="Type">
           <Select
             value={type}
@@ -287,7 +328,11 @@ function LeaveForm({
             ))}
           </Select>
         </Field>
-        <Field label="Start date" required>
+        <Field
+          label="Start date"
+          required
+          error={missing && !start ? 'Pick your first day off.' : undefined}
+        >
           <Input
             type="date"
             value={start}
@@ -297,7 +342,17 @@ function LeaveForm({
             }}
           />
         </Field>
-        <Field label="End date" required>
+        <Field
+          label="End date"
+          required
+          error={
+            backwards
+              ? "The end date can't be before the start date."
+              : missing && !end
+                ? 'Pick your last day off.'
+                : undefined
+          }
+        >
           <Input
             type="date"
             min={start}

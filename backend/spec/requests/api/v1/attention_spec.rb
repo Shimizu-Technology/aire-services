@@ -48,6 +48,19 @@ RSpec.describe "Attention", type: :request do
     create(:payroll_calendar_period, payroll_calendar_for(Date.new(2026, 11, 1)))
   end
 
+  it "does not count legacy denied time with orphan pending overtime in Today or the live period" do
+    publish_november!
+    entry = shift(caleb, date: Date.new(2026, 11, 9), approval_status: "denied")
+    entry.update_columns(overtime_status: "pending")
+    body = attention
+    expect(body.dig("approvals", "count")).to eq(0)
+    expect(body.fetch("items").pluck("type")).not_to include("approvals_waiting", "overtime_waiting")
+    expect(body.dig("period", "waiting_count")).to eq(0)
+    expect(body.dig("period", "waiting_hours")).to eq(0)
+    get "/api/v1/time_entries/pending_approvals", headers: headers_for(admin)
+    expect(response.parsed_body.fetch("count")).to eq(0)
+  end
+
   describe "open clocks" do
     it "flags yesterday's clock the minute the Guam day changes, and leaves a just-started clock alone" do
       before_midnight = open_clock(caleb, at: zone.local(2026, 11, 10, 23, 50))
@@ -77,6 +90,62 @@ RSpec.describe "Attention", type: :request do
       ])
       expect(items.find { |item| item["entry_id"] == long.id }).to include("tone" => "waiting", "hours_so_far" => 12.4)
     end
+  end
+
+  it "matches the current-period card and separates older waiting time without denied overtime" do
+    publish_november!
+    shift(employee, date: Date.new(2026, 11, 9), hours: 4, approval_status: "pending")
+    shift(employee, date: Date.new(2026, 10, 28), hours: 6, approval_status: "pending")
+    shift(employee, date: Date.new(2026, 11, 10), hours: 8, approval_status: "denied", overtime_status: "pending")
+    body = attention
+    row = body.fetch("items").find { |item| item["type"] == "approvals_waiting" }
+    expect(row).to include("count" => body.dig("approvals", "count"), "time_waiting_hours" => body.dig("period", "time_waiting_hours"))
+    expect(row.fetch("earlier_periods")).to eq([ { "start_date" => "2026-10-16", "end_date" => "2026-10-31", "hours" => 6.0 } ])
+    expect(body.dig("approvals", "count")).to eq(2)
+    expect(body.fetch("items").none? { |item| item["type"] == "overtime_waiting" }).to be(true)
+  end
+
+  it "splits pending overnight hours between the earlier and current periods" do
+    travel_to(zone.local(2026, 11, 16, 12))
+    create(:payroll_calendar_period, payroll_calendar_for(Date.new(2026, 11, 16)))
+    start = zone.local(2026, 11, 15, 22)
+    shift(employee, date: start.to_date, approval_status: "pending",
+      start_time: start, clock_in_at: start, end_time: start + 8.hours, clock_out_at: start + 8.hours)
+    body = attention
+    row = body.fetch("items").find { |item| item["type"] == "approvals_waiting" }
+    expect(row.fetch("earlier_periods")).to eq([ { "start_date" => "2026-11-01", "end_date" => "2026-11-15", "hours" => 2.0 } ])
+    expect(row.fetch("time_waiting_hours")).to eq(6.0)
+    expect(body.dig("approvals", "time_waiting_hours")).to eq(8.0)
+  end
+
+  it "counts each waiting source shift once while showing only its live waiting time and overtime" do
+    pending = shift(employee, date: Date.new(2026, 11, 9), hours: 4, approval_status: "pending", overtime_status: "pending")
+    approved = shift(caleb, date: Date.new(2026, 11, 9), hours: 8, overtime_status: "pending")
+    # A source shift needing both reviews still counts once. Approved regular
+    # time is never waiting, including a stale pending-overtime flag with no OT.
+    body = attention.fetch("approvals")
+    calculator = Payroll::ApprovalHours.for_entries([ pending, approved ])
+    expected = Payroll::ApprovalHours.sum([ pending, approved ].map { |row| calculator.for(row) })
+    expect(body).to include("count" => 2, "time_waiting_hours" => expected[:time_waiting_hours], "overtime_waiting_hours" => expected[:overtime_waiting_hours])
+    expect(body["time_waiting_hours"]).to eq(4.0)
+  end
+
+  it "keeps pending time whole and only counts time-approved overtime in every Today total" do
+    publish_november!
+    (2..6).each { |day| shift(employee, date: Date.new(2026, 11, day)) }
+    (2..6).each { |day| shift(caleb, date: Date.new(2026, 11, day)) }
+    shift(employee, date: Date.new(2026, 11, 7), hours: 6.33, approval_status: "pending", overtime_status: "pending")
+    shift(caleb, date: Date.new(2026, 11, 7), hours: 10.5, overtime_status: "pending")
+
+    body = attention
+    expect(body.fetch("approvals")).to include("count" => 2, "time_waiting_hours" => 6.33, "overtime_waiting_hours" => 10.5)
+    expect(body.fetch("period")).to include("time_waiting_hours" => 6.33, "overtime_waiting_hours" => 10.5)
+    expect(body.fetch("items").find { |row| row["type"] == "approvals_waiting" })
+      .to include("count" => 2, "time_waiting_hours" => 6.33, "overtime_waiting_hours" => 10.5)
+    expect(body.fetch("items").find { |row| row["type"] == "overtime_waiting" })
+      .to include("count" => 1, "hours" => 10.5)
+    get "/api/v1/time_entries/pending_approvals", headers: headers_for(admin)
+    expect(response.parsed_body.fetch("count")).to eq(2)
   end
 
   it "orders the whole list: clocks, approvals, overtime, categories, payroll, leave, PINs, stub requests" do
@@ -172,7 +241,7 @@ RSpec.describe "Attention", type: :request do
       shift(group_member, date: Date.new(2026, 11, 4), overtime_status: "pending")
       shift(group_member, date: Date.new(2026, 11, 5), approval_status: "pending", entry_method: "manual", clock_in_at: nil, clock_out_at: nil)
       shift(caleb, date: Date.new(2026, 10, 28), approval_status: "pending") # last period, still waiting
-      shift(caleb, date: Date.new(2026, 11, 6), approval_status: "denied")
+      shift(caleb, date: Date.new(2026, 11, 6), approval_status: "denied", overtime_status: "pending")
       shift(caleb, date: Date.new(2026, 11, 9))
       shift(manager, date: Date.new(2026, 11, 9), approval_status: "pending")
     end
@@ -195,26 +264,28 @@ RSpec.describe "Attention", type: :request do
       end
     end
 
-    it "equals the inbox filtered to the current pay period" do
+    it "uses report payroll eligibility rather than the whole-shift inbox hours" do
       get "/api/v1/time_entries/pending_approvals", params: { per_page: 1, start_date: "2026-11-01", end_date: "2026-11-15" },
                                                      headers: headers_for(admin)
-      summary = response.parsed_body.fetch("summary")
 
       period = attention(admin).fetch("period")
 
       expect(period).to include("published" => true, "start_date" => "2026-11-01", "end_date" => "2026-11-15",
                                 "handoff_state" => "open", "label" => "Open", "label_provisional" => true)
-      expect(period.fetch("waiting_count")).to eq(summary.fetch("entry_count"))
-      expect(period.fetch("waiting_hours")).to eq(summary.fetch("total_hours"))
-      expect(period.fetch("approved_hours")).to eq(8.0) # Caleb's approved Nov 9 shift; denied time is neither
+      report = Payroll::HoursReportBuilder.new(start_date: "2026-11-01", end_date: "2026-11-15").call
+      hours = report[:summary][:payroll_hours]
+      expect(period.fetch("waiting_count")).to eq(report[:summary][:approval_waiting_count])
+      expect(period.fetch("waiting_hours")).to eq(hours[:time_waiting_hours] + hours[:overtime_waiting_hours])
+      expect(period.fetch("approved_hours")).to eq(hours[:approved_hours])
+      expect(period.fetch("approved_hours")).to eq(16.0) # Approved REG counts even when the OT flag is pending.
       expect(period.fetch("people")).to eq(4)
     end
 
-    it "matches the overtime count to the inbox" do
+    it "counts only time-approved shifts in the separate overtime row" do
       overtime = attention(admin).fetch("items").find { |item| item["type"] == "overtime_waiting" }
 
-      expect(overtime.fetch("count")).to eq(2)
-      expect(overtime.fetch("people").map { |row| row["id"] }).to contain_exactly(grace.id, group_member.id)
+      expect(overtime.fetch("count")).to eq(1)
+      expect(overtime.fetch("people").map { |row| row["id"] }).to contain_exactly(group_member.id)
     end
   end
 

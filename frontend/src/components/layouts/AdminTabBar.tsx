@@ -6,21 +6,12 @@ import { cx } from '../../lib/cx'
 import { useShellChrome } from './shellChrome'
 import { approvalBadgeText, isNavItemActive, navItemLabel, type NavItem, type TabBarLayout } from './adminNavigation'
 
-function TabIcon({ icon: Icon, badge }: { icon: LucideIcon; badge?: string }) {
-  return (
-    <span className="relative inline-flex">
-      <Icon aria-hidden="true" className="size-6" strokeWidth={1.8} />
-      {badge && (
-        <span aria-hidden="true" className="absolute -right-2.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-white ring-2 ring-surface">
-          {badge}
-        </span>
-      )}
-    </span>
-  )
+function TabIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return <Icon aria-hidden="true" className="size-6" strokeWidth={1.8} />
 }
 
 const tabClass = (active: boolean) => cx(
-  'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-control px-1 pb-1 pt-2 text-xs font-semibold transition-colors duration-150',
+  'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-control px-0 pb-1 pt-2 text-sm leading-4 font-semibold tracking-[-0.01em] transition-colors duration-150',
   'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
   active ? 'text-primary' : 'text-ink-muted hover:text-ink',
 )
@@ -49,7 +40,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
   const [wasSuspended, setWasSuspended] = useState(suspended)
   const dismissedForDesktop = useRef(false)
   const moreItems = layout.more.flatMap((group) => group.items)
-  const moreActive = moreItems.some((navItem) => isNavItemActive(navItem, location.pathname))
+  const moreActive = moreItems.some((navItem) => isNavItemActive(navItem, location.pathname, location.search))
 
   // Required PIN setup closes More; it doesn't reopen once the PIN is saved.
   if (suspended !== wasSuspended) {
@@ -79,7 +70,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
   }, [moreOpen, onDesktopDismiss])
 
   const renderTab = (navItem: NavItem) => {
-    const active = isNavItemActive(navItem, location.pathname)
+    const active = isNavItemActive(navItem, location.pathname, location.search)
     const badge = navItem.badge === 'approvals' && approvalCount > 0 ? approvalBadgeText(approvalCount) : undefined
     return (
       <li key={navItem.id} className="flex min-w-0 flex-1">
@@ -89,10 +80,15 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
           rel={navItem.external ? 'noopener noreferrer' : undefined}
           aria-current={active ? 'page' : undefined}
           aria-label={navItemLabel(navItem, approvalCount)}
-          className={tabClass(active)}
+          className={cx('relative', tabClass(active))}
         >
-          <TabIcon icon={navItem.icon} badge={badge} />
+          <TabIcon icon={navItem.icon} />
           <span className="max-w-full truncate">{navItem.shortName ?? navItem.name}</span>
+          {badge && (
+            <span aria-hidden="true" className="absolute left-[calc(50%+4px)] top-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-slate-950 ring-2 ring-surface">
+              {' '}{badge}
+            </span>
+          )}
         </Link>
       </li>
     )
@@ -128,7 +124,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
               {group.label && <h3 className="mb-1 px-1 text-caption font-semibold uppercase tracking-[0.08em] text-ink-muted">{group.label}</h3>}
               <ul className="space-y-1">
                 {group.items.map((navItem) => {
-                  const active = isNavItemActive(navItem, location.pathname)
+                  const active = isNavItemActive(navItem, location.pathname, location.search)
                   const Icon = navItem.icon
                   return (
                     <li key={navItem.id}>
@@ -147,7 +143,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
                         <Icon aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.8} />
                         <span className="min-w-0 flex-1 truncate">{navItem.name}</span>
                         {navItem.badge === 'approvals' && approvalCount > 0 && (
-                          <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-white">{approvalBadgeText(approvalCount)}</span>
+                          <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-slate-950">{' '}{approvalBadgeText(approvalCount)}</span>
                         )}
                       </Link>
                     </li>

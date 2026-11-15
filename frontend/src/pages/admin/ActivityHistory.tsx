@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { useCapabilities } from '../../lib/useCapabilities'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
+import { describeEvent, formatDay } from '../../lib/activitySentences'
 
 const CATEGORY_LABELS: Record<string, string> = {
   activity: 'General activity',
@@ -22,6 +24,12 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 function formatLabel(value: string) {
   return CATEGORY_LABELS[value] || value.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function sourceLabel(event: AuditLogEntry) {
+  if (event.source === 'admin') return ''
+  if (event.details.clock_source === 'mobile' || event.source === 'phone') return 'Phone'
+  return formatLabel(event.source)
 }
 
 // Recorded field names people actually see in changes and context.
@@ -81,6 +89,17 @@ function subjectScope(searchParams: URLSearchParams) {
   }
 }
 
+/** "Back to Daniel's Nov 14 shift" for a shift's history; the person and date come with the link. */
+function routeSubjectLabel(searchParams: URLSearchParams) {
+  if (!searchParams.has('shift_person') && !searchParams.has('shift_date')) return 'Back to employee'
+  const person = searchParams.get('shift_person')?.trim().slice(0, 80)
+  const day = searchParams.get('shift_date') || ''
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(day) ? formatDay(day) : null
+  if (!person) return date ? `Back to the ${date} shift` : 'Back to the shift'
+  const owner = /s$/i.test(person) ? `${person}'` : `${person}'s`
+  return date ? `Back to ${owner} ${date} shift` : `Back to ${owner} shift`
+}
+
 function routeListFilters(searchParams: URLSearchParams): AuditLogFilters {
   const eventCategory = searchParams.get('event_category')?.trim()
   const search = searchParams.get('search')?.trim()
@@ -105,6 +124,11 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
   const detailRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && !hideIdBesideName(field))
   const hiddenIdRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && hideIdBesideName(field))
   const changeRows = Object.entries(event.changes)
+  const { sentences, usedKeys, rawKeys = [] } = describeEvent(event)
+  const isPlain = ([, value]: [string, unknown]) => value === null || ['string', 'number', 'boolean'].includes(typeof value)
+  // Context keeps plain facts. Recorded snapshots and lists belong under Details, never on the page.
+  const contextRows = detailRows.filter((row) => isPlain(row) && !usedKeys.includes(row[0]) && !rawKeys.includes(row[0]))
+  const structuredRows = detailRows.filter((row) => !isPlain(row) || rawKeys.includes(row[0]))
   const panelRef = useRef<HTMLElement>(null)
   const location = useLocation()
   const [compact, setCompact] = useState(() => window.innerWidth < 1280)
@@ -128,7 +152,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Event details</p>
           <h2 className="mt-1 text-lg font-semibold text-slate-950">{event.summary}</h2>
-          <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)}</p>
+          <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)} Guam time</p>
         </div>
         <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close event details">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
@@ -141,7 +165,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-slate-600">
             <dt className="text-slate-500">Actor</dt><dd>{event.actor.name || event.actor.email || formatLabel(event.actor.kind)}</dd>
             {event.actor.email && <><dt className="text-slate-500">Email</dt><dd className="break-all">{event.actor.email}</dd></>}
-            <dt className="text-slate-500">Source</dt><dd>{formatLabel(event.source)}</dd>
+            {sourceLabel(event) && <><dt className="text-slate-500">Source</dt><dd>{sourceLabel(event)}</dd></>}
             <dt className="text-slate-500">Outcome</dt><dd>{formatLabel(event.outcome)}</dd>
           </dl>
         </section>
@@ -154,25 +178,20 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           </dl>
         </section>
 
-        {changeRows.length > 0 && (
+        {sentences.length > 0 && (
           <section>
-            <h3 className="font-semibold text-slate-900">Recorded changes</h3>
-            <div className="mt-3 space-y-2">
-              {changeRows.map(([field, value]) => (
-                <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>
-                  <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-700">{valueText(value)}</pre>
-                </div>
-              ))}
+            <h3 className="font-semibold text-slate-900">What changed</h3>
+            <div className="mt-3 space-y-2 text-slate-700">
+              {sentences.map((sentence) => <p key={sentence}>{sentence}</p>)}
             </div>
           </section>
         )}
 
-        {detailRows.length > 0 && (
+        {contextRows.length > 0 && (
           <section>
             <h3 className="font-semibold text-slate-900">Context</h3>
             <dl className="mt-3 space-y-3">
-              {detailRows.map(([field, value]) => (
+              {contextRows.map(([field, value]) => (
                 <div key={field}>
                   <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</dt>
                   <dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{valueText(value)}</dd>
@@ -183,12 +202,23 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
         )}
 
         <details className="border-t border-slate-100 pt-4">
-          <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Technical details</summary>
-          <dl className="mt-2 space-y-2 text-xs text-slate-600">
+          <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Details</summary>
+          {(changeRows.length > 0 || structuredRows.length > 0) && (
+            <div className="mt-2 space-y-2">
+              <h4 className="text-xs font-semibold text-slate-500">Recorded data</h4>
+              {[...changeRows, ...structuredRows].map(([field, value]) => (
+                <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>
+                  <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-700">{valueText(value)}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+          <dl className="mt-3 space-y-2 text-xs text-slate-600">
             <div><dt className="inline text-slate-500">Event: </dt><dd className="inline font-mono">{event.action}</dd></div>
             <div><dt className="inline text-slate-500">Event ID: </dt><dd className="inline">{event.id}</dd></div>
-            {event.request.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request.id}</dd></div>}
-            {event.request.ip_address && <div><dt className="inline text-slate-500">IP address: </dt><dd className="inline">{event.request.ip_address}</dd></div>}
+            {event.request?.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request?.id}</dd></div>}
+            {event.request?.ip_address && <div><dt className="inline text-slate-500">IP address: </dt><dd className="inline">{event.request?.ip_address}</dd></div>}
             {hiddenIdRows.map(([field, value]) => <div key={field}><dt className="inline text-slate-500">{fieldLabel(field)}: </dt><dd className="inline">{valueText(value)}</dd></div>)}
           </dl>
         </details>
@@ -200,6 +230,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
 
 export default function ActivityHistory() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const globalHistory = useCapabilities().view_activity
   const routedEventCategory = searchParams.get('event_category')?.trim() || undefined
   const routedSearch = searchParams.get('search')?.trim() || ''
   const [events, setEvents] = useState<AuditLogEntry[]>([])
@@ -218,6 +249,7 @@ export default function ActivityHistory() {
   const [eventRetry, setEventRetry] = useState(0)
   const requestedEventId = searchParams.get('event_id')
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
+  const backLabel = routeSubjectLabel(searchParams)
   const searchDebounceMounted = useRef(false)
 
   useEffect(() => {
@@ -291,7 +323,7 @@ export default function ActivityHistory() {
         return
       }
       setEventLoading(true)
-      const response = await api.getAuditLog(Number(requestedEventId))
+      const response = globalHistory ? await api.getAuditLog(Number(requestedEventId)) : await api.getAuditLog(Number(requestedEventId), routeSubjectType && routeSubjectId ? { subject_type: routeSubjectType, subject_id: routeSubjectId } : undefined)
       if (cancelled) return
       const event = response.data
       if (!event || event.id !== Number(requestedEventId) || (routeSubjectType && (event.subject.type !== routeSubjectType || event.subject.id !== routeSubjectId))) {
@@ -302,7 +334,7 @@ export default function ActivityHistory() {
       setEventLoading(false)
     }, 0)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [requestedEventId, routeSubjectType, routeSubjectId, eventRetry])
+  }, [requestedEventId, routeSubjectType, routeSubjectId, eventRetry, globalHistory])
 
   const activeFilterCount = useMemo(() => [filters.event_category, filters.source, filters.from, filters.to, filters.outcome, filters.search, routeSubjectType && routeSubjectId].filter(Boolean).length, [filters, routeSubjectId, routeSubjectType])
 
@@ -313,7 +345,16 @@ export default function ActivityHistory() {
   const clearFilters = () => {
     setSearchInput('')
     setFilters({ page: 1, per_page: 50 })
-    setSearchParams(returnTo ? { return_to: returnTo } : {}, { replace: true })
+    const next = new URLSearchParams(returnTo ? { return_to: returnTo } : {})
+    if (!globalHistory && routeSubjectType && routeSubjectId) {
+      next.set('subject_type', routeSubjectType)
+      next.set('subject_id', String(routeSubjectId))
+      for (const key of ['shift_person', 'shift_date']) {
+        const value = searchParams.get(key)
+        if (value) next.set(key, value)
+      }
+    }
+    setSearchParams(next, { replace: true })
   }
 
   const clearSubjectScope = () => {
@@ -359,7 +400,8 @@ export default function ActivityHistory() {
 
   return (
     <div className="space-y-6">
-      {returnTo && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>Back to employee</Link>}
+      {searchParams.get('saved') === '1' && <p role="status">Shift saved.</p>}
+      {returnTo && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>{backLabel}</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
       {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -368,17 +410,17 @@ export default function ActivityHistory() {
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Activity History</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">A permanent record of access, time, approvals, schedules, settings, exports, and other important changes in AIRE.</p>
         </div>
-        <button type="button" onClick={exportEvents} disabled={exporting || loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">
+        {globalHistory && <button type="button" onClick={exportEvents} disabled={exporting || loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></svg>
           {exporting ? 'Preparing CSV…' : 'Export CSV'}
-        </button>
+        </button>}
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         {routeSubjectType && routeSubjectId && (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary-dark">
             <span>Showing history for {formatLabel(routeSubjectType)} #{routeSubjectId}</span>
-            <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark">Show all</button>
+            {globalHistory && <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark">Show all</button>}
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -421,7 +463,7 @@ export default function ActivityHistory() {
               {events.map((event) => (
                 <button key={event.id} type="button" onClick={() => selectEvent(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
                   <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-500 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
-                  <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type} · {formatLabel(event.source)}</p></div>
+                  <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary} {event.outcome !== 'succeeded' && /\.(create|update|delete|destroy)$/.test(event.action) && <span className="ml-2 rounded bg-red-100 px-2 py-1 text-sm font-semibold text-red-900">Not saved</span>}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type}{sourceLabel(event) ? ` · ${sourceLabel(event)}` : ''}</p></div>
                   <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>
                 </button>
               ))}

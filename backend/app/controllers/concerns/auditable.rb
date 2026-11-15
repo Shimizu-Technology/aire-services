@@ -36,13 +36,16 @@ module Auditable
       event_category: default_event_category,
       outcome: audit_outcome,
       metadata: {
+        employee_name: record.is_a?(TimeEntry) ? record.user&.full_name : nil,
+        work_date: record.is_a?(TimeEntry) ? record.work_date&.iso8601 : nil,
         http_method: request.request_method,
         path: request.path,
         changed_fields: snapshot[:changed_fields].presence || safe_changed_fields,
         before_values: snapshot[:before_values].presence,
         after_values: snapshot[:after_values].presence,
         redacted_fields: snapshot[:redacted_fields].presence,
-        response_status: response.status
+        response_status: response.status,
+        error_message: failure_message
       }.compact
     )
   rescue StandardError => e
@@ -80,6 +83,14 @@ module Auditable
     return "content" if path.include?("media")
 
     "activity"
+  end
+
+  # What the person was told when a request didn't go through, so the activity history can say why.
+  def failure_message
+    return if response.successful? || response.redirect?
+
+    message = response_payload.is_a?(Hash) ? response_payload["error"] : nil
+    message.to_s.squish.truncate(300) if message.is_a?(String) && message.present?
   end
 
   def audit_outcome

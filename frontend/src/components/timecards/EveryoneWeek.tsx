@@ -28,10 +28,13 @@ export interface EveryoneWeekProps {
    * tap shows this reason instead of an editor that can't save.
    */
   blockedReason?: string | null
+  /** A shift to open in Edit shift once categories are ready (coming back from its history). */
+  reopenEntry?: TimeEntry | null
+  onReopened?: () => void
 }
 
 /** Everyone's week on the existing grid, with the week stepper above it. */
-export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, onChanged, onOpenPerson, onAddEntry, addDisabled = false, blockedReason = null }: EveryoneWeekProps) {
+export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, onChanged, onOpenPerson, onAddEntry, addDisabled = false, blockedReason = null, reopenEntry = null, onReopened }: EveryoneWeekProps) {
   const weekStart = businessWeekStart(date)
   const { currentUser } = useAuthContext()
   // The same names the old Timecards grid showed: "You", then the display name.
@@ -43,6 +46,11 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
   const [editing, setEditing] = useState<TimeEntry | null>(null)
   const [blockedTap, setBlockedTap] = useState(false)
   const openShift = (entry: TimeEntry) => { if (blockedReason) setBlockedTap(true); else setEditing(entry) }
+  useEffect(() => {
+    if (!reopenEntry || blockedReason || categories.length === 0) return
+    setEditing(reopenEntry)
+    onReopened?.()
+  }, [reopenEntry, blockedReason, categories.length, onReopened])
   const requestKey = `${weekStart}:${refreshKey}:${revision}`
   const loaded = state.key === requestKey
 

@@ -12,6 +12,7 @@ const apiMock = vi.hoisted(() => ({
   approveTimeEntry: vi.fn(),
   approveOvertime: vi.fn(),
   denyTimeEntry: vi.fn(),
+  rejectTimeEntryChange: vi.fn(),
   denyOvertime: vi.fn(),
   bulkApproveTimeEntries: vi.fn(),
 }))
@@ -135,6 +136,28 @@ describe('ApprovalQueue review workflow', () => {
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
   })
 
+  it('rejects only a pending employee change with the displayed version and a reason', async () => {
+    const entry = makeEntry({ id: 90, version: 12, entry_method: 'clock', original_employee_change: { formatted_range: 'Sat, Nov 14, 7:00 AM–1:20 PM', start_time: null, end_time: null, clock_in_at: '2026-11-14T07:00:00+10:00', clock_out_at: '2026-11-14T13:20:00+10:00', hours: 6.33 } })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1, summary } })
+    apiMock.rejectTimeEntryChange.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime />)
+    fireEvent.click(await screen.findByRole('button', { name: /Reject change, keep original time/ }))
+    expect(apiMock.rejectTimeEntryChange).not.toHaveBeenCalled()
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Reason for denying' }), { target: { value: 'Original punches are correct' } })
+    fireEvent.click(screen.getByRole('button', { name: /Reject change, keep original time/ }))
+    await waitFor(() => expect(apiMock.rejectTimeEntryChange).toHaveBeenCalledWith(90, 12, 'Original punches are correct'))
+    expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
+  })
+
+  it('hides keep original when the server says the punches cannot be restored', async () => {
+    const entry = makeEntry({ entry_method: 'clock', original_employee_change: { restorable: false, restoration_reason: 'Original clock-out missing', formatted_range: 'Original clock-out missing', start_time: null, end_time: null, clock_in_at: null, clock_out_at: null, hours: 25 } })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1, summary } })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime />)
+    await screen.findByRole('button', { name: 'Edit entry' })
+    expect(screen.queryByRole('button', { name: /Reject change, keep original time/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+  })
+
   it.each([
     ['Today', { date: '2026-11-01' }],
     ['Yesterday', { date: '2026-10-31' }],
@@ -251,14 +274,51 @@ describe('ApprovalQueue review workflow', () => {
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Deny OT' }))
-    expect(await screen.findByText(/Add a reason in the note box/)).toBeVisible()
+    expect(await screen.findByText('Add a reason, then press Deny OT again.')).toBeVisible()
     expect(apiMock.denyOvertime).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByPlaceholderText('Add a note (optional)...'), { target: { value: 'Hours were not worked' } })
+    fireEvent.change(screen.getByLabelText('Reason for denying'), { target: { value: 'Hours were not worked' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny OT' }))
 
     await waitFor(() => expect(apiMock.denyOvertime).toHaveBeenCalledWith(74, 'Hours were not worked'))
     expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
+  })
+
+  it('asks for a denial reason beside that row\'s note box, focuses it, and sends nothing until it is given', async () => {
+    const scrollIntoView = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    const entry = makeEntry({ id: 75 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.denyTimeEntry.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Deny whole shift' }))
+    const reason = await screen.findByLabelText('Reason for denying')
+    await waitFor(() => expect(reason).toHaveFocus())
+    expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
+    expect(reason).toHaveAttribute('aria-invalid', 'true')
+    expect(reason).toHaveAccessibleDescription('Add a reason, then press Deny again.')
+    expect(scrollIntoView.mock.contexts).toContain(reason)
+    // Not up in the banner.
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    fireEvent.change(reason, { target: { value: 'Duplicate paper timesheet' } })
+    expect(reason).not.toHaveAttribute('aria-invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Deny whole shift' }))
+    await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalledWith(75, 'Duplicate paper timesheet'))
+  })
+
+  it('puts a server "reason is required" refusal beside the note box too', async () => {
+    const entry = makeEntry({ id: 76 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.denyTimeEntry.mockResolvedValue({ error: 'A denial reason is required' })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note' }))
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: '   x   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Deny whole shift' }))
+    await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalled())
+    expect(await screen.findByText('A denial reason is required')).toBeVisible()
+    expect(screen.getByLabelText('Reason for denying')).toHaveFocus()
   })
 
   it('keeps reversed-range inputs correctable without stale approvals and resumes the selected scope', async () => {
@@ -455,7 +515,7 @@ describe('ApprovalQueue review workflow', () => {
     expect(screen.getByRole('checkbox', { name: /select aika kanekatsu/i })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Approve time + 1.50 OT' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Approve' })).toHaveLength(1)
-    expect(screen.getAllByRole('button', { name: 'Deny' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Deny whole shift' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: 'Deny OT' })).not.toBeInTheDocument()
     expect(screen.getAllByTitle('Edit entry')).toHaveLength(1)
 
@@ -508,7 +568,7 @@ describe('ApprovalQueue review workflow', () => {
       expect(screen.getByRole('checkbox', { name: /Select Zion Quintanilla/i })).toBeVisible()
       expect(screen.getByText('Only the overtime portion needs review.')).toBeVisible()
       screen.getAllByRole('button', { name: 'Approve' }).forEach(button => expect(button).toBeVisible())
-      screen.getAllByRole('button', { name: 'Deny' }).forEach(button => expect(button).toBeVisible())
+      screen.getAllByRole('button', { name: 'Deny whole shift' }).forEach(button => expect(button).toBeVisible())
       fireEvent.click(screen.getAllByTitle('Add note')[0])
       expect(screen.getByPlaceholderText('Add a note (optional)...')).toBeVisible()
     } finally {
@@ -725,7 +785,7 @@ it('keeps note entry and approval usable with a long entry', async () => {
   render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
   fireEvent.click(await screen.findByRole('button', { name: 'Add note' }))
   fireEvent.change(screen.getByPlaceholderText('Add a note (optional)...'), { target: { value: 'Synthetic review note' } })
-  expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Deny whole shift' })).toBeEnabled()
   expect(screen.getByRole('button', { name: 'Edit entry' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
   await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(source.id, 'Synthetic review note'))

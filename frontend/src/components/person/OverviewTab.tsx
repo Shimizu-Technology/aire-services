@@ -8,7 +8,7 @@ import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { employeeEvidenceApi } from '../../lib/employeeEvidenceApi'
 import { formatPayPeriod, type PayPeriod } from '../../lib/payPeriods'
 import { PERSON_TOTAL_LABELS } from '../../lib/payrollTerms'
-import { formatHours, guamDate, isApprovedTime, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
+import { formatHours, guamDate, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
 import { dayLabel, monthDay, timeLabel } from '../today/format'
 import { Button, EmptyState, ErrorState, type MenuItem } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
@@ -49,10 +49,10 @@ interface PeriodNumbers {
 // The same numbers as the Time tab's timecard and the Pay tab: approved means approved for pay.
 function periodNumbers(entries: TimeEntry[], report: HoursReportEmployee | null, period: PayPeriod): PeriodNumbers {
   const items = [...timecardDays(entries, period).values()].flat()
-  const hours = report ? payPeriodHours(report, period) : null
+  const hours = report ? payPeriodHours(report) : null
   const overtimeWaits = entries.some(entry => entry.overtime_status === 'pending')
   const waiting = hours ? hours.waiting : items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
-  const approved = hours ? hours.approved : overtimeWaits ? null : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
+  const approved = hours ? hours.approved : null
   const order = (entry: TimeEntry) => entry.clock_in_at ?? `${entry.work_date}T${entry.start_time ?? '00:00'}`
   const last = items.map(item => item.entry).sort((a, b) => order(b).localeCompare(order(a)))[0] ?? null
   return { approved, waiting, overtimeWaiting: hours ? hours.overtimeWaiting : overtimeWaits ? null : 0, last }

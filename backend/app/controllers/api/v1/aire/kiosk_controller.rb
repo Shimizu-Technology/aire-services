@@ -4,6 +4,43 @@ module Api
   module V1
     module Aire
       class KioskController < BaseController
+        # A PIN is proved afresh even when the tablet already has a device token.
+        def lock
+          device = AireKioskAccessToken.device_from_token(params[:kiosk_access_token].to_s)
+          return render json: { error: "Kiosk session expired. Sign in again." }, status: :unauthorized unless device
+
+          result = AireKioskService.verify_pin(pin: params[:pin].to_s, kiosk_access_token: params[:kiosk_access_token].to_s)
+          manager = result[:user]
+          unless manager.can_unlock_kiosk?
+            record_pin_failure!(AireKioskService::KioskError.new("Enter a manager's PIN to lock this kiosk."), "kiosk.lock_failed")
+            return render json: { error: "Enter a manager's PIN to lock this kiosk." }, status: :forbidden
+          end
+
+          device.with_lock do
+            device.update!(revoked_at: Time.current)
+            AuditLog.record!(action: "kiosk.locked", auditable: device, actor: manager,
+                             event_category: "security", source: "kiosk", metadata: { device_id: device.id })
+          end
+          head :no_content
+        rescue AireKioskService::KioskError => e
+          record_pin_failure!(e, "kiosk.lock_failed")
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
+        # A device may discard its own access after a failed manager sign-out.
+        # This endpoint only reduces access and does not permit leaving a kiosk.
+        def revoke
+          device = AireKioskAccessToken.device_from_token(params[:kiosk_access_token].to_s)
+          if device
+            device.with_lock do
+              device.update!(revoked_at: Time.current)
+              AuditLog.record!(action: "kiosk.session_revoked", auditable: device, actor: device.user,
+                               event_category: "security", source: "kiosk", metadata: { device_id: device.id })
+            end
+          end
+          head :no_content
+        end
+
         # POST /api/v1/aire/kiosk/verify
         def verify
           result = AireKioskService.verify_pin(
@@ -28,12 +65,17 @@ module Api
             pay_stub_requests_enabled: ::PayDocuments.kiosk_requests_enabled?
           }
         rescue AireKioskService::KioskError => e
+          record_pin_failure!(e, "kiosk.verification_failed")
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
+        def record_pin_failure!(error, action)
           failed_user = User.find_kiosk_user_by_pin(params[:pin].to_s)
-          if e.message == AireKioskService::INVALID_PIN_MESSAGE && failed_user&.staff? && !failed_user.kiosk_locked?
+          if error.message == AireKioskService::INVALID_PIN_MESSAGE && failed_user&.staff? && !failed_user.kiosk_locked?
             failed_user.register_kiosk_failure!
           end
           AuditLog.record!(
-            action: "kiosk.verification_failed",
+            action: action,
             actor: failed_user,
             subject_type: "User",
             subject_id: failed_user&.id || 0,
@@ -42,10 +84,10 @@ module Api
             actor_kind: failed_user ? "user" : "system",
             source: "kiosk",
             outcome: "failed",
-            metadata: { reason: e.message, account_locked: failed_user&.kiosk_locked? }
+            metadata: { reason: error.message, account_locked: failed_user&.kiosk_locked? }
           )
-          render json: { error: e.message }, status: :unprocessable_entity
         end
+        private :record_pin_failure!
 
         # POST /api/v1/aire/kiosk/clock_in
         def clock_in

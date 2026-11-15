@@ -6,9 +6,11 @@ import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { currentPayPeriod, formatPayPeriod } from '../../lib/payPeriods'
 import { Skeleton } from '../ui/Skeleton'
 import { ProgressSplit, StatusPill, buttonClasses } from '../ui'
-import { dayLabel, hoursLabel, isLocked, lockStatus, lockTimeLabel, plural } from './format'
+import { dayLabel, isLocked, lockStatus, lockTimeLabel } from './format'
 import { approvalsHref, payrollHref } from './links'
 import { StaleNote } from './StaleNote'
+
+const approvalHoursLabel = (value: number) => `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}h`
 
 /** `stale`: the last refresh failed, so this is the last good answer. */
 type Load = 'loading' | 'error' | 'ready' | 'stale'
@@ -84,9 +86,12 @@ export function PayPeriodCard({
   const cutoffAt = isLocked(period) ? null : control?.cutoff_at ?? (lockShown ? period?.cutoff_at ?? null : null)
   const payDate = control?.period.pay_date ?? period?.pay_date ?? null
   const status = lockStatus({ period, control, cutoffAt, now, paused })
-  const waiting = period && period.waiting_count > 0
-    ? { label: `waiting (${plural(period.waiting_count, 'shift')})`, value: period.waiting_hours, tone: 'waiting' as const }
-    : null
+  const waitingParts = period ? [
+    { label: 'Time waiting for approval', value: period.time_waiting_hours ?? period.waiting_hours, tone: 'waiting' as const },
+    { label: 'Overtime waiting for approval', value: period.overtime_waiting_hours ?? 0, tone: 'waiting' as const },
+  ] : []
+  const waiting = waitingParts.some(part => part.value > 0)
+
 
   return (
     <section aria-labelledby={headingId} className="rounded-card border border-line bg-surface p-4 sm:p-5">
@@ -120,8 +125,9 @@ export function PayPeriodCard({
         {periodShown && period && (
           <>
             <ProgressSplit
-              parts={[{ label: 'approved', value: period.approved_hours, tone: 'approved' }, ...(waiting ? [waiting] : [])]}
-              label={`${hoursLabel(period.approved_hours)} approved, ${waiting ? `${hoursLabel(waiting.value)} ${waiting.label}` : 'nothing waiting'}`}
+              parts={[{ label: 'Approved for payroll', value: period.approved_hours, tone: 'approved' }, ...waitingParts]}
+              format={approvalHoursLabel}
+              label={`${approvalHoursLabel(period.approved_hours)} Approved for payroll, ${waitingParts.map(part => `${approvalHoursLabel(part.value)} ${part.label}`).join(', ')}`}
             />
             {!waiting && <p className="mt-1 text-caption text-ink-muted">Nothing waiting for approval</p>}
           </>
@@ -130,7 +136,7 @@ export function PayPeriodCard({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Link to={approvalsHref(period ? { period: period.start_date } : {})} className={buttonClasses({})}>
+        <Link to={approvalsHref(period ? { start_date: period.start_date, end_date: period.end_date } : {})} className={buttonClasses({})}>
           Review approvals
         </Link>
         <Link to={payrollHref(period)} className={buttonClasses({ variant: 'secondary' })}>

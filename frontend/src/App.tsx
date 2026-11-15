@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { KioskBrowserBoundary } from './components/auth/KioskBrowserBoundary'
 import { createBrowserRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider, useRouteError } from 'react-router-dom'
 
 import { PostHogPageView } from './providers/PostHogProvider'
@@ -38,7 +39,7 @@ const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
 const MyPayPreview = lazy(() => import('./pages/admin/MyPayPreview'))
 const PayStubs = lazy(() => import('./pages/admin/PayStubs'))
 const PayStubLink = lazy(() => import('./pages/aire/PayStubLink'))
-const MyTimeHome = lazy(() => import('./pages/admin/EmployeeClockRoute'))
+const MyTime = lazy(() => import('./pages/admin/MyTime'))
 const MyHours = lazy(() => import('./pages/admin/MyHours'))
 const EmployeeLeaveRoute = lazy(() => import('./pages/admin/EmployeeLeaveRoute'))
 const WebsiteLayout = lazy(() => import('./pages/admin/Website'))
@@ -72,7 +73,7 @@ function AppShell() {
   return (
     <>
       <PostHogPageView />
-      <Outlet />
+      <KioskBrowserBoundary><Outlet /></KioskBrowserBoundary>
     </>
   )
 }
@@ -120,7 +121,7 @@ const routes = createRoutesFromElements(
           <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
           <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><SupervisorLeaveRedirect><EmployeeLeaveRoute /></SupervisorLeaveRedirect></Suspense>} />
           <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><MyHours /></Suspense>} />
-          <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTimeHome /></Suspense>} />
+          <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTime /></Suspense>} />
           <Route path="time" element={<LegacyTimeRedirect />} />
           {/* Hidden unless "Use schedules" is on in Settings. */}
           <Route path="schedule" element={<SchedulesGate><Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense></SchedulesGate>} />
@@ -166,7 +167,7 @@ const routes = createRoutesFromElements(
           <Route
             path="activity"
             element={
-              <ProtectedRoute requiredCapability="view_activity">
+              <ProtectedRoute requiredCapability="manage_team_time">
                 <Suspense fallback={<AdminLoadingFallback />}><ActivityHistory /></Suspense>
               </ProtectedRoute>
             }
@@ -188,6 +189,7 @@ const routes = createRoutesFromElements(
               </ProtectedRoute>
             }
           />
+          <Route path="*" element={<div className="p-6"><h1 className="text-2xl font-semibold">Page not found</h1><p className="mt-3">This workspace link is no longer available.</p><Link to="/admin" className="mt-4 inline-flex min-h-11 items-center underline">Open workspace</Link></div>} />
           <Route path="users/:id" element={<ProtectedRoute requiredCapability="manage_users"><Suspense fallback={<AdminLoadingFallback />}><EmployeeWorkspace /></Suspense></ProtectedRoute>} />
           <Route
             path="users"

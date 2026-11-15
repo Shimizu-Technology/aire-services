@@ -3,8 +3,9 @@ import type {
   ClockStatus,
   TimeCategory,
   TimeEntry,
+  UserSummary,
 } from './api'
-import { entrySegments, timecardDays } from './timecards'
+import { entrySegments, guamDate } from './timecards'
 import { addDateDays, businessWeekStart } from './dateUtils'
 import type { PayPeriod } from './payPeriods'
 
@@ -14,6 +15,55 @@ export const OFFLINE_CLOCK =
   "No connection. Your clock-in wasn't sent. Check your signal and tap Clock in again. Nothing is saved until you see 'On the clock'."
 export const OFFLINE_IDLE =
   'No connection. Clock actions are paused; this is your last saved status.'
+export const LOCATION_BLOCKED =
+  'Your phone is blocking location for AIRE. iPhone: Settings → Safari → Location → Allow. Android: Chrome → Site settings → Location. Still stuck? Use the office kiosk, or ask your manager to add your time.'
+
+/** The API's out-of-range refusal, said with a next step. */
+export function clockInRefusal(error: string, place?: string | null) {
+  return /only allowed while you are at/i.test(error)
+    ? `You need to be at ${place || 'AIRE Services Guam'} to clock in. If you're there, step outside for a better signal and try again.`
+    : error
+}
+
+/** Where the clock stands, for the notice after a lost reply. */
+export function clockStatusLine(status: ClockStatus) {
+  if (!status.clocked_in) return "You're off the clock."
+  if (status.active_break && status.active_break_started_at)
+    return `You're on break since ${clockTime(status.active_break_started_at)}.`
+  const since = status.session?.original_clock_in_at ?? status.clock_in_at
+  return since
+    ? `You're on the clock since ${clockTime(since)}.`
+    : "You're on the clock."
+}
+
+/**
+ * When someone who forgot to clock out says they stopped at `time` (HH:MM):
+ * use the clock-in's Guam day. Never guess tomorrow for an earlier time.
+ * Overnight and shifts over twelve hours require a date-aware manager correction.
+ */
+export function stoppedAt(clockInAt: string, time: string, now = Date.now()) {
+  if (!/^\d{2}:\d{2}$/.test(time)) return null
+  const start = Date.parse(clockInAt)
+  const day = guamDate(clockInAt)
+  // Guam has no daylight saving: always UTC+10.
+  const stop = Date.parse(`${day}T${time}:00+10:00`)
+  return stop > start && stop < now && stop - start <= 12 * 3_600_000 ? new Date(stop) : null
+}
+
+/** First names of the active managers who share the viewer's departments. */
+export function approverNamesFor(people: UserSummary[], viewerId?: number) {
+  const groups =
+    people.find((person) => person.id === viewerId)?.approval_group_keys ?? []
+  return people
+    .filter(
+      (person) =>
+        person.role === 'manager' &&
+        person.is_active &&
+        person.id !== viewerId &&
+        person.approval_group_keys?.some((group) => groups.includes(group)),
+    )
+    .map((person) => person.first_name || person.full_name)
+}
 
 /** Read whole Sunday–Saturday weeks so a period edge never resets overtime. */
 export function weeksAround(period: PayPeriod) {
@@ -32,7 +82,7 @@ export function weeksAround(period: PayPeriod) {
 function overtimeSegments(entries: TimeEntry[]) {
   const cumulative = new Map<string, number>()
   const segments = entries
-    .filter(employeeHoursBucket)
+    .filter(entry => entry.status === 'completed' && entry.approval_status !== 'denied')
     .flatMap((entry) =>
       entrySegments(entry).map((segment) => ({ ...segment, entry })),
     )
@@ -67,8 +117,9 @@ export function withOvertimeHours(entries: TimeEntry[]) {
   }
   return entries.map((entry) => ({
     ...entry,
-    pending_overtime_hours:
-      entry.overtime_status === 'pending'
+    pending_overtime_hours: entry.payroll_hours_by_date != null
+      ? entry.payroll_hours_by_date.reduce((sum, part) => sum + part.overtime_waiting_hours, 0)
+      : entry.overtime_status === 'pending'
         ? (entry.pending_overtime_hours ??
           Math.round((overtime.get(entry.id) ?? 0) * 100) / 100)
         : 0,
@@ -79,6 +130,11 @@ export function withOvertimeHours(entries: TimeEntry[]) {
 export function employeeWeekTotals(entries: TimeEntry[], date: string) {
   const start = businessWeekStart(date)
   const end = addDateDays(start, 6)
+  const completed = entries.filter(entry => entry.status === 'completed')
+  if (completed.every(entry => entry.payroll_hours_by_date != null)) {
+    const totals = periodTotals(completed, { start, end })
+    return { hours: totals.total, overtime: totals.overtimeWaiting }
+  }
   return overtimeSegments(entries)
     .filter((segment) => segment.date >= start && segment.date <= end)
     .reduce(
@@ -143,32 +199,27 @@ export function chooseLastCategory(
   )
 }
 
-/** A completed shift with no approval yet is waiting, never implicitly approved. */
-export function employeeHoursBucket(entry: TimeEntry) {
-  if (entry.status !== 'completed' || entry.approval_status === 'denied')
-    return null
-  return entry.approval_status === 'approved' ? 'approved' : 'waiting'
-}
-
 export function periodTotals(entries: TimeEntry[], period: PayPeriod) {
-  const items = [...timecardDays(entries, period).values()]
-    .flat()
-    .filter((item) => employeeHoursBucket(item.entry))
-  const sum = (status: 'approved' | 'waiting') =>
-    items
-      .filter((item) => employeeHoursBucket(item.entry) === status)
-      .reduce((total, item) => total + item.hours, 0)
-  const approved = sum('approved')
-  const waiting = sum('waiting')
-  return { total: approved + waiting, approved, waiting }
+  const completed = entries.filter(entry => entry.status === 'completed')
+  const complete = completed.every(entry => entry.payroll_hours_by_date != null)
+  const parts = completed.flatMap(entry => entry.payroll_hours_by_date ?? []).filter(part => part.work_date >= period.start && part.work_date <= period.end)
+  const approved = parts.reduce((sum, part) => sum + part.approved_hours, 0)
+  const timeWaiting = parts.reduce((sum, part) => sum + part.time_waiting_hours, 0)
+  const overtimeWaiting = parts.reduce((sum, part) => sum + part.overtime_waiting_hours, 0)
+  return { total: approved + timeWaiting + overtimeWaiting, approved, waiting: timeWaiting + overtimeWaiting, timeWaiting, overtimeWaiting, complete }
 }
 
 /** Keep the displayed tenths additive; retain exact hours for clock math. */
 export function displayPeriodTotals(entries: TimeEntry[], period: PayPeriod) {
   const totals = periodTotals(entries, period)
   const approvedTenths = Math.round(totals.approved * 10)
-  const waitingTenths = Math.round(totals.waiting * 10)
+  const timeWaitingTenths = Math.round(totals.timeWaiting * 10)
+  const overtimeWaitingTenths = Math.round(totals.overtimeWaiting * 10)
+  const waitingTenths = timeWaitingTenths + overtimeWaitingTenths
   return {
+    complete: totals.complete,
+    timeWaiting: timeWaitingTenths / 10,
+    overtimeWaiting: overtimeWaitingTenths / 10,
     total: (approvedTenths + waitingTenths) / 10,
     approved: approvedTenths / 10,
     waiting: waitingTenths / 10,
@@ -218,9 +269,7 @@ export function requestLocation(): Promise<ClockLocationPayload> {
       },
       (error) =>
         fail(
-          error.code === 1
-            ? 'Location access is required to clock in. Allow location in your browser settings and try again.'
-            : LOCATION_TIMEOUT,
+          error.code === 1 ? LOCATION_BLOCKED : LOCATION_TIMEOUT,
         ),
       {
         enableHighAccuracy: true,
