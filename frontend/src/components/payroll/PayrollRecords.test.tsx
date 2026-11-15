@@ -144,7 +144,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Live preview')
     expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Finalize this lock' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lock these hours' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Review approvals' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View live hours' })).toBeInTheDocument()
     expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
@@ -157,7 +157,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Live preview')
     expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Finalize this lock' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lock these hours' })).not.toBeInTheDocument()
   })
 
   it('keeps a valid deferred history capability when an intervening preview fails', async () => {
@@ -204,7 +204,7 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Historical manually paid hours need reconciliation')
-    expect(screen.getByRole('button', { name: 'Finalize this lock' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Lock these hours' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Record already processed' })).toBeEnabled()
   })
 
@@ -232,9 +232,9 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     expect(await screen.findByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('published-run')
     expect(screen.getByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('Pay period page to change the lock time')
-    expect(screen.queryByRole('button', { name: 'Finalize this lock' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lock these hours' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
-    expect(screen.queryByText('Finalization is blocked until every included entry has a work category.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Locking is blocked until every included entry has a work category.')).not.toBeInTheDocument()
     expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
     if (status === 'finalized') {
       fireEvent.click(screen.getByRole('button', { name: 'View published batch' }))
@@ -264,7 +264,7 @@ describe('PayrollRuns', () => {
 
   it('previews included hours separately from tracked exclusions', async () => {
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
 
@@ -331,7 +331,7 @@ describe('PayrollRuns', () => {
       expect(section).toHaveTextContent(`For published payroll periods: ${LATE_HOURS_NOTICE}`)
       expect(section).not.toHaveTextContent('included automatically')
     } else {
-      expect(section).toHaveTextContent('For batches without a published period, later approved hours are included automatically in the next finalized batch.')
+      expect(section).toHaveTextContent('For batches without a published period, later approved hours are included automatically in the next locked batch.')
       expect(section).not.toHaveTextContent('next scheduled payroll')
       expect(section).not.toHaveTextContent('need the late-hours step')
     }
@@ -748,7 +748,7 @@ describe('PayrollRuns', () => {
 
   it('opens a linked period and preserves it across the workspace', async () => {
     renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
 
     expect(screen.getByLabelText('Period start')).toHaveValue('2026-08-01')
     expect(screen.getByLabelText('Period end')).toHaveValue('2026-08-15')
@@ -762,7 +762,7 @@ describe('PayrollRuns', () => {
         <PayrollRouteHarness />
       </MemoryRouter>,
     )
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open July payroll' }))
 
@@ -774,7 +774,7 @@ describe('PayrollRuns', () => {
 
   it('keeps a start-date edit while the range is temporarily reversed', async () => {
     renderPayrollRuns('/admin/payroll?start_date=2026-08-16&end_date=2026-08-31')
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
 
     fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-09-01' } })
 
@@ -799,12 +799,12 @@ describe('PayrollRuns', () => {
 
   it('requires a review confirmation before finalizing an immutable batch', async () => {
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize this lock' }))
-    const confirmButton = screen.getByRole('button', { name: 'Finalize payroll batch' })
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
+    const confirmButton = screen.getByRole('button', { name: 'Lock payroll hours' })
     expect(confirmButton).toBeDisabled()
     fireEvent.click(screen.getByRole('checkbox'))
     expect(confirmButton).toBeEnabled()
@@ -815,7 +815,7 @@ describe('PayrollRuns', () => {
       end_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       acknowledge_negative_adjustments: false,
     })))
-    expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
+    expect(await screen.findByText('Locked batch')).toBeInTheDocument()
   })
 
   it('blocks finalization when included work is missing a category', async () => {
@@ -827,11 +827,11 @@ describe('PayrollRuns', () => {
       },
     })
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
 
-    expect(await screen.findByText(/Finalization is blocked/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Finalize this lock' })).toBeDisabled()
+    expect(await screen.findByText(/Locking is blocked/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Lock these hours' })).toBeDisabled()
     expect(screen.getByRole('link', { name: '1 Missing category' })).toHaveAttribute(
       'href',
       '/admin/reports?start_date=2026-08-16&end_date=2026-08-31&category_status=uncategorized',
@@ -865,9 +865,9 @@ describe('PayrollRuns', () => {
     apiMock.finalizePayrollBatch.mockResolvedValueOnce({ data: manuallyProcessed })
 
     renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
-    await screen.findByText(/Finalization is blocked/)
+    await screen.findByText(/Locking is blocked/)
     fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
     await screen.findByRole('heading', { name: 'Record manual payroll' })
 
@@ -897,7 +897,7 @@ describe('PayrollRuns', () => {
       negative_adjustment_note: 'Corrected historical overpayment',
       processing_note: 'Matched against committed payroll period 61',
     })))
-    expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
+    expect(await screen.findByText('Locked batch')).toBeInTheDocument()
   })
 
   it.each(['refresh', 'route'])('invalidates confirmed historical payroll on %s', async (change) => {
@@ -968,7 +968,7 @@ describe('PayrollRuns', () => {
       .mockResolvedValueOnce({ data: currentPreview })
 
     renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
     fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
@@ -998,12 +998,12 @@ describe('PayrollRuns', () => {
       },
     })
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize this lock' }))
-    const confirmButton = screen.getByRole('button', { name: 'Finalize payroll batch' })
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
+    const confirmButton = screen.getByRole('button', { name: 'Lock payroll hours' })
     fireEvent.click(screen.getByRole('checkbox'))
     expect(confirmButton).toBeDisabled()
 
@@ -1028,9 +1028,9 @@ describe('PayrollRuns', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize this lock' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
     fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock payroll hours' }))
 
     await waitFor(() => expect(screen.queryByText('Temporary history failure')).not.toBeInTheDocument())
   })
@@ -1047,9 +1047,9 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize this lock' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
     fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock payroll hours' }))
 
     expect(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
     await act(async () => {
@@ -1090,9 +1090,9 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize this lock' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
     fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock payroll hours' }))
 
     expect(await screen.findByText('Late hours (added to the next payroll)')).toBeInTheDocument()
     await act(async () => {
@@ -1116,10 +1116,10 @@ describe('PayrollRuns', () => {
     const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     fireEvent.click(batchButton)
-    await screen.findByText('Finalized batch')
+    await screen.findByText('Locked batch')
     await act(async () => { resolvePreview({ data: preview }) })
-    expect(screen.queryByRole('button', { name: 'Finalize this lock' })).not.toBeInTheDocument()
-    expect(screen.getByText('Finalized batch')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lock these hours' })).not.toBeInTheDocument()
+    expect(screen.getByText('Locked batch')).toBeInTheDocument()
   })
 
   it('discards a pending immutable batch after switching to live preview', async () => {
@@ -1132,21 +1132,22 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Live preview')
     await act(async () => { resolveBatch({ data: finalized }) })
-    expect(screen.queryByText('Finalized batch')).not.toBeInTheDocument()
+    expect(screen.queryByText('Locked batch')).not.toBeInTheDocument()
     expect(screen.getByText('Live preview')).toBeInTheDocument()
   })
 
   it('opens a finalized batch from history', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
-      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false },
+      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [{ ...finalized, pay_period_start: finalized.start_date }], total_count: 1, truncated: false },
     })
     renderPayrollRuns()
 
+    expect(await screen.findByRole('link', { name: 'Open Pay period' })).toHaveAttribute('href', `/admin/payroll/periods/${finalized.start_date}`)
     fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
 
     await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id))
     expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
-    expect(screen.getByText('Finalized batch')).toBeInTheDocument()
+    expect(screen.getByText('Locked batch')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View activity' })).toHaveAttribute(
       'href',
       '/admin/activity?event_category=payroll&search=2026-08-16%20through%202026-08-31',
@@ -1253,13 +1254,13 @@ describe('PayrollRuns', () => {
     fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
     await screen.findByText('Alice Pilot')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Download finalized CSV' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Download locked CSV' }))
     await waitFor(() => expect(apiMock.downloadPayrollBatch).toHaveBeenCalledWith(finalized.id))
     expect(createObjectUrl).toHaveBeenCalledOnce()
     expect(clickSpy).toHaveBeenCalledOnce()
     await waitFor(() => expect(revokeObjectUrl).toHaveBeenCalledWith('blob:test'), { timeout: 2000 })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Download finalized CSV' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Download locked CSV' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Export unavailable')
   })
 
@@ -1274,14 +1275,14 @@ describe('PayrollRuns', () => {
 
   it('traps focus inside the finalize dialog and restores it on close', async () => {
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
-    const trigger = screen.getByRole('button', { name: 'Finalize this lock' })
+    const trigger = screen.getByRole('button', { name: 'Lock these hours' })
     trigger.focus()
     fireEvent.click(trigger)
 
-    const dialog = screen.getByRole('dialog', { name: /finalize this payroll lock/i })
+    const dialog = screen.getByRole('dialog', { name: /lock these payroll hours/i })
     await waitFor(() => expect(dialog).toHaveFocus())
     const checkbox = screen.getByRole('checkbox')
     const closeButton = screen.getByRole('button', { name: 'Keep reviewing' })
@@ -1296,17 +1297,17 @@ describe('PayrollRuns', () => {
 
   it('does not reopen confirmation after the preview is cleared', async () => {
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
-    fireEvent.click(screen.getByRole('button', { name: 'Finalize this lock' }))
-    expect(screen.getByRole('dialog', { name: /finalize this payroll lock/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
+    expect(screen.getByRole('dialog', { name: /lock these payroll hours/i })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-08-01' } })
-    expect(screen.queryByRole('dialog', { name: /finalize this payroll lock/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /lock these payroll hours/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     await screen.findByText('Alice Pilot')
-    expect(screen.queryByRole('dialog', { name: /finalize this payroll lock/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /lock these payroll hours/i })).not.toBeInTheDocument()
   })
 
   it('discards a preview response when the date range changes before it resolves', async () => {
@@ -1316,7 +1317,7 @@ describe('PayrollRuns', () => {
     })
     apiMock.previewPayrollBatch.mockReturnValueOnce(deferredPreview)
     renderPayrollRuns()
-    await screen.findByText('No payroll batches have been finalized yet.')
+    await screen.findByText('No payroll batches have been locked yet.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
     fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-08-01' } })

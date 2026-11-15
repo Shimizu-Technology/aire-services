@@ -35,6 +35,12 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     )
   end
 
+  it "does not record opening a read-only payroll preview as activity" do
+    post "/api/v1/admin/payroll_batches/preview", params: { start_date: "2026-08-01", end_date: "2026-08-15" }, headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    expect(AuditLog.where("action LIKE ?", "%payroll_batches.preview")).not_to exist
+  end
+
   it "identifies regular and supplemental summaries without changing list scope" do
     regular = create(:payroll_batch)
     supplemental = create(:payroll_batch, payload: { "purpose" => "supplemental" })
@@ -74,6 +80,26 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
       expect(held).to include(held_total_hours: 4.0, waiting_hours_in_period: 2.0, reason: "pending_approval")
     end
     expect(PayrollBatch.count).to eq(0)
+  end
+
+  it "keeps all pending time waiting when the week projects overtime" do
+    zone = ActiveSupport::TimeZone["Pacific/Guam"]
+    entries = (10..15).map do |day|
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 8, day),
+        start_time: zone.local(2026, 8, day, 8), end_time: zone.local(2026, 8, day, 16),
+        hours: 8, status: "completed", entry_method: "clock", approval_status: "pending", overtime_status: "pending")
+    end
+    approval = Payroll::ApprovalHours.for_entries(entries)
+    expect(entries.sum { |entry| Payroll::ApprovalHours.sum(approval.segments_for(entry))[:overtime_waiting_hours] }).to be > 0
+
+    post "/api/v1/admin/payroll_batches/preview",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" }, headers: admin_headers
+
+    expect(response).to have_http_status(:ok)
+    waiting = json.fetch(:exclusions).select { |row| row[:reason] == "pending_approval" }
+    expect(waiting.size).to eq(6)
+    expect(waiting.map { |row| row[:waiting_hours_in_period] }).to all(eq(8.0))
+    expect(waiting.sum { |row| row[:waiting_hours_in_period] }).to eq(48.0)
   end
 
   it "guides previews to the published calendar and rejects both direct manual paths without side effects" do
@@ -309,7 +335,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(response.media_type).to eq("text/csv")
     csv = CSV.parse(response.body)
     expected_header = [
-      "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
+      "Batch ID", "Period start", "Period end", "Lock at (Guam, ChST UTC+10)", "Employee", "Email",
       "Source entry", "Type", "Original work date", "Category", "Regular hours",
       "Overtime hours", "Total hours"
     ]
@@ -317,7 +343,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(csv).to eq([
       expected_header,
       [
-        batch_id, "2026-08-01", "2026-08-15", batch.cutoff_at.iso8601,
+        batch_id, "2026-08-01", "2026-08-15", batch.cutoff_at.in_time_zone("Guam").iso8601,
         "Alice Pilot", employee.email, entry.id.to_s, "current", "2026-08-15",
         category.name, "8.0", "0.0", "8.0"
       ]

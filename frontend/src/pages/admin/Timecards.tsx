@@ -11,7 +11,7 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import type { TimeCategory, UserSummary, WorkerStatus } from '../../lib/api'
 import { timecardsApi, type TimecardSummaryResponse } from '../../lib/api/timecards'
 import { employeeWorkspaceHref, isWithinRoute, safeAdminReturn } from '../../lib/employeeWorkspace'
-import { businessWeekStart } from '../../lib/dateUtils'
+import { addDateDays, businessWeekStart } from '../../lib/dateUtils'
 import { SHIFT_GONE_MESSAGE, useShiftReturn } from '../../lib/useShiftReturn'
 import { currentPayPeriod, formatPayPeriod, parsePayPeriodStart, payPeriodContaining, payPeriodIncludes, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
 import { isIsoDate } from '../../lib/payrollPeriods'
@@ -57,7 +57,13 @@ export default function Timecards() {
   // ?view=week without a person is the old team week; it opens Everyone.
   const view: View = rawView === 'everyone' || (rawView === 'week' && !userId && !entryId) ? 'everyone' : 'person'
   const showEveryone = desktop && view === 'everyone'
-  const weekDate = isIsoDate(date) ? date : payPeriodIncludes(period, today) ? today : period.start
+  const endWeek = businessWeekStart(period.end)
+  const lastFullWeek = addDateDays(endWeek, 6) <= period.end ? endWeek : addDateDays(endWeek, -7)
+  const weekDate = isIsoDate(date) ? date
+    : payPeriodIncludes(period, today) && businessWeekStart(today) >= period.start && addDateDays(businessWeekStart(today), 6) <= period.end ? today
+      : payPeriodIncludes(period, today) && businessWeekStart(today) < period.start
+        ? addDateDays(businessWeekStart(period.start), 7)
+        : lastFullWeek >= period.start ? lastFullWeek : period.start
   const returnRequested = searchParams.get('return') === 'edit'
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
 

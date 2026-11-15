@@ -622,7 +622,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
-  original_employee_change?: { formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
+  original_employee_change?: { restorable?: boolean; restoration_reason?: string | null; formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
   rejected_employee_change?: { note: string; manager: string; at: string } | null;
   payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
   payroll_cutoff_missed?: boolean;
@@ -1255,7 +1255,7 @@ export interface AuditLogEntry {
   actor: {
     id: number | null;
     name: string | null;
-    email: string | null;
+    email?: string | null;
     role: string | null;
     kind: string;
   };
@@ -1266,7 +1266,7 @@ export interface AuditLogEntry {
   };
   changes: Record<string, unknown>;
   details: Record<string, unknown>;
-  request: {
+  request?: {
     id: string | null;
     ip_address: string | null;
     user_agent: string | null;
@@ -1398,6 +1398,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  pay_period_start?: string | null;
   purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;
@@ -2171,7 +2172,7 @@ export const api = {
     }),
 
   // Activity history
-  getAuditLog: (id: number) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}`),
+  getAuditLog: (id: number, scope?: { subject_type: string; subject_id: number }) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}${scope ? `?${new URLSearchParams({ subject_type: scope.subject_type, subject_id: String(scope.subject_id) })}` : ''}`),
 
   getAuditLogs: (filters: AuditLogFilters = {}) => {
     const searchParams = new URLSearchParams();

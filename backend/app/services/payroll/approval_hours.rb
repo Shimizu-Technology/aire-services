@@ -78,9 +78,8 @@ module Payroll
       part = PayableSegmentView.allocation(entry, allocations)
       result = KEYS.index_with { 0.0 }
       if allocation[:hold_reason] || time_waiting?(entry)
-        overtime = allocation[:hold_reason] ? 0.0 : part[:overtime_hours].to_f
-        result[:time_waiting_hours] = [ entry.hours.to_f - overtime, 0.0 ].max.round(2)
-        result[:overtime_waiting_hours] = overtime
+        # Pending time waits in full; its overtime is reviewed only after time approval.
+        result[:time_waiting_hours] = entry.hours.to_f.round(2)
       elsif self.class.base_approved?(entry)
         reason = self.class.overtime_reason(source, allocation, legacy_allocation: @legacy_allocations[entry.id])
         result[:approved_regular_hours] = part[:regular_hours].to_f

@@ -19,7 +19,7 @@ import { PeriodHeader } from '../../components/payroll/PeriodHeader'
 import { REFRESH_MS, SLOW_REFRESH_MS, blockLoad, usePayPeriodData } from '../../components/payroll/usePayPeriodData'
 import { WhatGoesToPayroll } from '../../components/payroll/WhatGoesToPayroll'
 import { ConnectionCard, PausedBanner } from '../../components/today/ConnectionCard'
-import { periodLabel } from '../../components/today/format'
+import { monthDay, periodLabel } from '../../components/today/format'
 import { Button, ErrorState, Menu, PeriodStepper, useConfirm, type MenuItem, type StatusTone } from '../../components/ui'
 import { Skeleton } from '../../components/ui/Skeleton'
 
@@ -51,6 +51,10 @@ export default function PayrollRuns() {
   const linked = linkedPeriodStart(params)
   if (params.has('batch_id') || linked === 'records') return <Navigate replace to={`${PAYROLL_RECORDS_PATH}?${params.toString()}`} />
   if (routeStart !== undefined && !parsePayPeriodStart(routeStart)) {
+    if (isIsoDate(routeStart)) {
+      const period = payPeriodContaining(routeStart)
+      return <Navigate replace to={`${periodHref(period.start)}?start_date=${routeStart}`} />
+    }
     return (
       <ErrorState
         title="That isn't a pay period."
@@ -157,14 +161,14 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
     if (response.data) {
       setDialog(null)
       openBatch(response.data)
-    } else setDialogError(response.error || 'The payroll batch could not be finalized.')
+    } else setDialogError(response.error || 'The payroll batch could not be locked.')
   }
 
   const menuItems: MenuItem[] = [
     ...(connectionEnabled && range ? [{ id: 'manual', label: `Record ${PAYROLL_WORDS.manualPayroll.toLowerCase()}…`, onSelect: () => setDialog('manual') }] : []),
     ...(connectionEnabled && show.data && !published ? [{
       id: 'finalize',
-      label: 'Finalize without a published period…',
+      label: 'Lock without a published period…',
       disabled: !preview.data?.can_finalize || Boolean(preview.data?.published_calendar_periods?.length),
       onSelect: () => { setDialogError(null); setDialog('finalize') },
     }] : []),
@@ -186,6 +190,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
 
   return (
     <div className="pay-period-page space-y-4">
+      {range && isIsoDate(params.get('start_date')) && params.get('start_date') !== range.start && <p role="status">{monthDay(params.get('start_date')!)} is in the {periodLabel({ start_date: range.start, end_date: range.end })} pay period.</p>}
       {params.has('start_date') && !isIsoDate(params.get('start_date')) && <p role="status">That date wasn't valid, so here's the current pay period.</p>}
       {!isCurrent && range && (
         <Link to={ADMIN_PATHS.payroll} className="inline-flex min-h-11 items-center text-body-sm font-semibold text-primary pointer-fine:min-h-0">

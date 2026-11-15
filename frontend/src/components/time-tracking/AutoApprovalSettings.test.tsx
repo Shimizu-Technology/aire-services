@@ -57,7 +57,7 @@ describe('AutoApprovalSettings', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Auto-approve ordinary shifts' }))
     const dialog = await screen.findByRole('alertdialog')
-    expect(dialog).toHaveTextContent('Chels and the CEO must agree')
+    expect(dialog).toHaveTextContent('An administrator and the owner must agree')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())

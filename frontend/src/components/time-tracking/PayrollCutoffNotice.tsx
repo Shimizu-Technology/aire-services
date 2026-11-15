@@ -157,14 +157,16 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   // A lock that already happened is history, not an alarm. Only a team reviewer whose count
   // for that period came back as exactly 0 gets the quiet status. While the count is
   // loading or failed, the full warning and its approvals link stay.
-  if (cutoff.stage === 'passed' && reviewsTeam && !stale && validated && pending === 0) {
+  if (cutoff.stage === 'passed' && reviewsTeam && !stale && validated && pending !== null) {
     const nextLock = response?.next_lock
     const upcoming = nextLock && nextLock.period.id !== cutoff.period.id ? nextLock : null
     return <>
       {attentionNotice}
       <section aria-label="Payroll lock status" className="cutoff-status">
-        {shortPeriod(cutoff.period)} is locked.
-        {upcoming && <> {shortPeriod(upcoming.period)} locks {lockMoment(upcoming.cutoff_at)}.</>}
+        {shortPeriod(cutoff.period)} is locked
+        {pending > 0 && <> · {pending} {pending === 1 ? 'shift' : 'shifts'} still waiting <Link className="inline-flex min-h-11 items-center font-semibold underline" to={withPayrollPeriod(ADMIN_PATHS.approvals, { start: cutoff.period.start_date, end: cutoff.period.end_date })}>→ Review</Link></>}
+        {pending === 0 && '.'}
+        {pending === 0 && upcoming && <> {shortPeriod(upcoming.period)} locks {lockMoment(upcoming.cutoff_at)}.</>}
       </section>
     </>
   }

@@ -362,6 +362,17 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(ReportExport.last.entry_ids).to contain_exactly(first.id, TimeEntry.order(:id).last.id)
   end
 
+  it "does not require a correction reason after downloading a draft with waiting time" do
+    entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    entry.update!(approval_status: "pending")
+    get "/api/v1/admin/hours_report/pdf", params: { start_date: "2026-06-16", end_date: "2026-06-30", acknowledge_draft: true }, headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(ReportExport.last).to have_attributes(readiness_status: "draft", protects_entries: false)
+    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { end_time: "14:00" } }, headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.hours.to_f).to eq(5.0)
+  end
+
   it "generates a server-side employee timesheet PDF without requiring a finalized week" do
     context_entry = create_entry(user: employee, date: Date.new(2026, 6, 15), hours: 8)
     first_entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)

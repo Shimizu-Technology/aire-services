@@ -149,6 +149,15 @@ describe('ApprovalQueue review workflow', () => {
     expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
   })
 
+  it('hides keep original when the server says the punches cannot be restored', async () => {
+    const entry = makeEntry({ entry_method: 'clock', original_employee_change: { restorable: false, restoration_reason: 'Original clock-out missing', formatted_range: 'Original clock-out missing', start_time: null, end_time: null, clock_in_at: null, clock_out_at: null, hours: 25 } })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1, summary } })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime />)
+    await screen.findByRole('button', { name: 'Edit entry' })
+    expect(screen.queryByRole('button', { name: /Reject change, keep original time/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+  })
+
   it.each([
     ['Today', { date: '2026-11-01' }],
     ['Yesterday', { date: '2026-10-31' }],

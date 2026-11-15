@@ -48,7 +48,7 @@ export default function AutoApprovalSettings({ settings, onSaved }: Props) {
     if (next) {
       const agreed = await confirm({
         title: 'Turn on auto-approval?',
-        description: 'Chels and the CEO must agree before this is turned on. Employees’ ordinary kiosk and mobile shifts will be approved at clock-out without a manager looking at them.',
+        description: 'An administrator and the owner must agree before this is turned on. Employees’ ordinary kiosk and mobile shifts will be approved at clock-out without a manager looking at them.',
         details: <p className="text-body-sm text-ink-muted">Overtime, edits, manual entries, missed clock-outs, late hours and supervisors’ own time still go to the queue.</p>,
         confirmLabel: 'Turn on',
       })
