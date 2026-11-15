@@ -136,7 +136,7 @@ export function PayPeriodCard({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Link to={approvalsHref(period ? { period: period.start_date } : {})} className={buttonClasses({})}>
+        <Link to={approvalsHref(period ? { start_date: period.start_date, end_date: period.end_date } : {})} className={buttonClasses({})}>
           Review approvals
         </Link>
         <Link to={payrollHref(period)} className={buttonClasses({ variant: 'secondary' })}>

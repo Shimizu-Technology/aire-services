@@ -36,6 +36,8 @@ module Auditable
       event_category: default_event_category,
       outcome: audit_outcome,
       metadata: {
+        employee_name: record.is_a?(TimeEntry) ? record.user&.full_name : nil,
+        work_date: record.is_a?(TimeEntry) ? record.work_date&.iso8601 : nil,
         http_method: request.request_method,
         path: request.path,
         changed_fields: snapshot[:changed_fields].presence || safe_changed_fields,

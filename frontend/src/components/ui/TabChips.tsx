@@ -87,7 +87,7 @@ export function TabChips<T extends string>({ label, items, value, onChange, cont
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cx(
-              'inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-body-sm font-semibold transition-colors duration-150 pointer-fine:min-h-9',
+              'inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-body-sm font-semibold transition-colors duration-150 pointer-fine:min-h-9 pointer-coarse:min-h-11',
               selected ? 'border-primary bg-primary text-white' : 'border-line-strong bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink',
             )}
           >

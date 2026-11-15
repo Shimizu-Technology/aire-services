@@ -232,6 +232,18 @@ describe('Employment', () => {
 })
 
 describe('End employment', () => {
+  it('uses singular consequences and safely blocks a five-digit year', async () => {
+    mocks.preview.mockResolvedValue({ data: { preview: { ...preview, open_pay_stub_links: 1, open_pay_stub_requests: 1, pending_leave_requests: 1, approved_leave_requests: 1 } } })
+    open(<EndEmploymentFlow user={person} onClose={vi.fn()} onEnded={onSaved} />)
+    await screen.findByText('1 open pay stub link revoked.')
+    expect(screen.getByText('1 open pay stub request closed.')).toBeInTheDocument()
+    expect(screen.getByText('1 pending leave request is cancelled, regardless of dates.')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Last day worked/), { target: { value: '10000-11-14' } })
+    expect(await screen.findByText(/starting after the last day worked/)).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type Ana Rivera to confirm' }), { target: { value: 'Ana Rivera' } })
+    expect(screen.getByRole('button', { name: 'End employment' })).toBeDisabled()
+  })
+
   it('requires the full name before submitting date and version', async () => {
     const close = vi.fn()
     open(<EndEmploymentFlow user={person} onClose={close} onEnded={onSaved} />)
@@ -239,7 +251,7 @@ describe('End employment', () => {
     await within(dialog).findByText('Not clocked in right now.')
     const confirm = within(dialog).getByRole('button', { name: 'End employment' })
     expect(confirm).toBeDisabled()
-    expect(dialog).toHaveTextContent('2 open pay stub links are revoked.')
+    expect(dialog).toHaveTextContent('2 open pay stub links revoked.')
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Type Ana Rivera to confirm' }), { target: { value: 'Ana' } })
     expect(confirm).toBeDisabled()
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Type Ana Rivera to confirm' }), { target: { value: 'Ana Rivera' } })
@@ -252,11 +264,18 @@ describe('End employment', () => {
     open(<EndEmploymentFlow user={person} onClose={vi.fn()} onEnded={onSaved} />)
     await screen.findByText(/0 approved leave requests starting after/)
     fireEvent.change(screen.getByLabelText(/Last day worked/), { target: { value: '2026-11-11' } })
-    await screen.findByText(/3 approved leave requests starting after 2026-11-11/)
+    await screen.findByText(/3 approved leave requests starting after Wed, Nov 11/)
     expect(screen.getByText(/2 pending leave requests are cancelled, regardless of dates/)).toBeInTheDocument()
     expect(mocks.preview).toHaveBeenLastCalledWith(7, '2026-11-11')
-    expect(screen.getByText(/Approved leave starting on or before the last day worked stays unchanged/)).toBeInTheDocument()
+    expect(screen.getByText(/Earlier approved leave stays unchanged/)).toBeInTheDocument()
   })
+  it('explains a short PIN without changing the accepted server range', () => {
+    open(<ResetPinSheet open userId={7} version={4} name="Ana Rivera" onClose={vi.fn()} onReset={onSaved} />)
+    fireEvent.change(screen.getByLabelText('New PIN'), { target: { value: '123' } })
+    expect(screen.getByText('PINs are 4–8 digits.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save this PIN' })).toBeDisabled()
+  })
+
   it('blocks an open clock even after the full name is typed', async () => {
     mocks.preview.mockResolvedValue({ data: { preview: { ...preview, open_clock: true } } })
     open(<EndEmploymentFlow user={person} onClose={vi.fn()} onEnded={onSaved} />)

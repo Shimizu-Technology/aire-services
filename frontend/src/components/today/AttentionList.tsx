@@ -147,13 +147,17 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
       }
       case 'approvals_waiting': {
         const meta = [
-          hoursLabel(item.total_hours),
+          `${hoursLabel(item.time_waiting_hours ?? item.total_hours)} time · ${hoursLabel(item.overtime_waiting_hours ?? 0)} overtime`,
           item.by_kind.added > 0 && `${item.by_kind.added} added by hand`,
           item.oldest_work_date && `oldest ${dayLabel(item.oldest_work_date)}`,
         ].filter(Boolean).join(' · ')
         return (
           <AttentionItem key={item.key} tone="warn" icon={<ClipboardCheck />} meta={meta} action={<ActionLink to={approvalsHref()}>Review</ActionLink>}>
-            <b>{plural(item.count, 'shift')}</b> waiting for approval
+            <b>{item.count} to review</b> · waiting hours this period
+            {item.earlier_periods?.map(period => <span key={period.start_date} className="mt-2 block text-body-sm">
+              plus {period.hours.toFixed(1)}h waiting from {dayLabel(period.start_date)}–{dayLabel(period.end_date)}{' '}
+              <ActionLink to={approvalsHref({ start_date: period.start_date, end_date: period.end_date })}>Review</ActionLink>
+            </span>)}
           </AttentionItem>
         )
       }

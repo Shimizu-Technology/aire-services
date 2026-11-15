@@ -83,7 +83,7 @@ module Reports
       pdf.text HoursReportDisclosure::APPROVAL_FACTS_NOTE, size: 7.5
       pdf.move_down 5
       rows = [
-        [ "Approved for payroll", "Approved regular", "Approved overtime", "Time waiting for approval", "Overtime waiting for approval — not included", "Entries", "Worked hours" ],
+        [ "Approved for payroll", "Approved regular", "Approved overtime", "Time waiting for approval", "Overtime waiting for approval — not included", "Entries", "Worked hours (approved + waiting)" ],
         [ hours(summary.dig(:payroll_hours, :approved_hours)), hours(summary.dig(:payroll_hours, :approved_regular_hours)), hours(summary.dig(:payroll_hours, :approved_overtime_hours)), hours(summary.dig(:payroll_hours, :time_waiting_hours)), hours(summary.dig(:payroll_hours, :overtime_waiting_hours)), summary[:entries_count].to_i.to_s, hours(summary[:worked_hours]) ]
       ]
       pdf.table(rows, width: pdf.bounds.width, cell_style: { align: :center, padding: [ 8, 5 ], border_color: BORDER }) do |table|
@@ -103,7 +103,7 @@ module Reports
       pdf.text "Hours by Employee", size: 12, style: :bold
       pdf.move_down 6
 
-      rows = [ [ "Employee", "Department", "Type", "Approved regular", "Approved overtime", "Approved for payroll", "Overtime waiting for approval — not included", "Status" ] ]
+      rows = [ [ "Employee", "Department", "Type", "Approved regular", "Approved overtime", "Approved for payroll", "Time waiting", "Overtime waiting for approval — not included", "Status" ] ]
       employees.each do |employee|
         rows << [
           employee[:full_name],
@@ -112,18 +112,19 @@ module Reports
           hours(employee.dig(:payroll_hours, :approved_regular_hours)),
           hours(employee.dig(:payroll_hours, :approved_overtime_hours)),
           hours(employee.dig(:payroll_hours, :approved_hours)),
+          hours(employee.dig(:payroll_hours, :time_waiting_hours)),
           hours(employee.dig(:payroll_hours, :overtime_waiting_hours)),
           employee[:ready] && employee[:approval_complete] ? "Complete" : "Draft - needs review"
         ]
       end
-      rows << [ { content: "No matching employees or time entries for this report.", colspan: 8 } ] if employees.empty?
+      rows << [ { content: "No matching employees or time entries for this report.", colspan: 9 } ] if employees.empty?
 
-      pdf.table(rows, header: true, width: pdf.bounds.width, column_widths: [ 145, 100, 50, 75, 75, 80, 110, 85 ], cell_style: { size: 8, padding: [ 6, 5 ], border_color: BORDER }) do |table|
+      pdf.table(rows, header: true, width: pdf.bounds.width, column_widths: [ 130, 85, 45, 65, 65, 70, 65, 110, 85 ], cell_style: { size: 8, padding: [ 6, 5 ], border_color: BORDER }) do |table|
         table.row_colors = [ "FFFFFF", SOFT_ROW ] if rows.length > 2
         table.row(0).background_color = LIGHT_CYAN
         table.row(0).text_color = NAVY
         table.row(0).font_style = :bold
-        table.columns(3..7).align = :right
+        table.columns(3..8).align = :right
       end
       pdf.move_down 14
     end

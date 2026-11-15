@@ -128,7 +128,7 @@ async function saveLinkedReportEdit() {
 }
 
 function cutoffEntryId() {
-  return new URL(screen.getByRole('link', { name: 'Open payroll cutoffs' }).getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')
+  return new URL(screen.getByRole('link', { name: 'View payroll progress', hidden: true }).getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')
 }
 
 describe('TimeTracking routed report periods', () => {
@@ -142,6 +142,22 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
+  })
+
+  it('keeps payment problems ahead of waiting time and opens warning details', async () => {
+    const lifecycle = { status: 'payment_failed' as const, label: 'Payment failed', settlements: [], payment_method: null, payment_reference: null }
+    const entry = { ...linkedFixture(), payroll_lifecycle: lifecycle }
+    prepareLinkedReport({ payroll_hours: { ...approvedHours(4), time_waiting_hours: 2 },
+      days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [entry] }] })
+    const response = await apiMock.getHoursReport()
+    response.data.summary.payroll_statuses = { payment_failed: 1, payment_attested_pending_evidence: 1 }
+    await waitFor(() => expect(screen.getAllByText(/Payment (?:failed|problem)/).length).toBeGreaterThan(0))
+    expect(screen.queryByText('Some time still waiting')).not.toBeInTheDocument()
+    const notice = screen.getByText('Live hours, not a finalized payroll record')
+    expect(notice.closest('details')).toBeNull()
+    expect(screen.getByText('More detail').closest('details')).toHaveAttribute('open')
+    expect(screen.getByText('Needs attention')).toBeVisible()
+    expect(screen.getByText('Payment proof still needed')).toBeVisible()
   })
 
   it('does not offer a zero-approved-OT button when only waiting overtime exists', async () => {
@@ -419,14 +435,14 @@ describe('TimeTracking routed report periods', () => {
     })))
   })
 
-  it.each(['Prepare payroll cutoff', 'Open payroll cutoffs'])('keeps the selected report and employee context through %s', async (name) => {
+  it.each(['Open the pay period', 'View payroll progress'])('keeps the selected report and employee context through %s', async (name) => {
     apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
     apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
     const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
     const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
     render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
 
-    const link = await screen.findByRole('link', { name })
+    const link = await screen.findByRole('link', { name, hidden: true })
     await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
     const href = new URL(link.getAttribute('href')!, 'https://local.invalid')
     expect(href.pathname).toBe('/admin/payroll')
@@ -442,7 +458,7 @@ describe('TimeTracking routed report periods', () => {
     const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
     const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
     render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
-    const link = await screen.findByRole('link', { name: 'Open payroll cutoffs' })
+    const link = await screen.findByRole('link', { name: 'View payroll progress', hidden: true })
     await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
 
     if (scope === 'employee') {
@@ -664,7 +680,7 @@ describe('TimeTracking routed report periods', () => {
 
     expect(screen.getAllByText('22.00')).not.toHaveLength(0)
     expect(screen.queryByText('11.00')).not.toBeInTheDocument()
-    for (const link of screen.getAllByRole('link', { name: /payroll cutoff/i })) {
+    for (const link of screen.getAllByRole('link', { name: /View payroll progress/i, hidden: true })) {
       expect(link.getAttribute('href')).toMatch(/^\/admin\/payroll\?start_date=2026-07-01&end_date=2026-07-15/)
     }
   })
@@ -725,7 +741,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const metric = await screen.findByText('Check evidence pending')
+    const metric = await screen.findByText('Payment proof still needed')
     expect(metric.parentElement).toHaveTextContent('1')
     expect(screen.getByText('Paid').parentElement).toHaveTextContent('0')
   })

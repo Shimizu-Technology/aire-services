@@ -2,7 +2,7 @@ import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { withPayrollPeriod } from '../../lib/payrollPeriods'
 import type { ClockAttentionItem } from '../../lib/api/attention'
 
-// Where each Today action goes. The Approvals inbox reads `kind`, `period` and
+// Where each Today action goes. The Approvals inbox reads `kind`, `start_date`, `end_date` and
 // `user_id`; Timecards reads `entry_id`, `date` and `user_id`.
 
 const withQuery = (path: string, query: Record<string, string | number | undefined>) => {
@@ -20,7 +20,7 @@ export const openClockHref = (item: ClockAttentionItem) =>
 export const missingCategoryHref = (entryId: number | undefined) =>
   withQuery(ADMIN_PATHS.timecards, { entry_id: entryId })
 
-export const approvalsHref = (query: { kind?: string; period?: string; user_id?: number } = {}) =>
+export const approvalsHref = (query: { kind?: string; start_date?: string; end_date?: string; user_id?: number } = {}) =>
   withQuery(ADMIN_PATHS.approvals, query)
 
 export const payrollHref = (period?: { start_date: string; end_date: string } | null) =>

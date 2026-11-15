@@ -35,7 +35,7 @@ export function TeamList({ users, onTheClock, returnTo, myPay }: TeamListProps) 
             title={(
               <Link
                 to={href}
-                className="whitespace-normal hover:underline [overflow-wrap:anywhere]"
+                className="whitespace-normal break-normal hover:underline"
               >
                 {name}
               </Link>

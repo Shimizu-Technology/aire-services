@@ -105,7 +105,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
   }, [title])
 
   const labelFor = (key: string) =>
-    key === 'clock_in_location_latitude'
+    key === 'payroll_cutoff_reminder_emails' ? 'Lock reminder recipients' : key === 'clock_in_location_latitude'
       ? 'Latitude'
       : key === 'clock_in_location_longitude'
         ? 'Longitude'
@@ -136,6 +136,9 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
 
   const save = async () => {
     const payload = { ...changes }
+    if (draft.clock_in_location_enforced !== 'true') {
+      for (const key of ['clock_in_location_latitude', 'clock_in_location_longitude', 'clock_in_location_radius_meters']) delete payload[key]
+    }
     setError('')
     setMessage('')
     setFieldErrors({})
@@ -162,7 +165,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
             ? {
                 title: 'Turn on auto-approval?',
                 description:
-                  'Chels and the CEO must agree before this is turned on. Employees’ ordinary kiosk and mobile shifts will be approved at clock-out without a manager looking at them.',
+                  'An administrator and the owner must agree before this is turned on. Employees’ ordinary kiosk and mobile shifts will be approved at clock-out without a manager looking at them.',
                 details: (
                   <p className="text-body-sm text-ink-muted">
                     Overtime, edits, manual entries, missed clock-outs, late hours and supervisors’
@@ -400,6 +403,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
           {keys.length > 0 && (
             <div className="divide-y divide-line rounded-card border border-line bg-surface">
               {keys.map((key) => {
+                if (!locationEnforced && ['clock_in_location_latitude', 'clock_in_location_longitude', 'clock_in_location_radius_meters'].includes(key)) return null
                 const entry = data.catalog?.find((item) => item.setting_keys.includes(key))
                 const label = labelFor(key)
                 const isSwitch = switches.has(key)

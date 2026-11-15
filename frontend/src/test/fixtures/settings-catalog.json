@@ -1,7 +1,7 @@
 [
   {
     "id": "payroll_cutoff_reminder_emails",
-    "label": "Cutoff reminder recipients",
+    "label": "Lock reminder recipients",
     "section": "time_approvals",
     "section_label": "Time approvals",
     "page": "Settings",

@@ -1,3 +1,4 @@
+import { ToastContext } from '../ui/toastContext'
 import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { UNSAFE_DataRouterContext } from 'react-router-dom'
 import { createPortal } from 'react-dom'
@@ -141,7 +142,9 @@ export default function EditTimeEntryModal({
   onError,
   phoneSheet = false,
 }: EditTimeEntryModalProps) {
-  const canViewActivity = useCapabilities().view_activity
+  const toast = useContext(ToastContext)
+  const activityCapabilities = useCapabilities()
+  const canViewActivity = activityCapabilities.view_activity || activityCapabilities.manage_team_time
   // A manager's own time, while it needs another approver, is edited like an employee's.
   const supervisorEdit = canManageTeamTime && !entry?.needs_another_approver
   const [formData, setFormData] = useState({
@@ -253,7 +256,8 @@ export default function EditTimeEntryModal({
   // A refused save has to be seen where it can be fixed: scroll to the field, focus it, and say
   // what is wrong right beside it, instead of leaving a message below the fold.
   const focusSoon = (id: string) => window.setTimeout(() => {
-    const element = document.getElementById(id)
+    const inlineReason = document.getElementById('history-correction-reason')
+    const element = id.includes('correction-reason') && inlineReason ? inlineReason : document.getElementById(id)
     element?.scrollIntoView?.({ block: 'center' })
     element?.focus({ preventScroll: true })
   }, 0)
@@ -266,7 +270,7 @@ export default function EditTimeEntryModal({
       setError(null)
       setReasonError(message)
       onError?.(message)
-      focusSoon(REASON_ID)
+      focusSoon(historyGuard ? 'history-correction-reason' : REASON_ID)
     } else if (response.code === 'overlapping_shift') {
       setError(null)
       setTimeError(message)
@@ -296,7 +300,7 @@ export default function EditTimeEntryModal({
       setError(null)
       setReasonError(message)
       onError?.(message)
-      focusSoon(REASON_ID)
+      focusSoon(historyGuard ? 'history-correction-reason' : REASON_ID)
       return false
     }
     if (reviewAction && (entry.version == null || !Number.isInteger(entry.version) || entry.version < 0)) {
@@ -356,6 +360,7 @@ export default function EditTimeEntryModal({
         return false
       }
 
+      toast?.show({ message: 'Shift saved.' })
       await onSaved()
       return true
     } catch {
@@ -384,10 +389,10 @@ export default function EditTimeEntryModal({
 
   const saveThenViewHistory = async () => {
     const saved = await save()
-    setHistoryGuard(false)
     if (saved) {
+      setHistoryGuard(false)
       leaving.current = true
-      window.location.assign(historyHref)
+      window.location.assign(`${historyHref}&saved=1`)
     }
   }
 
@@ -589,7 +594,7 @@ export default function EditTimeEntryModal({
                               setFormData({ ...formData, break_minutes: preset.minutes })
                             }
                           }}
-                          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          className={`min-h-11 min-w-11 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                             (preset.minutes === null && formData.break_minutes === null) ||
                             (preset.minutes === formData.break_minutes) ||
                             (preset.minutes === -1 &&
@@ -629,7 +634,7 @@ export default function EditTimeEntryModal({
                         <button
                           type="button"
                           onClick={() => setBreakRows([...breakRows, { start_time: '12:00', end_time: '12:30' }])}
-                          className="rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-50"
+                          className="min-h-11 min-w-11 rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-50"
                         >
                           Add break
                         </button>
@@ -713,8 +718,9 @@ export default function EditTimeEntryModal({
                       Correction reason *
                     </label>
                     <p id={`${titleId}-reason-hint`} className="mb-2 text-xs leading-relaxed text-amber-800">
-                      Explain what changed and why. Prior payroll evidence stays unchanged; affected exports are marked stale{exportReferences.length > 0 ? ` (${exportReferences.join(', ')})` : ''} and this action is recorded in the activity history.
+                      Explain what changed and why. Prior payroll evidence stays unchanged; affected exports are marked stale and this action is recorded in the activity history.
                     </p>
+                    {exportReferences.length > 0 && <details className="mb-2 text-xs text-amber-800"><summary>Details</summary>{exportReferences.join(', ')}</details>}
                     <textarea
                       id="time-entry-correction-reason"
                       value={correctionReason}
@@ -723,7 +729,7 @@ export default function EditTimeEntryModal({
                       aria-required="true"
                       aria-invalid={reasonError ? true : undefined}
                       aria-describedby={`${titleId}-reason-hint${reasonError ? ` ${titleId}-reason-error` : ''}`}
-                      autoFocus
+                      autoFocus={!historyGuard}
                       className={`w-full resize-none rounded-lg border bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500 ${reasonError ? 'border-red-500' : 'border-amber-300'}`}
                       placeholder="What changed and why?"
                     />
@@ -780,6 +786,7 @@ export default function EditTimeEntryModal({
             open={historyGuard}
             title="Save your changes before viewing history?"
             description="You have changed this shift but haven't saved it yet. If you leave without saving, those changes are lost."
+            details={(correctionReasonRequired || reviewAction) ? <div className="space-y-2"><label htmlFor="history-correction-reason">Add a short reason, then save and view history</label><textarea autoFocus data-confirm-initial-focus id="history-correction-reason" className="w-full rounded border p-2" value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} aria-describedby={reasonError ? 'history-reason-error' : undefined} />{reasonError && <p id="history-reason-error" role="alert" className="text-red-800">{reasonError}</p>}</div> : error ? <p>{error}</p> : undefined}
             confirmLabel="Save and view history"
             cancelLabel="Keep editing"
             alternate={{ label: 'Discard changes', tone: 'danger', onClick: () => { leaving.current = true; window.location.assign(historyHref) } }}

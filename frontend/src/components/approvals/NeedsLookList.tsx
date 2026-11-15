@@ -53,7 +53,6 @@ export default function NeedsLookList({
                 </span>
               }
               title={name}
-              metaWrap
               meta={
                 <>
                   {entries.length === 1

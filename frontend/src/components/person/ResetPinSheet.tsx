@@ -96,7 +96,7 @@ export function ResetPinSheet({ open, userId, version, name, onClose, onReset }:
         <div className="space-y-3">
           <Field
             label="New PIN"
-            help="Leave it blank and choose Make a PIN for me to get a random one."
+            help={pin.length > 0 && pin.length < 4 ? "PINs are 4–8 digits." : "Leave it blank and choose Make a PIN for me to get a random one."}
           >
             <Input
               value={pin}

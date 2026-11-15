@@ -135,7 +135,6 @@ export default function LeaveRequestsList({
                   <Avatar name={name(request)} size="sm" />
                 </span>
               }
-              metaWrap
               meta={
                 <>
                   {leaveType(request.leave_type)} ·{' '}
