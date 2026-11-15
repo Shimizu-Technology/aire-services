@@ -23,7 +23,7 @@ describe('AttentionList', () => {
     expect(rows).toEqual([
       'Caleb Perez still clocked in',
       'Grace Torres on the clock 12.4h',
-      '31 shifts waiting for approval this period',
+      '31 to review · waiting hours this period',
       '6h overtime waiting',
       '2 shifts with no work category',
       'The lock failed for Nov 1–15',

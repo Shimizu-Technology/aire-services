@@ -103,7 +103,7 @@ export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterCha
               <ListRow
                 key={person.id}
                 leading={<Avatar name={person.name} />}
-                title={<span className="whitespace-normal [overflow-wrap:anywhere]">{person.name}</span>}
+                title={<span className="whitespace-normal break-normal">{person.name}</span>}
                 meta={<span className="whitespace-normal">{[hours, person.groups.join(', ')].filter(Boolean).join(' · ')}</span>}
                 trailing={pill ? <StatusPill tone={pill.tone}>{pill.label}</StatusPill> : undefined}
                 selected={person.id === selectedId}

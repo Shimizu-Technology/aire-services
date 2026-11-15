@@ -88,6 +88,7 @@ class AuditLogPresenter
   # The worker is both actor and subject of their own My Pay views; previews
   # name the worker whose pay an admin looked at.
   MY_PAY_SENTENCES = {
+    "pay_documents.admin_pdf_downloaded" => "downloaded %{subject_possessive} pay stub",
     "my_pay.statements_viewed" => "viewed their pay statements",
     "my_pay.statement_viewed" => "opened one of their pay statements",
     "my_pay.statement_pdf_downloaded" => "downloaded one of their pay statements",

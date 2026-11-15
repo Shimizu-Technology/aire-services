@@ -140,7 +140,7 @@ class AttentionQuery
 
     start_date = Date.iso8601(period[:start_date])
     current = summarize_waiting(@waiting_entries.select { |entry| entry.work_date.between?(start_date, Date.iso8601(period[:end_date])) })
-    current.merge!(count: period[:waiting_count], time_waiting_hours: period[:time_waiting_hours],
+    current.merge!(count: approvals[:count], time_waiting_hours: period[:time_waiting_hours],
       overtime_waiting_hours: period[:overtime_waiting_hours])
     earlier = @waiting_entries.select { |entry| entry.work_date < start_date }.group_by do |entry|
       date = entry.work_date
@@ -153,16 +153,16 @@ class AttentionQuery
     { key: "approvals_waiting", type: "approvals_waiting", tone: "waiting", earlier_periods: earlier }.merge(current)
   end
 
-  # Counts, people and weeks come from one aggregate, so they stay exact and
-  # equal the badge however long the backlog. Hours use the inbox's weekly
-  # projection, which loads every shift in each affected week; it runs for
-  # whole people, oldest waiting first, up to PROJECTED_OVERTIME_LIMIT
-  # entries. Anyone past that gets hours: nil, and so does the total.
+  # Only time-approved shifts belong in this separate overtime row. Hours use
+  # ApprovalHours with full weekly context, like the card and employee totals.
+  # Bound the calculation by whole people, oldest first; beyond the budget,
+  # report unknown hours rather than a partial total.
   def overtime_item
     return unless viewer.can_approve_time?
 
     week_start = "time_entries.work_date - EXTRACT(DOW FROM time_entries.work_date)::integer"
-    rows = self.class.waiting_scope.where(overtime_status: "pending").group(:user_id).pluck(
+    rows = self.class.waiting_scope.where(overtime_status: "pending", status: "completed")
+      .where("approval_status = ? OR (approval_status IS NULL AND entry_method = ?)", "approved", "clock").group(:user_id).pluck(
       :user_id, Arel.sql("COUNT(*)"), Arel.sql("MIN(time_entries.work_date)"),
       Arel.sql("ARRAY_AGG(DISTINCT (#{week_start}) ORDER BY (#{week_start}))")
     )
@@ -192,10 +192,11 @@ class AttentionQuery
   def projected_overtime_hours(user_ids)
     return {} if user_ids.empty?
 
-    entries = TimeEntry.where(overtime_status: "pending", user_id: user_ids).to_a
-    allocations = Payroll::AffectedOvertimeReview.projected_allocations_for(entries)
+    entries = self.class.waiting_scope.where(overtime_status: "pending", user_id: user_ids).to_a
+      .select { |entry| Payroll::ApprovalHours.base_approved?(entry) }
+    calculator = Payroll::ApprovalHours.for_entries(entries)
     entries.group_by(&:user_id).transform_values do |rows|
-      rows.sum { |entry| allocations[entry.id].to_h.fetch(:overtime_hours, 0).to_f }
+      rows.sum { |entry| calculator.for(entry)[:overtime_waiting_hours] }
     end
   end
 

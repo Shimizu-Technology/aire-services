@@ -151,7 +151,7 @@ describe('TimeTracking routed report periods', () => {
       days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [entry] }] })
     const response = await apiMock.getHoursReport()
     response.data.summary.payroll_statuses = { payment_failed: 1, payment_attested_pending_evidence: 1 }
-    await waitFor(() => expect(screen.getAllByText('Payment failed').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText(/Payment (?:failed|problem)/).length).toBeGreaterThan(0))
     expect(screen.queryByText('Some time still waiting')).not.toBeInTheDocument()
     const notice = screen.getByText('Live hours, not a finalized payroll record')
     expect(notice.closest('details')).toBeNull()

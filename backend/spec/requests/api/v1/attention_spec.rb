@@ -86,7 +86,7 @@ RSpec.describe "Attention", type: :request do
     shift(employee, date: Date.new(2026, 11, 10), hours: 8, approval_status: "denied", overtime_status: "pending")
     body = attention
     row = body.fetch("items").find { |item| item["type"] == "approvals_waiting" }
-    expect(row).to include("count" => body.dig("period", "waiting_count"), "time_waiting_hours" => body.dig("period", "time_waiting_hours"))
+    expect(row).to include("count" => body.dig("approvals", "count"), "time_waiting_hours" => body.dig("period", "time_waiting_hours"))
     expect(row.fetch("earlier_periods")).to eq([ { "start_date" => "2026-10-16", "end_date" => "2026-10-31", "hours" => 6.0 } ])
     expect(body.dig("approvals", "count")).to eq(2)
     expect(body.fetch("items").none? { |item| item["type"] == "overtime_waiting" }).to be(true)
@@ -102,6 +102,24 @@ RSpec.describe "Attention", type: :request do
     expected = Payroll::ApprovalHours.sum([ pending, approved ].map { |row| calculator.for(row) })
     expect(body).to include("count" => 2, "time_waiting_hours" => expected[:time_waiting_hours], "overtime_waiting_hours" => expected[:overtime_waiting_hours])
     expect(body["time_waiting_hours"]).to eq(4.0)
+  end
+
+  it "keeps pending time whole and only counts time-approved overtime in every Today total" do
+    publish_november!
+    (2..6).each { |day| shift(employee, date: Date.new(2026, 11, day)) }
+    (2..6).each { |day| shift(caleb, date: Date.new(2026, 11, day)) }
+    shift(employee, date: Date.new(2026, 11, 7), hours: 6.33, approval_status: "pending", overtime_status: "pending")
+    shift(caleb, date: Date.new(2026, 11, 7), hours: 10.5, overtime_status: "pending")
+
+    body = attention
+    expect(body.fetch("approvals")).to include("count" => 2, "time_waiting_hours" => 6.33, "overtime_waiting_hours" => 10.5)
+    expect(body.fetch("period")).to include("time_waiting_hours" => 6.33, "overtime_waiting_hours" => 10.5)
+    expect(body.fetch("items").find { |row| row["type"] == "approvals_waiting" })
+      .to include("count" => 2, "time_waiting_hours" => 6.33, "overtime_waiting_hours" => 10.5)
+    expect(body.fetch("items").find { |row| row["type"] == "overtime_waiting" })
+      .to include("count" => 1, "hours" => 10.5)
+    get "/api/v1/time_entries/pending_approvals", headers: headers_for(admin)
+    expect(response.parsed_body.fetch("count")).to eq(2)
   end
 
   it "orders the whole list: clocks, approvals, overtime, categories, payroll, leave, PINs, stub requests" do
@@ -237,11 +255,11 @@ RSpec.describe "Attention", type: :request do
       expect(period.fetch("people")).to eq(4)
     end
 
-    it "matches the overtime count to the inbox" do
+    it "counts only time-approved shifts in the separate overtime row" do
       overtime = attention(admin).fetch("items").find { |item| item["type"] == "overtime_waiting" }
 
-      expect(overtime.fetch("count")).to eq(2)
-      expect(overtime.fetch("people").map { |row| row["id"] }).to contain_exactly(grace.id, group_member.id)
+      expect(overtime.fetch("count")).to eq(1)
+      expect(overtime.fetch("people").map { |row| row["id"] }).to contain_exactly(group_member.id)
     end
   end
 

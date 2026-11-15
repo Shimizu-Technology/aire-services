@@ -917,7 +917,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               >
                 {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : approveLabel(entry)}
               </button>
-              {entry.entry_method === 'clock' && entry.original_employee_change && <button
+              {entry.entry_method === 'clock' && entry.original_employee_change && entry.original_employee_change.restorable !== false && <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined, true)}
                 disabled={actionLoading === entry.id || queueUnavailable}
                 className="order-3 col-span-2 min-h-11 min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold sm:order-none sm:flex-1">

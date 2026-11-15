@@ -33,7 +33,7 @@ RSpec.describe AuditLogPresenter do
   end
 
   it "supports pay stub admin downloads without exposing delivery identifiers" do
-    expect(summary_for("pay_documents.admin_pdf_downloaded")).to eq("Roke Reyes downloaded a pay stub for Ethan Cruz")
+    expect(summary_for("pay_documents.admin_pdf_downloaded")).to eq("Roke Reyes downloaded Ethan Cruz's pay stub")
   end
 
   describe "review batches from the Approvals inbox" do
