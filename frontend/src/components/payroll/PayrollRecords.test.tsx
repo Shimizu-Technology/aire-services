@@ -136,6 +136,27 @@ function PayrollRouteHarness() {
 }
 
 describe('PayrollRuns', () => {
+  it('removes the old preview while a deferred refresh runs and requires fresh confirmation', async () => {
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
+    await screen.findByRole('button', { name: 'Lock these hours' })
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /I reviewed the included hours/ }))
+    expect(screen.getByRole('button', { name: 'Lock payroll hours' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep reviewing' }))
+    let resolve!: (value: { data: typeof preview }) => void
+    apiMock.previewPayrollBatch.mockReturnValueOnce(new Promise(done => { resolve = done }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview hours' }))
+    expect(screen.queryByRole('button', { name: 'Lock these hours' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => resolve({ data: preview }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock these hours' }))
+    expect(screen.getByRole('checkbox', { name: /I reviewed the included hours/ })).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Lock payroll hours' })).toBeDisabled()
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
   it('shows paused mode and withholds manual processing and finalize even if a preview claims it can finalize', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' }, payroll_batches: [], total_count: 0, truncated: false } })
     apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' } } })

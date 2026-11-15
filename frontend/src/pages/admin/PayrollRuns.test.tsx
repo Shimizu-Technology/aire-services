@@ -111,6 +111,63 @@ afterEach(() => {
 })
 
 describe('pay period page: open period', () => {
+  it('keeps person and shift context when normalizing a mid-period route', async () => {
+    await open('/admin/payroll/periods/2026-11-10?user_id=7&entry_id=812')
+    expect(screen.getByTestId('location')).toHaveTextContent('/admin/payroll/periods/2026-11-01?user_id=7&entry_id=812&start_date=2026-11-10')
+    expect(screen.getByRole('button', { name: "Hide Caleb Perez's days" })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('opens a deep-linked person even when all cached rows were collapsed', async () => {
+    const path = '/admin/payroll?user_id=7'
+    sessionStorage.setItem(`pay-period-rows:${path}`, '[]')
+    await open(path)
+    expect(screen.getByRole('button', { name: "Hide Caleb Perez's days" })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('keeps row expansion usable when storage reads and writes throw', async () => {
+    const read = vi.spyOn(sessionStorage, 'getItem').mockImplementation(() => { throw new Error('disabled') })
+    const write = vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    try {
+      await open()
+      fireEvent.click(screen.getByRole('button', { name: "Show Caleb Perez's days" }))
+      expect(screen.getByRole('button', { name: "Hide Caleb Perez's days" })).toHaveAttribute('aria-expanded', 'true')
+      expect(read).toHaveBeenCalled()
+      expect(write).toHaveBeenCalled()
+    } finally { read.mockRestore(); write.mockRestore() }
+  })
+
+  it('resets manual-processing drafts when the implicit period rolls over', async () => {
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Record manual payroll…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Record manual payroll' })
+    const inputs = dialog.querySelectorAll('input[type="datetime-local"]')
+    fireEvent.change(inputs[0], { target: { value: '2026-11-15T17:00' } })
+    fireEvent.change(inputs[1], { target: { value: '2026-11-16T17:00' } })
+    const next = periodSummary({ start_date: '2026-11-16', end_date: '2026-11-30' })
+    mocks.periods.mockResolvedValue({ data: periodsIndex([next], next.start_date) })
+    publish(next)
+    await settle(60_000)
+    const fresh = screen.getByRole('dialog', { name: 'Record manual payroll' })
+    expect(fresh.querySelectorAll('input[type="datetime-local"]')[0]).toHaveValue('')
+    expect(fresh.querySelectorAll('input[type="datetime-local"]')[1]).toHaveValue('')
+  })
+
+  it('shows a failed lock from the period when no matching lock control exists', async () => {
+    publish(periodSummary({ status: 'failed' }))
+    mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff(null) })
+    await open()
+    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Lock failed')).toBeInTheDocument()
+  })
+
+  it('qualifies the checklist when the show reload hangs past its freshness limit', async () => {
+    await open()
+    mocks.period.mockReturnValue(new Promise(() => {}))
+    await settle(150_000)
+    expect(checklist().getByText(/Some lines were last updated/)).toBeInTheDocument()
+    expect(checklist().queryByRole('heading', { name: /things? to do|all clear/ })).not.toBeInTheDocument()
+  })
+
   it('opens the period containing a mid-period deep link', async () => {
     await open('/admin/payroll?start_date=2026-11-05')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Nov 1–15 pay period')
@@ -396,7 +453,7 @@ describe('pay period page: lock states', () => {
     publish(locked, paidPeriod())
     const frozen = lockedBatch()
     const heldOvertime = { ...frozen.payload.exclusions[0], source_time_entry_id: '602', source_user_id: '7', display_name: 'Caleb Perez', reason: 'pending_overtime', original_work_date: '2026-10-21', held_total_hours: 12, held_regular_hours: 8, held_overtime_hours: 4 }
-    mocks.getPayrollBatch.mockResolvedValue({ data: { ...frozen, id: 'AIRE-PAY-NOV', payload: { ...frozen.payload, exclusions: [...frozen.payload.exclusions, heldOvertime] } } })
+    mocks.getPayrollBatch.mockResolvedValue({ data: { ...frozen, id: 'AIRE-PAY-NOV', payload: { ...frozen.payload, exclusions: [...frozen.payload.exclusions, heldOvertime, { ...heldOvertime, reason: 'open_clock', source_time_entry_id: '603' }] } } })
     mocks.getPayrollCarryovers.mockResolvedValue({ data: { items: [carried({ original_work_date: '2026-11-04' })], summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 }, truncated: false } })
     await open()
     expect(steps().getByText('Locked for payroll').closest('li')).toHaveAttribute('aria-current', 'step')
@@ -412,10 +469,13 @@ describe('pay period page: lock states', () => {
     expect(screen.queryAllByText(/was sent|went to payroll/i)).toEqual([])
     expect(screen.getByText(/It can differ from the locked hours/)).toBeInTheDocument()
     // Only people whose hours went; held-back shifts aren't listed at 0.0h.
-    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez4.0h OT held back at the lock', 'Total'])
+    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb PerezClocked in at the lock4.0h OT held back at the lock', 'Total'])
     // Overtime held back at the lock may be approved since: it isn't called waiting.
     expect(within(sent).queryByText(/OT waiting/)).not.toBeInTheDocument()
     expect(within(sent).getByText('4.0h OT held back at the lock')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: "Show Caleb Perez's days" }))
+    expect(within(sent).getByText(/Overtime was waiting at the lock/)).toBeInTheDocument()
+    expect(within(sent).getByText(/Was still clocked in at the lock/)).toBeInTheDocument()
     expect(screen.getByText(/Locked Nov 11/).closest('p')).toHaveTextContent('Locked Nov 11 · pays Wed, Nov 25')
     const carriedList = within(screen.getByRole('region', { name: /Hours carried to a later period/ }))
     expect(carriedList.getByText('Jun Santos').closest('li')).toHaveTextContent('Jun Santos · Wed, Nov 4 · 8.9h→ Next payroll')

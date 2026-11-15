@@ -47,6 +47,17 @@ describe('PayrollLockControl', () => {
   })
   afterEach(() => vi.useRealTimers())
 
+  it('ignores an older eligibility response after a newer refresh', async () => {
+    let resolve!: (value: unknown) => void
+    mocks.getPayrollCutoff.mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const view = render(<PayrollLockControl refreshKey="old" />)
+    respondWith(control({ can_lock_now: true }))
+    view.rerender(<PayrollLockControl refreshKey="new" />)
+    expect(await screen.findByRole('button', { name: 'Lock now' })).toBeEnabled()
+    await act(async () => resolve({ data: { lock_control: control({ can_lock_now: false }) } }))
+    expect(screen.getByRole('button', { name: 'Lock now' })).toBeEnabled()
+  })
+
   it('shows when the next lock happens and who changed it', async () => {
     respondWith(control({
       cutoff_at: '2026-11-21T12:00:00+10:00',
