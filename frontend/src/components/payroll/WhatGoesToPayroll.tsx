@@ -98,7 +98,7 @@ export interface WhatGoesToPayrollProps {
 export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhenFinalized = false, initialOpen = null, highlightEntry = null, returnTo, exporting, onExport, staleSince, onRetry }: WhatGoesToPayrollProps) {
   // A locked period lists only people whose hours went; shifts held back at the lock show under carried hours.
   const rows = personRows(payload).filter(row => !locked || row.lines.length > 0)
-  const wide = useMediaQuery('(min-width: 640px)')
+  const wide = useMediaQuery('(min-width: 1280px)')
   const [open, setOpen] = useState<Set<string>>(() => new Set(initialOpen ? [initialOpen] : []))
   const toggle = (id: string) => setOpen(current => {
     const next = new Set(current)
@@ -147,7 +147,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                     <tr>
                       <th scope="row" className="px-3.5 py-2 text-left font-normal">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <Link to={personHref(row)} className="font-semibold text-ink hover:underline">{row.name}</Link>
+                          <Link to={personHref(row)} className="break-normal font-semibold text-ink hover:underline">{row.name}</Link>
                           <Flags row={row} locked={locked} />
                         </span>
                       </th>
@@ -199,7 +199,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                   className="flex min-h-14 w-full items-center gap-2 px-3.5 py-2 text-left"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-ink">{row.name}</span>
+                    <span className="block break-normal font-semibold text-ink">{row.name}</span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-muted">
                       <span className="tabular-nums">{hoursLabel(row.regular + row.overtime)} approved</span>
                       {!locked && row.waiting > 0 && <span className="tabular-nums text-amber-900">{hoursLabel(row.waiting)} waiting</span>}

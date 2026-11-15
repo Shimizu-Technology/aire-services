@@ -1,3 +1,4 @@
+import { payrollConnectionCopy } from '../../lib/payrollConnection'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, type HoursReportDownloadType, type PayrollBatchDetail } from '../../lib/api'
@@ -88,16 +89,12 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const connectionEnabled = periods.data?.connected_payroll.enabled === true
   const paused = periods.data?.connected_payroll.enabled === false || connection.data?.state === 'paused'
     || cutoff.data?.connected_payroll?.enabled === false
+  const connectionCopy = connection.data ? payrollConnectionCopy(connection.data) : null
   const connectionPill: { label: string; tone: StatusTone } | null = paused
     ? { label: 'Payroll connection paused', tone: 'needs-fix' }
-    : connection.data?.state === 'delivery_problem'
-      ? { label: 'Payroll updates delayed', tone: 'waiting' }
-      : connection.data
-        // Same rule as the connection card: enabled, but nothing published, received or linked yet.
-        ? connection.data.last_publication || connection.data.last_delivery || connection.data.account_link
-          ? { label: 'Connected to Cornerstone Payroll', tone: 'approved' }
-          : { label: 'Not connected yet', tone: 'off' }
-        : null
+    : connectionCopy
+      ? { label: connectionCopy.title, tone: connectionCopy.connected ? 'approved' : 'waiting' }
+      : null
   const control = cutoff.data?.lock_control && period && cutoff.data.lock_control.period.start_date === period.start_date
     ? cutoff.data.lock_control
     : null
@@ -231,7 +228,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
         </section>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:items-start">
         <div className="min-w-0 space-y-6">
           {beforeLocking && range && (
             <p className="rounded-card border border-line bg-surface px-4 py-3 text-body-sm text-ink-muted">

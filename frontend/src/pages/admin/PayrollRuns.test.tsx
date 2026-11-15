@@ -108,6 +108,19 @@ afterEach(() => {
 })
 
 describe('pay period page: open period', () => {
+  it.each([390, 1024])('keeps waiting hours and the expand action in the person list at %spx', async (width) => {
+    restoreMatchMedia()
+    restoreMatchMedia = mockMatchMedia({ width })
+    await open()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'What goes to payroll if it locked now' })
+    const person = within(list).getByRole('button', { name: /Ethan Cruz/ })
+    expect(person).toHaveTextContent(/waiting/)
+    fireEvent.click(person)
+    expect(person).toHaveAttribute('aria-expanded', 'true')
+    expect(within(list).getByRole('link', { name: 'Open Ethan Cruz' })).toBeInTheDocument()
+  })
+
   it('heads the page with the period, the lock, payday and the connection', async () => {
     await open()
     expect(screen.getByRole('heading', { level: 1, name: 'Nov 1–15 pay period' })).toBeInTheDocument()
@@ -426,23 +439,31 @@ describe('pay period page: past periods and other states', () => {
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.getByRole('menuitem', { name: 'Finalize without a published period…' })).toBeEnabled()
-    expect(screen.getByRole('menuitem', { name: 'Record payroll done outside the connection…' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Record manual payroll…' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Finalize without a published period…' }))
     expect(screen.getByRole('dialog', { name: 'Finalize this payroll cutoff?' })).toBeInTheDocument()
   })
 
   it('says the connection is not set up yet when Cornerstone Payroll has never answered', async () => {
-    mocks.connection.mockResolvedValue({ data: connection({ last_publication: null, last_delivery: null, account_link: null }) })
+    mocks.connection.mockResolvedValue({ data: connection({ last_publication: null, last_delivery: null, account_link: null, latest_locked_period_delivery: null, undelivered: { count: 0, failed_count: 0, stuck_count: 0 } }) })
     await open()
-    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Not connected yet')).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Set up, but nothing confirmed yet')).toBeInTheDocument()
+  })
+
+  it('does not call the connection connected when the latest lock has no receipt', async () => {
+    mocks.connection.mockResolvedValue({ data: connection({ latest_locked_period_delivery: { status: 'pending', delivered_at: null, period: { start_date: '2026-11-01', end_date: '2026-11-15' } } }) })
+    await open()
+    const status = within(screen.getByRole('list', { name: 'Status' }))
+    expect(status.queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
+    expect(status.getByText("Hours haven't reached Cornerstone Payroll yet")).toBeInTheDocument()
   })
 
   it('only offers to finalize without a published period when none is published', async () => {
     await open()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.queryByRole('menuitem', { name: /Finalize without/ })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Record payroll done outside the connection…' }))
-    expect(screen.getByRole('dialog', { name: 'Record payroll done outside the connection' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Record manual payroll…' }))
+    expect(screen.getByRole('dialog', { name: 'Record manual payroll' })).toBeInTheDocument()
   })
 
   it('shows the paused connection and holds the lock control and manual tools', async () => {
