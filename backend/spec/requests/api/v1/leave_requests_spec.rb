@@ -15,6 +15,29 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
     JSON.parse(response.body, symbolize_names: true)
   end
 
+  describe "GET /api/v1/leave_requests?scope=mine" do
+    it "scopes supervisor leave before pagination even when another user is requested" do
+      manager = create(:user, :manager)
+      own = create(:leave_request, user: manager)
+      create(:leave_request, user: other_employee)
+
+      get "/api/v1/leave_requests", params: { scope: "mine", user_id: other_employee.id, per_page: 1 }, headers: auth_headers_for[manager]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:leave_requests].pluck(:id)).to eq([ own.id ])
+      expect(json[:pagination]).to include(total_count: 1, total_pages: 1)
+    end
+
+    it "keeps employee reads scoped to themselves even without the mine flag" do
+      own = create(:leave_request, user: employee)
+      create(:leave_request, user: other_employee)
+
+      get "/api/v1/leave_requests", params: { user_id: other_employee.id }, headers: auth_headers_for[employee]
+
+      expect(json[:leave_requests].pluck(:id)).to eq([ own.id ])
+    end
+  end
+
   describe "POST /api/v1/leave_requests" do
     it "allows staff to submit a leave request" do
       post "/api/v1/leave_requests",

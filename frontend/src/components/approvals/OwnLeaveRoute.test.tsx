@@ -92,7 +92,7 @@ it('lets a supervisor submit and cancel their own request at mine=1', async () =
   fireEvent.change(screen.getByLabelText(/^End date/), { target: { value: '2026-12-02' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
   expect(await screen.findByRole('button', { name: 'Cancel request' })).toBeEnabled()
-  expect(api.getLeaveRequests).toHaveBeenCalledWith(undefined, 2, 100)
+  expect(api.getLeaveRequests).toHaveBeenCalledWith(undefined, 2, 100, undefined, undefined, 'mine')
   expect(screen.queryByText('Team pending request')).not.toBeInTheDocument()
   expect(myTimeApi.requestLeave).toHaveBeenCalledWith(
     expect.objectContaining({ start_date: '2026-12-01', end_date: '2026-12-02' }),
