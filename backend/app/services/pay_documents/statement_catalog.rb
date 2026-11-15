@@ -5,7 +5,7 @@ module PayDocuments
   # kiosk and senders pick from: statement ID, pay date and pay period, plus
   # whether the check was voided. Amounts are dropped here and never leave.
   class StatementCatalog
-    Entry = Struct.new(:id, :pay_date, :period_start, :period_end, :run_purpose, :voided, keyword_init: true) do
+    Entry = Struct.new(:id, :pay_date, :period_start, :period_end, :run_purpose, :voided, :issued, keyword_init: true) do
       def as_json(*)
         { id: id, pay_date: pay_date, period_start: period_start, period_end: period_end, run_purpose: run_purpose, voided: voided }
       end
@@ -32,6 +32,7 @@ module PayDocuments
             period_start: statement[:period_start],
             period_end: statement[:period_end],
             run_purpose: statement[:run_purpose],
+            issued: statement.dig(:payment, :status) == "issued",
             voided: statement.dig(:payment, :status) == "voided"
           )
         end.sort_by { |entry| [ entry.pay_date.to_s, entry.id.to_i ] }.reverse

@@ -38,6 +38,7 @@ Rails.application.routes.draw do
 
       # Senders' pay stub tools (send_pay_statements: owners, admins, managers)
       namespace :pay_stubs do
+        resources :periods, only: [ :show ], param: :start_date
         resources :workers, only: [ :index, :show ] do
           get :statements, on: :member
         end
