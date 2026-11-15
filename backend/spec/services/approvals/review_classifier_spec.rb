@@ -32,6 +32,14 @@ RSpec.describe Approvals::ReviewClassifier, type: :service do
     expect(result.values).to all(eq(review_kind: "ordinary", exceptions: []))
   end
 
+  it "describes keeping the original as a decision instead of an edit" do
+    shift = clock_shift(employee, wednesday)
+    shift.update!(rejected_employee_change: { manager: manager.full_name, note: "Original was correct", at: Time.current.iso8601 })
+    AuditLog.record!(action: "time_entry.change_rejected", auditable: shift, actor: manager, metadata: { employee_id: employee.id })
+    expect(classify(shift).fetch(shift.id)[:exceptions]).to include({ key: "edited", label: "Kept original time · Roke Aguon" })
+    expect(classify(shift).fetch(shift.id)[:exceptions].map { |reason| reason[:label] }).not_to include("Edited by Roke Aguon")
+  end
+
   it "flags overtime, counting earlier waiting shifts as if approved" do
     [ 5, 6, 7 ].each { |day| clock_shift(other, Date.new(2026, 4, day), from: 6, hours: 12) }
     wednesday_shift = clock_shift(other, wednesday)

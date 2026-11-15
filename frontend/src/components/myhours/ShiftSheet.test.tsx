@@ -5,7 +5,7 @@ import { ShiftSheet } from './ShiftSheet'
 
 it.each([
   ['approved', 'Approved by Mindy'],
-  ['denied', 'Declined by Mindy'],
+  ['denied', 'Denied by Mindy'],
 ] as const)('labels the %s review actor correctly', (approval, label) => {
   const entry = shift({
     approval_status: approval,
@@ -23,7 +23,7 @@ it.each([
   expect(screen.getByText(label)).toBeInTheDocument()
   expect(
     screen.queryByText(
-      approval === 'denied' ? 'Approved by Mindy' : 'Declined by Mindy',
+      approval === 'denied' ? 'Approved by Mindy' : 'Denied by Mindy',
     ),
   ).not.toBeInTheDocument()
 })
