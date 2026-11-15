@@ -211,14 +211,9 @@ export default function Users() {
     myPayFilter !== 'all' ||
     publicTeamFilter !== 'all',
   )
-  const filteredUsers = useMemo(() => {
+  const matchingUsers = useMemo(() => {
     return users.filter((user) => {
       if (roleFilter !== 'all' && user.role !== roleFilter) return false
-
-      if (statusFilter === 'active' && (!user.is_active || user.is_pending)) return false
-      if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
-      if (statusFilter === 'inactive' && user.employment_status !== 'inactive') return false
-      if (statusFilter === 'terminated' && user.employment_status !== 'terminated') return false
 
       const userDepartmentKeys = user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])
       if (departmentFilter === 'unassigned' && userDepartmentKeys.length > 0) return false
@@ -263,10 +258,17 @@ export default function Users() {
 
       return searchableText.includes(normalizedSearchTerm)
     })
-  }, [departmentFilter, myPayFilter, myPayForEveryone, normalizedSearchTerm, publicTeamFilter, roleFilter, signInFilter, statusFilter, users])
+  }, [departmentFilter, myPayFilter, myPayForEveryone, normalizedSearchTerm, publicTeamFilter, roleFilter, signInFilter, users])
 
+  const filteredUsers = matchingUsers.filter(user => {
+    if (statusFilter === 'active' && (!user.is_active || user.is_pending)) return false
+    if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
+    if (statusFilter === 'inactive' && user.employment_status !== 'inactive') return false
+    if (statusFilter === 'terminated' && user.employment_status !== 'terminated') return false
+    return true
+  })
   const endedMatches = statusFilter === 'active' && normalizedSearchTerm
-    ? users.filter(user => user.employment_status === 'terminated' && [user.full_name, user.display_name, user.email].filter(Boolean).join(' ').toLowerCase().includes(normalizedSearchTerm)).length : 0
+    ? matchingUsers.filter(user => user.employment_status === 'terminated').length : 0
 
   const resetFilters = () => {
     const next = new URLSearchParams(query)

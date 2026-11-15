@@ -60,8 +60,10 @@ export default function Timecards() {
   const endWeek = businessWeekStart(period.end)
   const lastFullWeek = addDateDays(endWeek, 6) <= period.end ? endWeek : addDateDays(endWeek, -7)
   const weekDate = isIsoDate(date) ? date
-    : payPeriodIncludes(period, today) && addDateDays(businessWeekStart(today), 6) <= period.end ? today
-      : lastFullWeek >= period.start ? lastFullWeek : period.start
+    : payPeriodIncludes(period, today) && businessWeekStart(today) >= period.start && addDateDays(businessWeekStart(today), 6) <= period.end ? today
+      : payPeriodIncludes(period, today) && businessWeekStart(today) < period.start
+        ? addDateDays(businessWeekStart(period.start), 7)
+        : lastFullWeek >= period.start ? lastFullWeek : period.start
   const returnRequested = searchParams.get('return') === 'edit'
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
 

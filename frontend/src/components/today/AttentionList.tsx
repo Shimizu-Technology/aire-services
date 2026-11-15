@@ -156,7 +156,7 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
             <b>{item.count} to review</b> · waiting hours this period
             {item.earlier_periods?.map(period => <span key={period.start_date} className="mt-2 block text-body-sm">
               plus {period.hours.toFixed(1)}h waiting from {dayLabel(period.start_date)}–{dayLabel(period.end_date)}{' '}
-              <ActionLink to={approvalsHref({ period: period.start_date })}>Review</ActionLink>
+              <ActionLink to={approvalsHref({ start_date: period.start_date, end_date: period.end_date })}>Review</ActionLink>
             </span>)}
           </AttentionItem>
         )

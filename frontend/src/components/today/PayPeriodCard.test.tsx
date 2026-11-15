@@ -128,7 +128,7 @@ describe('PayPeriodCard', () => {
 
   it('links to the period’s approvals and its pay period page', () => {
     renderCard()
-    expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', '/admin/approvals?period=2026-11-01')
+    expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15')
     expect(screen.getByRole('link', { name: 'Open pay period' })).toHaveAttribute('href', '/admin/payroll?start_date=2026-11-01&end_date=2026-11-15')
   })
 

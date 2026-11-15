@@ -142,7 +142,7 @@ class AttentionQuery
     current = summarize_waiting(@waiting_entries.select { |entry| entry.work_date.between?(start_date, Date.iso8601(period[:end_date])) })
     current.merge!(count: approvals[:count], time_waiting_hours: period[:time_waiting_hours],
       overtime_waiting_hours: period[:overtime_waiting_hours])
-    earlier = @waiting_entries.select { |entry| entry.work_date < start_date }.group_by do |entry|
+    earlier = @waiting_calculator.expand(@waiting_entries).select { |entry| entry.work_date < start_date }.group_by do |entry|
       date = entry.work_date
       [ date.change(day: date.day <= 15 ? 1 : 16), date.day <= 15 ? date.change(day: 15) : date.end_of_month ]
     end.map do |(first, last), entries|

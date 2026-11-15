@@ -66,6 +66,13 @@ describe('AttentionList', () => {
     expect(reviews).toEqual(['/admin/approvals', '/admin/approvals?kind=overtime&user_id=9', '/admin/leave'])
   })
 
+  it('links earlier waiting hours to the exact approval period', () => {
+    const approvals = allItems.find(item => item.type === 'approvals_waiting')!
+    if (approvals.type !== 'approvals_waiting') throw new Error('fixture')
+    renderList([{ ...approvals, earlier_periods: [{ start_date: '2026-10-16', end_date: '2026-10-31', hours: 2 }] }])
+    expect(screen.getAllByRole('link', { name: 'Review' })[0]).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
+  })
+
   it('leaves the person out of the overtime link when several people have overtime', () => {
     const overtime = allItems.find(item => item.type === 'overtime_waiting')!
     if (overtime.type !== 'overtime_waiting') throw new Error('fixture')

@@ -92,6 +92,19 @@ RSpec.describe "Attention", type: :request do
     expect(body.fetch("items").none? { |item| item["type"] == "overtime_waiting" }).to be(true)
   end
 
+  it "splits pending overnight hours between the earlier and current periods" do
+    travel_to(zone.local(2026, 11, 16, 12))
+    create(:payroll_calendar_period, payroll_calendar_for(Date.new(2026, 11, 16)))
+    start = zone.local(2026, 11, 15, 22)
+    shift(employee, date: start.to_date, approval_status: "pending",
+      start_time: start, clock_in_at: start, end_time: start + 8.hours, clock_out_at: start + 8.hours)
+    body = attention
+    row = body.fetch("items").find { |item| item["type"] == "approvals_waiting" }
+    expect(row.fetch("earlier_periods")).to eq([ { "start_date" => "2026-11-01", "end_date" => "2026-11-15", "hours" => 2.0 } ])
+    expect(row.fetch("time_waiting_hours")).to eq(6.0)
+    expect(body.dig("approvals", "time_waiting_hours")).to eq(8.0)
+  end
+
   it "counts each waiting source shift once while showing only its live waiting time and overtime" do
     pending = shift(employee, date: Date.new(2026, 11, 9), hours: 4, approval_status: "pending", overtime_status: "pending")
     approved = shift(caleb, date: Date.new(2026, 11, 9), hours: 8, overtime_status: "pending")

@@ -786,7 +786,7 @@ export default function EditTimeEntryModal({
             open={historyGuard}
             title="Save your changes before viewing history?"
             description="You have changed this shift but haven't saved it yet. If you leave without saving, those changes are lost."
-            details={correctionReasonRequired ? <div className="space-y-2"><label htmlFor="history-correction-reason">Add a short reason, then save and view history</label><textarea autoFocus id="history-correction-reason" className="w-full rounded border p-2" value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} aria-describedby={reasonError ? 'history-reason-error' : undefined} />{reasonError && <p id="history-reason-error" role="alert" className="text-red-800">{reasonError}</p>}</div> : error ? <p>{error}</p> : undefined}
+            details={(correctionReasonRequired || reviewAction) ? <div className="space-y-2"><label htmlFor="history-correction-reason">Add a short reason, then save and view history</label><textarea autoFocus data-confirm-initial-focus id="history-correction-reason" className="w-full rounded border p-2" value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} aria-describedby={reasonError ? 'history-reason-error' : undefined} />{reasonError && <p id="history-reason-error" role="alert" className="text-red-800">{reasonError}</p>}</div> : error ? <p>{error}</p> : undefined}
             confirmLabel="Save and view history"
             cancelLabel="Keep editing"
             alternate={{ label: 'Discard changes', tone: 'danger', onClick: () => { leaving.current = true; window.location.assign(historyHref) } }}

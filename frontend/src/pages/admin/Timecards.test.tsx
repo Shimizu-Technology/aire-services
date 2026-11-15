@@ -510,6 +510,13 @@ describe('Timecards on a desktop', () => {
     expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Oct 25 – Oct 31, 2026')
   })
 
+  it('advances to the first full week when today belongs to a week before the period', async () => {
+    vi.setSystemTime(new Date('2026-10-17T12:00:00+10:00'))
+    openAt('/admin/timecards?view=everyone&period=2026-10-16')
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-10-18' })))
+    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Oct 18 – Oct 24, 2026')
+  })
+
   it('starts Everyone inside the selected period on its final Sunday', async () => {
     vi.setSystemTime(new Date('2026-11-15T12:00:00+10:00'))
     openAt('/admin/timecards?view=everyone&period=2026-11-01')

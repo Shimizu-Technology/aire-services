@@ -101,7 +101,9 @@ RSpec.describe "Api::V1::Admin::AuditLogs", type: :request do
     expect(response).to have_http_status(:forbidden)
     get "/api/v1/admin/audit_logs", params: { subject_type: "User", subject_id: employee.id }, headers: auth_headers_for[manager]
     expect(response).to have_http_status(:forbidden)
-    get "/api/v1/admin/audit_logs/#{event.id}", params: { subject_type: "TimeEntry", subject_id: shift.id + 999 }, headers: auth_headers_for[manager]
+    other_shift = create(:time_entry, user: employee)
+    expect(other_shift.editable_by?(manager)).to be(true)
+    get "/api/v1/admin/audit_logs/#{event.id}", params: { subject_type: "TimeEntry", subject_id: other_shift.id }, headers: auth_headers_for[manager]
     expect(response).to have_http_status(:forbidden)
     get "/api/v1/admin/audit_logs/export", params: filters, headers: auth_headers_for[manager]
     expect(response).to have_http_status(:forbidden)

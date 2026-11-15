@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import type { ComponentProps } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,7 +29,7 @@ const entry = {
 const originalLocation = window.location
 const assign = vi.fn()
 
-function show(overrides: Partial<{ categories: Array<{ id: number; name: string }>; entry: typeof entry | (Omit<typeof entry, 'time_category'> & { time_category: null }) }> = {}) {
+function show(overrides: Partial<{ categories: Array<{ id: number; name: string }>; entry: NonNullable<ComponentProps<typeof EditTimeEntryModal>['entry']> }> = {}) {
   const onSaved = vi.fn()
   const onClose = vi.fn()
   render(
@@ -90,6 +91,25 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
   afterEach(() => {
     cleanup()
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+  })
+
+  it.each(['End this clock', 'Submit denied time for review'])('requires a visible focused reason before history for %s', async (label) => {
+    const active = label === 'End this clock'
+    show({ entry: { ...entry, entry_method: 'clock', status: active ? 'clocked_in' : 'completed', approval_status: active ? 'pending' : 'denied', end_time: active ? null : '15:30' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: label }))
+    if (active) fireEvent.change(screen.getByLabelText(/Clock-out time/), { target: { value: '15:30' } })
+    fireEvent.click(historyLink())
+    const guard = screen.getByRole('alertdialog')
+    const reason = within(guard).getByLabelText('Add a short reason, then save and view history')
+    await waitFor(() => expect(reason).toHaveFocus())
+    fireEvent.click(within(guard).getByRole('button', { name: 'Save and view history' }))
+    expect(within(guard).getByRole('alert')).toHaveTextContent('Explain why this entry should be submitted for review.')
+    await waitFor(() => expect(reason).toHaveFocus())
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+    fireEvent.change(reason, { target: { value: 'Verified with the supervisor' } })
+    fireEvent.click(within(guard).getByRole('button', { name: 'Save and view history' }))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(expect.stringContaining('saved=1')))
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(44, expect.objectContaining({ review_action: active ? 'end_clock' : 'resubmit_denied' }), 'Verified with the supervisor')
   })
 
   it('goes straight to history when nothing has changed', () => {

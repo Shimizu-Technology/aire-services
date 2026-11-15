@@ -136,6 +136,9 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
 
   const save = async () => {
     const payload = { ...changes }
+    if (draft.clock_in_location_enforced !== 'true') {
+      for (const key of ['clock_in_location_latitude', 'clock_in_location_longitude', 'clock_in_location_radius_meters']) delete payload[key]
+    }
     setError('')
     setMessage('')
     setFieldErrors({})

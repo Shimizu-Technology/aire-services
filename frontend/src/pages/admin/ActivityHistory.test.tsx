@@ -64,8 +64,8 @@ describe('ActivityHistory', () => {
     })
   })
 
-  it('marks refused edits as Not saved and labels the application source plainly', async () => {
-    const failed = { ...event, outcome: 'failed', action: 'time_entry.update', summary: 'Chels tried to change Daniel’s clock-out — a reason was required' }
+  it.each(['create', 'update', 'delete', 'destroy'])('marks refused %s as Not saved and labels the application source plainly', async (action) => {
+    const failed = { ...event, outcome: 'failed', action: `time_entry.${action}`, summary: 'Chels tried to change Daniel’s clock-out — a reason was required' }
     const response = await apiMock.getAuditLogs()
     apiMock.getAuditLogs.mockResolvedValue({ data: { ...response.data, audit_logs: [failed] } })
     renderPage()

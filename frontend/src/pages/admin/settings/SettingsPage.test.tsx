@@ -543,3 +543,17 @@ it('forgets the remembered Require after Discard', async () => {
   await user.click(use)
   expect(await requireSwitch()).toBeChecked()
 })
+
+it('drops hidden invalid location edits when enforcement is turned off', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  const radius = await screen.findByLabelText('Allowed radius')
+  await user.clear(radius)
+  await user.type(radius, '0.5')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText('Allowed radius: enter a whole number of meters.')).toBeInTheDocument()
+  await user.click(screen.getByRole('switch', { name: 'Clock-in location restriction' }))
+  expect(screen.queryByLabelText('Allowed radius')).toBeNull()
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith({ clock_in_location_enforced: 'false' }))
+})
