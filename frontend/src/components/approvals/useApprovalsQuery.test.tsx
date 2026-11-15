@@ -191,7 +191,7 @@ it('settles the scope counts before publishing the inbox, and still opens if tha
   let refreshing!: Promise<void>
   act(() => { refreshing = result.current.reloadFresh() })
   await act(async () => {})
-  await act(async () => { await vi.advanceTimersByTimeAsync(5000); await refreshing })
+  await act(async () => { await vi.advanceTimersByTimeAsync(1500); await refreshing })
   expect(result.current.loading).toBe(false)
   expect(result.current.data).toEqual(data)
 })

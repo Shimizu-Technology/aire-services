@@ -179,4 +179,32 @@ RSpec.describe "Payroll lock time", type: :request do
     expect(response.parsed_body.fetch("error")).to include("may still be processing")
     expect(client).to have_received(:request_change).once
   end
+
+  it "lets an admin make another change right after one that succeeded" do
+    target = 20.minutes.from_now.change(sec: 0).iso8601
+    allow(client).to receive(:request_change).and_return("override_id" => "abc", "cutoff_at" => target, "action" => "change")
+    request_change(admin, lock_action: "change", cutoff_at: target)
+    expect(response).to have_http_status(:ok)
+
+    request_change(admin, lock_action: "change", cutoff_at: target, request_id: SecureRandom.uuid)
+    expect(response).to have_http_status(:ok)
+    expect(client).to have_received(:request_change).twice
+    expect(AuditLog.where(action: Payroll::LockControl::REQUESTED).pluck(:outcome)).to eq(%w[succeeded succeeded])
+  end
+
+  it "refuses a second request while one for the same period is still being sent" do
+    key = Zlib.crc32("payroll_cutoff_change:#{period.id}")
+    other = ActiveRecord::Base.connection_pool.checkout
+    begin
+      expect(other.select_value("SELECT pg_try_advisory_lock(#{key})")).to be(true)
+      allow(client).to receive(:request_change)
+      request_change(admin)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.parsed_body.fetch("error")).to include("may still be processing")
+      expect(client).not_to have_received(:request_change)
+    ensure
+      other.select_value("SELECT pg_advisory_unlock(#{key})")
+      ActiveRecord::Base.connection_pool.checkin(other)
+    end
+  end
 end

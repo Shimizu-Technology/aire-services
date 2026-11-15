@@ -144,6 +144,7 @@ class AuditLogPresenter
       target = metadata["requested_cutoff_at"]
       moment = target.present? ? Time.iso8601(target).in_time_zone("Guam").strftime("%a, %b %-d, %-I:%M %p") : "now"
       refused = audit_log.outcome.in?(%w[failed denied]) ? " — refused: #{metadata['error'].presence || 'the request was not accepted'}" : ""
+      refused = " — Cornerstone Payroll hadn't confirmed it yet" if audit_log.outcome == "deferred"
       return "#{actor} asked to move the lock to #{moment}#{refused}"
     end
     sentence = employee_sentence || my_pay_sentence || access_sentence || review_batch_sentence

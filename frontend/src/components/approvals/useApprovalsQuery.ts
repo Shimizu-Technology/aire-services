@@ -67,7 +67,7 @@ export function useApprovalsQuery(
         try {
           await Promise.race([
             onReloaded(response.data.pending_entries),
-            new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) }),
+            new Promise<void>(resolve => { timer = setTimeout(resolve, 1_500) }),
           ])
         } catch { /* The inbox can still show its own successful response. */ }
         finally { clearTimeout(timer) }
