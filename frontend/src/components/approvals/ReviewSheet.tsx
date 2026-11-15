@@ -380,13 +380,13 @@ export default function ReviewSheet({
                     {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week ·{' '}
                     {(entry.pending_overtime_hours ?? 0) > 0
                       ? `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
-                      : 'Overtime to review'}
+                      : `${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime to review`}
                   </p>
                   <ul className="divide-y divide-line text-body-sm">
                     {week.map((row) => (
                       <li key={row.id} className="py-2">
                         {formatWorkDate(row.work_date)} · {row.hours.toFixed(1)}h ·{' '}
-                        {reviewStatus(row.approval_status).toLowerCase()}
+                        {reviewStatus(row.approval_status)}
                         {row.id === entry.id ? ' · Shift being reviewed' : ''}
                       </li>
                     ))}

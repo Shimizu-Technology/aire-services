@@ -40,7 +40,7 @@ export default function OrdinaryGroups({
     const next = buttons[index + 1] ?? buttons[index - 1]
     await onApprove(entries, title)
     window.requestAnimationFrame(() => {
-      if (next?.isConnected && !next.disabled) next.focus()
+      if (next?.isConnected && !next.disabled) next.focus({ preventScroll: true })
     })
   }
   return (

@@ -27,6 +27,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 )
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(approvalsApi.entry).mockResolvedValue({})
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
 })
 describe('versioned batch review', () => {
@@ -347,4 +348,18 @@ it('returns only the original replay’s saved entry versions as confirmation', 
   expect(vi.mocked(approvalsApi.review).mock.calls[1][1]).toBe(
     vi.mocked(approvalsApi.review).mock.calls[0][1],
   )
+})
+
+
+it('announces a stale approval in a toast with the current approver and next step', async () => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status: 409, error: 'Nothing was approved.' })
+  vi.mocked(approvalsApi.entry).mockResolvedValueOnce({ data: { time_entry: {
+    ...reviewEntry(1, 1), approval_status: 'approved', approved_by: { id: 3, full_name: 'Roke' },
+  } } })
+  const reload = vi.fn().mockResolvedValue(undefined)
+  const { result } = renderHook(() => useReviewBatch(reload), { wrapper })
+  await act(async () => { await result.current.approve(items(1), 100, 'Approved') })
+  expect(reload).toHaveBeenCalledOnce()
+  expect(screen.getByRole('status')).toHaveTextContent('Roke already approved this. The list has been refreshed.')
+  expect(result.current.undoBatches).toEqual([])
 })

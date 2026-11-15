@@ -4,7 +4,7 @@ import { formatApprovalDate } from '../../lib/approvalsDates'
 
 export const reviewStatus = (status: string | null | undefined) =>
   status === 'pending'
-    ? 'Waiting'
+    ? 'Waiting for approval'
     : status === 'denied'
       ? 'Denied'
       : status === 'approved'

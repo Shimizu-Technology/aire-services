@@ -16,7 +16,7 @@ export default function NeedsLookList({
   if (!rows.length) return null
   const groups = new Map<string, ReviewEntry[]>()
   for (const row of rows) {
-    const key = `${row.user.id}/${businessWeekStart(row.work_date)}`
+    const key = `${row.user.id}/${formatApprovalDate(businessWeekStart(row.work_date))}`
     groups.set(key, [...(groups.get(key) ?? []), row])
   }
   return (
@@ -62,7 +62,7 @@ export default function NeedsLookList({
                   {overtime &&
                     (overtimeHours > 0
                       ? ` · ${overtimeHours.toFixed(1)}h overtime waiting`
-                      : ' · Overtime to review')}
+                      : ` · ${overtimeHours.toFixed(1)}h overtime to review`)}
                   {entries.some(isTinyShift) && (
                     <span className="block font-medium text-amber-800">
                       Under 1 minute, probably a mis-tap
@@ -84,7 +84,7 @@ export default function NeedsLookList({
                 open
                   ? {
                       label: 'Review',
-                      ariaLabel: `Review ${row.user.full_name}, week of ${businessWeekStart(row.work_date)}`,
+                      ariaLabel: `Review ${row.user.full_name}, week of ${formatApprovalDate(businessWeekStart(row.work_date))}`,
                       onClick: open,
                     }
                   : undefined
