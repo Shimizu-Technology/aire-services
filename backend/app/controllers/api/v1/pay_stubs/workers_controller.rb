@@ -33,7 +33,7 @@ module Api
           end
           audit_pdf!(worker)
           send_data result.fetch(:body), type: "application/pdf", disposition: "attachment",
-            filename: "AIRE-pay-stub-#{result[:date] || params[:statement_id]}.pdf"
+            filename: ::PayDocuments::PdfFilename.for(worker: worker, date: result[:date] || params[:statement_id])
         rescue ::PayDocuments::Error => error
           raise if error.code == "audit_unavailable"
 

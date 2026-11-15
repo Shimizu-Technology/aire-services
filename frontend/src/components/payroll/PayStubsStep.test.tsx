@@ -122,3 +122,10 @@ it('shows a retry for a failed lookup and an honest stale pending status', async
   expect(screen.getByText("Didn't finish — you can send again")).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Sent links and requests' })).toHaveAttribute('href', '/admin/pay-stubs')
 })
+
+it('explains that sending again keeps the earlier link active', async () => {
+  mocks.period.mockResolvedValue({ workers: [{ worker, statements: [statement], links: [link] }] })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /Send again to Mindy/ }))
+  expect(within(await screen.findByRole('dialog')).getByText('The earlier link still works until it expires.')).toBeInTheDocument()
+})

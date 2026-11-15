@@ -184,7 +184,7 @@ module PayDocuments
     end
 
     def filename_for(item)
-      "AIRE-pay-stub-#{item.document_date&.iso8601 || item.reference}.pdf"
+      PdfFilename.for(worker: delivery.user, date: item.document_date&.iso8601 || item.reference)
     end
   end
 end

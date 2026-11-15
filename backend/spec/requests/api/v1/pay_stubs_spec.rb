@@ -97,6 +97,7 @@ RSpec.describe "Pay stub sending", type: :request do
         get "/api/v1/pay_stubs/workers/#{worker.id}/statements/42/pdf", headers: auth(admin)
         expect(response).to have_http_status(:ok)
         expect(response.media_type).to eq("application/pdf")
+        expect(response.headers["Content-Disposition"]).to include("AIRE-pay-stub-Mindy-Cruz-2026-11-15.pdf")
         expect(response.body).to start_with("%PDF")
         expect(response.headers["Cache-Control"]).to include("no-store")
         audit = AuditLog.where(action: "pay_documents.admin_pdf_downloaded", auditable: worker).last

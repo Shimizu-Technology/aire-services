@@ -45,7 +45,7 @@ RSpec.describe "Pay stub links", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(response.media_type).to eq("application/pdf")
-    expect(response.headers["Content-Disposition"]).to include("AIRE-pay-stub-2026-11-15.pdf")
+    expect(response.headers["Content-Disposition"]).to include("AIRE-pay-stub-Mindy-Cruz-2026-11-15.pdf")
     expect(response.body).to start_with("%PDF-")
     expect(cornerstone_requests).to include("/api/v1/integrations/time_payroll/workers/#{worker.payroll_integration_uuid}/statements/42/pdf")
 

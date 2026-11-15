@@ -17,6 +17,9 @@ interface Props {
   request?: PayStubRequest | null
   /** Start with this person chosen (from a person's page). */
   workerId?: number | null
+  /** Person-page sends must stay on that person. */
+  lockWorker?: boolean
+  resend?: boolean
   /** Keep a period-page send on this person and their issued checks for this period. */
   period?: { start: string; end: string; statementIds: string[]; worker?: PayStubWorker; inactive?: boolean; requestId?: number; requestStatementId?: string | null }
   /** Owners and admins (preview_pay): may send to an address that isn't on file. */
@@ -48,7 +51,7 @@ const field = 'mt-1 block w-full rounded-xl border border-slate-300 bg-white px-
 const secondary = 'inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 disabled:opacity-60'
 const primary = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 
-export default function SendPayStubDialog({ request, workerId, period, canChooseRecipient, onClose, onSent }: Props) {
+export default function SendPayStubDialog({ request, workerId, lockWorker = false, resend = false, period, canChooseRecipient, onClose, onSent }: Props) {
   const ids = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   useDialogFocus(true, dialogRef, onClose)
@@ -72,13 +75,16 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
   useEffect(() => {
     if (fixedWorker) return
     const controller = new AbortController()
-    payStubsApi.workers(controller.signal)
+    const people = lockWorker && workerId
+      ? payStubsApi.worker(workerId, controller.signal).then(({ worker }) => ({ workers: [worker] }))
+      : payStubsApi.workers(controller.signal)
+    people
       .then((data) => setWorkers({ status: 'ready', value: data.workers }))
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) setWorkers({ status: 'error', message: caught instanceof PayStubError ? caught.message : "People couldn't be loaded." })
       })
     return () => controller.abort()
-  }, [fixedWorker])
+  }, [fixedWorker, lockWorker, workerId])
 
   useEffect(() => {
     if (!selectedWorkerId) return
@@ -168,6 +174,7 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
   const groups = useMemo(() => (statements?.status === 'ready' ? groupByYear(statements.value) : []), [statements])
 
   const chooseWorker = (value: string) => {
+    if (lockWorker || period || fixedWorker) return
     setError(null)
     setStatements(value ? { status: 'loading' } : null)
     setSelected(new Set())
@@ -253,13 +260,15 @@ export default function SendPayStubDialog({ request, workerId, period, canChoose
                   {workers.status === 'loading' && <p role="status" className="mt-1 text-sm text-slate-500">Loading people…</p>}
                   {workers.status === 'error' && <p role="alert" className="mt-1 text-sm text-red-700">{workers.message}</p>}
                   {workers.status === 'ready' && (
-                    <select disabled={Boolean(period)} id={`${ids}-worker`} value={selectedWorkerId ?? ''} onChange={(event) => chooseWorker(event.target.value)} className={field}>
+                    <select disabled={Boolean(period) || lockWorker} id={`${ids}-worker`} value={selectedWorkerId ?? ''} onChange={(event) => chooseWorker(event.target.value)} className={field}>
                       <option value="">Choose a person</option>
                       {workers.value.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
                     </select>
                   )}
                 </div>
               )}
+
+              {resend && <p className="text-sm text-slate-600">The earlier link still works until it expires.</p>}
 
               {selectedWorkerId && (
                 <fieldset>

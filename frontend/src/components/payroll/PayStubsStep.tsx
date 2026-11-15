@@ -66,7 +66,7 @@ function PeriodStubs({ start, end }: { start: string; end: string }) {
   if (state.workers.length === 0) return <p className="mt-3 text-body-sm text-ink-muted">No issued pay stubs are available for this period yet.</p>
 
   return <>
-    <p className="mt-1 text-body-sm text-ink-muted">Send one person a secure link at a time. Check the recipient before sending.</p>
+    <p className="mt-1 text-body-sm text-ink-muted">Send one person a secure link at a time. Check the recipient before sending. Sending again creates a new link. The earlier link still works until it expires.</p>
     <Link to="/admin/pay-stubs" className="text-body-sm text-primary underline underline-offset-2">Sent links and requests</Link>
     {downloadError && <p role="alert" className="mt-3 text-body-sm text-danger">{downloadError}</p>}
     <ul className="mt-3 divide-y divide-line">
@@ -93,7 +93,7 @@ function PeriodStubs({ start, end }: { start: string; end: string }) {
         </li>
       })}
     </ul>
-    {sending !== null && <SendPayStubDialog workerId={sending.worker.id} period={period} canChooseRecipient={capabilities.preview_pay} onClose={() => setSending(null)} onSent={sent} />}
+    {sending !== null && <SendPayStubDialog workerId={sending.worker.id} resend={sending.links.some(link => link.state === 'active')} period={period} canChooseRecipient={capabilities.preview_pay} onClose={() => setSending(null)} onSent={sent} />}
   </>
 }
 

@@ -16,7 +16,7 @@ const fetchMock = vi.hoisted(() => vi.fn())
 vi.mock('../../lib/api', () => ({ api: apiMock, fetchApi: fetchMock, getAuthTokenValue: vi.fn() }))
 const evidenceMock = vi.hoisted(() => ({ activity: vi.fn(), periods: vi.fn(), period: vi.fn(), user: vi.fn(), schedule: vi.fn() }))
 vi.mock('../../lib/employeeEvidenceApi', () => ({ employeeEvidenceApi: evidenceMock }))
-const stubsMock = vi.hoisted(() => ({ workers: vi.fn(), statements: vi.fn(), send: vi.fn() }))
+const stubsMock = vi.hoisted(() => ({ worker: vi.fn(), workers: vi.fn(), statements: vi.fn(), send: vi.fn() }))
 vi.mock('../../lib/payStubsApi', () => ({
   payStubsApi: stubsMock,
   PayStubError: class PayStubError extends Error { code = 'unavailable' },
@@ -138,6 +138,7 @@ beforeEach(() => {
     period: { ...[openPeriod, paidPeriod, lockedPeriod].find((row) => row.id === periodId)!, entries: [], coverage_lines: [], settlement_cases: [] },
     employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' },
   }))
+  stubsMock.worker.mockImplementation(async () => ({ worker: { id: 7, name: 'Casey Cruz', first_name: 'Casey', role: 'employee', on_file_email: 'casey@aire.test' } }))
   stubsMock.workers.mockResolvedValue({ workers: [{ id: 7, name: 'Casey Cruz', first_name: 'Casey', role: 'employee', on_file_email: 'casey@aire.test' }], can_choose_recipient: true })
   stubsMock.statements.mockResolvedValue({ statements: [{ id: 's1', pay_date: '2026-11-10', period_start: '2026-10-16', period_end: '2026-10-31', voided: false }] })
 })
@@ -300,6 +301,9 @@ describe('person page', () => {
     // Pay dates only, never amounts; owners and admins may send to an address that isn't on file.
     await waitFor(() => expect(stubsMock.statements).toHaveBeenCalledWith(7, expect.anything()))
     expect((await within(dialog).findAllByText('casey@aire.test')).length).toBeGreaterThan(0)
+    expect(within(dialog).getByRole('combobox', { name: 'Person' })).toBeDisabled()
+    expect(stubsMock.worker).toHaveBeenCalledWith(7, expect.anything())
+    expect(stubsMock.workers).not.toHaveBeenCalled()
     expect(within(dialog).getByRole('radio', { name: /Email on file/ })).toBeChecked()
     expect(dialog).not.toHaveTextContent('$')
     expect(stubsMock.send).not.toHaveBeenCalled()
