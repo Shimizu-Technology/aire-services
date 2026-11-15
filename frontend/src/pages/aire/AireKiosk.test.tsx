@@ -4,7 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import AireKiosk from './AireKiosk'
 
 const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null }))
-const mocks = vi.hoisted(() => ({ createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn(), aireKioskStartBreak: vi.fn(), aireKioskSwitchCategory: vi.fn() }))
+const mocks = vi.hoisted(() => ({ signOut: vi.fn().mockResolvedValue(undefined), lockKiosk: vi.fn(), createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn(), aireKioskStartBreak: vi.fn(), aireKioskSwitchCategory: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
 const stubMocks = vi.hoisted(() => ({ choices: vi.fn(), request: vi.fn() }))
 vi.mock('../../lib/payStubsApi', async (importOriginal) => {
@@ -12,7 +12,7 @@ vi.mock('../../lib/payStubsApi', async (importOriginal) => {
   return { ...actual, kioskPayStubsApi: stubMocks }
 })
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock }))
-vi.mock('@clerk/clerk-react', () => ({ SignInButton: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('@clerk/clerk-react', () => ({ useClerk: () => ({ signOut: mocks.signOut }), SignInButton: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: ({ kiosk }: { kiosk: { notice: unknown } }) => <div data-testid="warning">{kiosk.notice ? 'notice' : 'none'}</div> }))
 
 const employee = { id: 1, display_name: 'Avery', full_name: 'Avery Fixture' }
@@ -22,6 +22,7 @@ const working = { clocked_in: true, status: 'clocked_in', time_category: categor
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.lockKiosk.mockResolvedValue({})
   localStorage.clear()
   authMock.isSignedIn = true
   authMock.userRole = 'admin'
@@ -114,8 +115,8 @@ it('says a manager or admin unlocks it, and offers the way out only while locked
   authMock.userRole = 'manager'
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.getByText('A manager or admin unlocks this kiosk before staff can enter a PIN.')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin')
-  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
+  expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
 })
 
 it('hides the Admin and Home links on the shared device while unlocked', () => {
@@ -272,7 +273,7 @@ it('removes the supervisor unlock when reconciliation says the kiosk is locked',
   mocks.aireKioskClockIn.mockResolvedValue({ error: 'Lost', status: 500 })
   mocks.aireKioskVerify.mockResolvedValue({ error: 'Kiosk is locked. Ask an admin to unlock it before use.' })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock in' })) })
-  expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull()
+  await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
   expect(screen.getByText('Kiosk locked')).toBeInTheDocument()
 })
 
@@ -300,7 +301,7 @@ it.each(['lock', 'expiry'])('ignores verification finishing after %s', async rea
     await verifyEmployee()
     if (reason === 'lock') {
       fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' })) })
     }
     else vi.setSystemTime(new Date('2100-01-01T00:00:00Z'))
     await act(async () => { resolve({ data: { employee, kiosk_token: 'token', current_status: idle, available_categories: [category] } }) })
@@ -414,7 +415,7 @@ it('clears a wrong PIN and provides keypad names and a main landmark', async () 
   expect(screen.getByRole('button', { name: 'Verify PIN' })).toBeDisabled()
 })
 
-it('requires confirmation to lock and provides a 44px supervisor target', () => {
+it('requires confirmation to lock and provides a 44px supervisor target', async () => {
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.queryByRole('button', { name: 'Lock kiosk' })).not.toBeInTheDocument()
   const supervisor = screen.getByRole('button', { name: 'Supervisor' })
@@ -425,7 +426,7 @@ it('requires confirmation to lock and provides a 44px supervisor target', () => 
   expect(sessionStorage.getItem('aire_kiosk_access_session')).not.toBeNull()
   fireEvent.click(supervisor)
   fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
-  expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull()
+  await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
 })
 
 it('warns during a pay stub draft and keeps it when typing resumes', async () => {
@@ -529,3 +530,23 @@ it('disables Switch work confirmation and controls while switching, then cools a
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Clock out' })).toBeDisabled()
 })
+
+ it('signs the manager out after unlocking and exposes no workspace links', async () => {
+  sessionStorage.clear()
+  mocks.createAdminKioskSession.mockResolvedValue({ data: { kiosk_access_token: 'new-device', expires_at: '2099-01-01T00:00:00Z', unlocked_by: { full_name: 'Roke' } } })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock kiosk' }))
+  await waitFor(() => expect(mocks.signOut).toHaveBeenCalledWith({ redirectUrl: '/kiosk' }))
+  expect(JSON.parse(sessionStorage.getItem('aire_kiosk_access_session')!).token).toBe('new-device')
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+ })
+
+ it('requires a fresh manager PIN before revoking kiosk access', async () => {
+  mocks.lockKiosk.mockResolvedValue({})
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Supervisor' }))
+  fireEvent.change(screen.getByLabelText('Manager PIN'), { target: { value: '864200' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Lock kiosk' }))
+  await waitFor(() => expect(mocks.lockKiosk).toHaveBeenCalledWith('access', '864200'))
+  await waitFor(() => expect(sessionStorage.getItem('aire_kiosk_access_session')).toBeNull())
+ })

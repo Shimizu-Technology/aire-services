@@ -8,8 +8,7 @@ import { WorkChips } from '../../components/clock/WorkChips'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import type { PayrollCutoffResponse } from '../../lib/api'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { SignInButton } from '@clerk/clerk-react'
+import { SignInButton, useClerk } from '@clerk/clerk-react'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor } from '../../lib/roles'
@@ -69,6 +68,17 @@ function formatStatus(status: ClockStatus | null) {
 }
 
 export default function AireKiosk() {
+  const { isClerkEnabled } = useAuthContext()
+  return isClerkEnabled ? <ClerkKiosk /> : <Kiosk signOut={async () => undefined} />
+}
+
+function ClerkKiosk() {
+  const { signOut } = useClerk()
+  return <Kiosk signOut={signOut} />
+}
+
+function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Promise<unknown> }) {
+  const [managerPin, setManagerPin] = useState('')
   const { isClerkEnabled, isSignedIn, userRole } = useAuthContext()
   const [cutoffNotice, setCutoffNotice] = useState<PayrollCutoffResponse | null>(null)
   const [pin, setPin] = useState('')
@@ -110,6 +120,16 @@ export default function AireKiosk() {
       return null
     }
   })
+  const signedOutStoredSession = useRef(false)
+  useEffect(() => {
+    if (!isClerkEnabled || !isSignedIn || !kioskAccessSession || signedOutStoredSession.current) return
+    signedOutStoredSession.current = true
+    void signOut({ redirectUrl: '/kiosk' }).catch(() => {
+      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+      setKioskAccessSession(null)
+      setError('Sign-out failed. Sign out before using this shared tablet.')
+    })
+  }, [isClerkEnabled, isSignedIn, kioskAccessSession, signOut])
   const verifiedPinRef = useRef('')
   const sessionGeneration = useRef(0)
   const warningRequestRef = useRef(0)
@@ -125,7 +145,7 @@ export default function AireKiosk() {
   )
   const kioskAccessToken = !isClerkEnabled ? null : kioskAccessSession?.token ?? null
   const kioskUnlocked = !isClerkEnabled || !!kioskAccessToken
-  const canUnlockKiosk = !isClerkEnabled || capabilitiesFor(userRole).unlock_kiosk
+  const canUnlockKiosk = !isClerkEnabled || (isSignedIn && capabilitiesFor(userRole).unlock_kiosk)
   const canViewKiosk = canUnlockKiosk || kioskUnlocked
 
   const clearSession = useCallback(() => {
@@ -471,11 +491,24 @@ export default function AireKiosk() {
       unlockedBy: result.data.unlocked_by.full_name,
     }
     window.sessionStorage.setItem(KIOSK_ACCESS_STORAGE_KEY, JSON.stringify(session))
-    setKioskAccessSession(session)
+    try {
+      await signOut({ redirectUrl: '/kiosk' })
+      setKioskAccessSession(session)
+    } catch {
+      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+      setError('Sign-out failed. Sign out before using this shared tablet.')
+    }
     setUnlocking(false)
   }
 
-  const handleLock = () => {
+  const handleLock = async () => {
+    if (isClerkEnabled) {
+      try {
+        const result = await api.lockKiosk(kioskAccessToken || '', managerPin)
+        if (result.error) { setError(result.error); setConfirmLock(false); return }
+      } catch { setError('Could not lock the kiosk. Check the connection and try again.'); setConfirmLock(false); return }
+    }
+    setManagerPin('')
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
     }
@@ -528,9 +561,7 @@ export default function AireKiosk() {
                   {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
                 </button>
               ) : (
-                <Link to="/admin" className="min-h-11 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
-                  Manager or admin unlock
-                </Link>
+                <SignInButton mode="modal" forceRedirectUrl="/kiosk"><button className="min-h-11 px-4 py-2">Manager sign in</button></SignInButton>
               )}
             </div>
           </div>
@@ -540,11 +571,9 @@ export default function AireKiosk() {
     return (
       <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6 [-webkit-tap-highlight-color:transparent]">
         <div className="mx-auto max-w-3xl">
-          <div className="flex items-center justify-end gap-4 text-xs">
-            <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
-          </div>
+
           <section className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-4xl">
               Manager or admin launch required
             </h1>
@@ -554,12 +583,7 @@ export default function AireKiosk() {
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               {!isClerkEnabled ? (
-                <Link
-                  to="/admin"
-                  className="min-h-11 rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
-                >
-                  Open admin workspace
-                </Link>
+                <button className="min-h-11 px-4 py-2" onClick={() => void signOut({ redirectUrl: '/kiosk' })}>Sign out</button>
               ) : !isSignedIn ? (
                 <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
                   <button className="min-h-11 rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
@@ -571,20 +595,10 @@ export default function AireKiosk() {
                   <div className="min-h-11 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
                     You are signed in, but only managers and admins can open this kiosk. Ask one to unlock it, or sign out and use a manager or admin account.
                   </div>
-                  <Link
-                    to="/admin"
-                    className="min-h-11 rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
-                  >
-                    Back to admin workspace
-                  </Link>
+                  <button className="min-h-11 px-4 py-2" onClick={() => void signOut({ redirectUrl: '/kiosk' })}>Sign out</button>
                 </>
               )}
-              <Link
-                to="/"
-                className="min-h-11 rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10"
-              >
-                Back to site
-              </Link>
+
             </div>
           </section>
         </div>
@@ -599,10 +613,7 @@ export default function AireKiosk() {
       </div>}
       {kioskUnlocked && <div className="flex justify-end px-4"><button className="min-h-11 px-3 text-sm text-slate-400 underline" onClick={() => setConfirmLock(true)}>Supervisor</button></div>}
       {/* Staff share this device while it's unlocked; keep them on the kiosk. */}
-      {!kioskUnlocked && <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
-        <Link to="/admin" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Admin</Link>
-        <Link to="/" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Home</Link>
-      </div>}
+
       <div className={`mx-auto grid w-full gap-8 px-4 pb-8 pt-4 md:px-6 ${employee ? 'max-w-2xl' : 'max-w-6xl md:grid-cols-[1.15fr_1fr]'}`}>
         <section className={`order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 md:p-8 ${employee && !requestingStub ? 'pb-52 lg:pb-8' : ''}`}>
           {employee ? (
@@ -613,15 +624,15 @@ export default function AireKiosk() {
           ) : <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
               <h1 className={`mt-2 text-3xl font-semibold tracking-tight text-white md:text-4xl ${employee ? 'hidden' : ''}`}>Clock in and out quickly</h1>
             </div>
             <div className="rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-right">
-              <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Guam Time</p>
+              <p className="text-sm uppercase tracking-[0.12em] text-slate-400">Guam Time</p>
               <p className="mt-1 text-lg font-semibold text-cyan-200">
                 {now.toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
               </p>
-              <p className="text-xs text-slate-400">
+              <p className="text-sm text-slate-400">
                 {now.toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               </p>
             </div>
@@ -638,10 +649,10 @@ export default function AireKiosk() {
           <div className={`mt-8 rounded-3xl border p-5 ${status?.clocked_in ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-slate-800 bg-slate-950/70'}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Current employee</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-400">Current employee</p>
                 <p className="mt-1 text-2xl font-semibold text-white">{employee ? employee.full_name : 'Waiting for PIN'}</p>
                 <p className="mt-1 text-sm text-cyan-200">{employee ? formatStatus(status) : ''}</p>
-                {status?.clock_in_at && <div className="mt-3 text-4xl font-semibold text-white"><LiveTimer since={status.active_break_started_at || status.clock_in_at} label={status.status === 'on_break' ? 'Time on break' : 'Time since clock-in'} /></div>}
+                {status?.clock_in_at && <div className="mt-3 text-4xl font-semibold text-white"><LiveTimer since={status.active_break_started_at || status.session?.original_clock_in_at || status.clock_in_at} label={status.status === 'on_break' ? 'Time on break' : 'Time since clock-in'} /></div>}
               </div>
               {employee && (
                 <button
@@ -681,7 +692,7 @@ export default function AireKiosk() {
           ) : categories.length > 0 ? (
             <div className="mt-8 space-y-3">
               {status?.clocked_in && categories.length > 1 && (
-                <p className="text-xs text-slate-400">Choose a work type, then tap Switch work.</p>
+                <p className="text-sm text-slate-400">Choose a work type, then tap Switch work.</p>
               )}
               {categories.length === 1 && <p className="text-sm text-slate-200">Working on: {categories[0].name}</p>}
               <WorkChips dark categories={categories} value={selectedCategoryId} onChange={id => { if (bumpIdleTimer()) setSelectedCategoryId(id) }} disabled={!!actionLoading} />
@@ -727,13 +738,13 @@ export default function AireKiosk() {
             </button>
           )}
 
-          <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
+          <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">
             After 30 seconds without activity, a 10-second warning appears before your name clears. Sessions end after 5 minutes. Successful actions clear after 8 seconds.
           </p>
         </section>
 
         {!employee && <section aria-label="Staff PIN" className="order-1 md:order-2 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Enter PIN</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.13em] text-cyan-300">Enter PIN</p>
           <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-4 whitespace-nowrap text-center text-3xl tracking-[0.2em] text-cyan-200">
             {employee ? 'READY' : maskedPin}
           </div>
@@ -772,7 +783,7 @@ export default function AireKiosk() {
       <div>
       <ConfirmDialog open={confirmClockOut} onCancel={() => setConfirmClockOut(false)}
         title={`Clock out at ${clockTime(new Date())}?`}
-        description={`Worked ${status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.`}
+        description={`Worked ${status ? workedMilliseconds(status) < 60_000 ? 'less than a minute' : formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.`}
         confirmLabel="Clock out" cancelLabel="Keep working" confirmDisabled={!!actionLoading || actionsCooling}
         onConfirm={() => void runAction('clock_out', true)} />
       <ConfirmDialog open={confirmSwitch} onCancel={() => setConfirmSwitch(false)}
@@ -781,7 +792,11 @@ export default function AireKiosk() {
         onConfirm={() => void runAction('switch_category', true)} />
       <ConfirmDialog open={confirmLock} onCancel={() => setConfirmLock(false)}
         title="Lock the kiosk?" description="Staff can't clock in until a manager unlocks it."
-        confirmLabel="Lock kiosk" tone="danger" onConfirm={handleLock} />
+        confirmLabel="Lock kiosk" tone="danger" onConfirm={() => void handleLock()} details={
+        <label className="block">Manager PIN
+          <input aria-label="Manager PIN" type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={managerPin} onChange={e => setManagerPin(e.target.value)} className="mt-2 min-h-11 w-full rounded border p-3" />
+        </label>
+      } />
       </div>
       {idleWarning !== null && <div className="fixed inset-x-3 top-3 z-[calc(var(--z-dialog)+1)] rounded-2xl border border-amber-300 bg-slate-900 p-4 text-center text-lg text-white">
         <p role="status">Still there{employee ? `, ${employee.display_name}` : ''}? Tap I'm still here to keep going<span aria-hidden="true"> ({idleWarning})</span></p>
