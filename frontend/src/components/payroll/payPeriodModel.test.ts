@@ -221,3 +221,8 @@ describe('earlier periods and carried hours', () => {
 })
 
 it('uses one decimal for whole carried-hour amounts too', () => { expect(payPeriodHoursLabel(6)).toBe('6.0h') })
+
+it('keeps earlier-day clocks visible after moving to the next preparation period', () => {
+  const entries = byKey(checklistEntries(input({ range: { start: '2026-11-16', end: '2026-11-30' } })))
+  expect(entries.open_clocks).toMatchObject({ status: 'todo', text: '1 person still clocked in from an earlier day', meta: caleb.full_name })
+})

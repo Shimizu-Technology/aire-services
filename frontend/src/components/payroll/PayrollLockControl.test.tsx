@@ -39,7 +39,7 @@ function respondWith(state: LockControlState | null, serverNow = '2026-11-19T09:
 
 describe('PayrollLockControl', () => {
   beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date'] })
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-11-19T09:00:00+10:00'))
     mocks.role = 'admin'
     mocks.getPayrollCutoff.mockReset()

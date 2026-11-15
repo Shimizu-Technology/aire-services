@@ -119,7 +119,7 @@ export interface ChecklistInput {
   period?: PayrollPeriodSummary | null
   /** Today in Guam (YYYY-MM-DD): an open clock from before today is a likely missed clock-out. */
   today: string
-  /** Today's attention list. Used only when it describes this period. */
+  /** Today's attention list. Earlier-day clocks apply across period boundaries. */
   attention: AttentionResponse | null
   /** What goes to payroll if it locked now: blocking category issues (carried-in work too) and late hours. */
   preview: PayrollBatchPayload | null
@@ -155,9 +155,9 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
   })
   else if (!period && waiting) items.push(approvalsItem(range, waiting.count, waiting.hours))
 
-  if (forThisPeriod) {
-    const clocks = forThisPeriod.items
-      .filter((item): item is ClockAttentionItem => item.type === 'open_clock_earlier_day' && payPeriodIncludes(range, item.work_date))
+  if (attention) {
+    const clocks = attention.items
+      .filter((item): item is ClockAttentionItem => item.type === 'open_clock_earlier_day')
       .map(item => ({ name: item.user.full_name || item.user.display_name, to: openClockHref(item) }))
     items.push(openClocksItem(clocks))
   } else if (preview) {
@@ -274,6 +274,9 @@ export function periodFacts(period: PayrollPeriodSummary) {
     hours === undefined ? null : payPeriodHoursLabel(hours),
   ].filter(Boolean).join(' · ')
 }
+
+export const carriedStillClockedIn = (item: PayrollCarryoverItem) => item.still_clocked_in ??
+  (item.exclusion_reason === 'open_clock' && item.current_total_hours === null)
 
 /** The carried part of a shift: the overtime for an overtime hold, else the whole shift. The whole shift is added when bigger. */
 export function carriedHours(item: PayrollCarryoverItem): { carried: number; shift: number | null } {

@@ -218,7 +218,7 @@ export default function LeaveOverview({
     )
   const decisionRows = (
     view === 'Waiting'
-      ? recent
+      ? recent.filter(undoable)
       : view === 'Approved'
         ? approved.filter((row) => row.end_date >= businessDateISO()).sort((a, b) => a.start_date.localeCompare(b.start_date))
         : history

@@ -804,3 +804,23 @@ it('refreshes a stale classic approval and sends the displayed version', async (
   expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(881, undefined, { expectedVersion: 23 })
   expect(apiMock.getPendingApprovals.mock.calls.length).toBeGreaterThan(1)
 })
+
+it('refreshes with current employee filters when a deferred denial returns 409', async () => {
+  localStorage.clear()
+  apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
+  const source = makeEntry({ id: 901 })
+  apiMock.getPendingApprovals.mockImplementation(async params => ({ data: { pending_entries: params?.user_id ? [] : [source], count: params?.user_id ? 0 : 1 } }))
+  let resolve!: (value: unknown) => void
+  apiMock.denyTimeEntry.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Deny whole shift' }))
+  fireEvent.change(await screen.findByLabelText('Reason for denying'), { target: { value: 'Duplicate' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Deny whole shift' }))
+  await waitFor(() => expect(apiMock.denyTimeEntry).toHaveBeenCalled())
+  fireEvent.change(screen.getByDisplayValue('All employees'), { target: { value: '10' } })
+  await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 })))
+  await act(async () => resolve({ status: 409, code: 'stale_entry', error: 'Changed' }))
+  await screen.findByText(/Nothing was saved. The list has been refreshed/)
+  expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 }))
+  expect(screen.queryByText(source.description!)).not.toBeInTheDocument()
+})

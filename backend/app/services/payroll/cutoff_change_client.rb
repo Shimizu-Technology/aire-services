@@ -9,7 +9,7 @@ module Payroll
   # outbox delivery's Cornerstone origin and shared secret.
   class CutoffChangeClient
     OPEN_TIMEOUT = 3
-    READ_TIMEOUT = 10
+    READ_TIMEOUT = 20
     WRITE_TIMEOUT = 5
     SCHEMA_VERSION = "1.0"
     BASE_PATH = "/api/v1/integrations/time_payroll/calendar_periods"
@@ -25,8 +25,10 @@ module Payroll
         super(message)
       end
     end
-    # Timeouts, network failures, configuration gaps and unexpected responses.
+    # Connection failures, configuration gaps and unexpected responses.
     class Unavailable < Error; end
+    # Payroll may have committed the change before the response timed out.
+    class Unconfirmed < Error; end
 
     Response = Struct.new(:status, :body, keyword_init: true)
 
@@ -76,6 +78,10 @@ module Payroll
       raise Unavailable, "Cornerstone returned HTTP #{status}" if status >= 500 || [ 401, 403 ].include?(status)
 
       Response.new(status: status, body: response.body)
+    rescue Net::OpenTimeout
+      raise Unavailable, "Cornerstone connection timed out"
+    rescue Net::ReadTimeout, Net::WriteTimeout
+      raise Unconfirmed, "Cornerstone lock-time request timed out; its outcome is unknown"
     rescue Unavailable
       raise
     rescue StandardError => e

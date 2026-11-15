@@ -82,6 +82,7 @@ beforeEach(() => {
   auth.currentUser.approval_group = 'cfi'
   vi.mocked(payStubsApi.requests).mockResolvedValue({ requests: [], open_count: 0 })
   localStorage.clear()
+  sessionStorage.clear()
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
   vi.mocked(api.getUsers).mockResolvedValue({
     data: {
@@ -664,4 +665,15 @@ it('keeps a partial approval refusal and its earlier Undo visible', async () => 
   fireEvent.click(await screen.findByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
   await waitFor(() => expect(screen.getAllByText(/Remaining shift refused/).length).toBeGreaterThanOrEqual(2))
   expect(screen.getByRole('region', { name: 'Recent approvals' })).toHaveTextContent('Marcus Quinata · 1 shift')
+})
+
+it('uses the fresh inbox count in the default-department hint while the shell count changes', async () => {
+  const current = response()
+  vi.mocked(approvalsApi.pending).mockResolvedValue(current)
+  const { rerender } = render(<MemoryRouter><ShellChromeContext.Provider value={{ selectionBarActive: false, registerSelectionBar: () => () => undefined, approvalCount: 9, allApprovalCount: 12, refreshApprovalCount: vi.fn() }}><ToastProvider><Approvals /></ToastProvider></ShellChromeContext.Provider></MemoryRouter>)
+  await screen.findByText('5 waiting')
+  expect(screen.getByText(/The badge counts all 5 waiting in CFI/)).toBeInTheDocument()
+  // The shell's previous count must not override the fresh inbox count.
+  rerender(<MemoryRouter><ShellChromeContext.Provider value={{ selectionBarActive: false, registerSelectionBar: () => () => undefined, approvalCount: 8, allApprovalCount: 11, refreshApprovalCount: vi.fn() }}><ToastProvider><Approvals /></ToastProvider></ShellChromeContext.Provider></MemoryRouter>)
+  expect(screen.getByText(/The badge counts all 5 waiting in CFI/)).toBeInTheDocument()
 })

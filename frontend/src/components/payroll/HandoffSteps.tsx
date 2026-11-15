@@ -42,7 +42,7 @@ export function HandoffSteps({ period }: HandoffStepsProps) {
           {problem && <p className="mt-3"><StatusPill tone="needs-fix">{LIFECYCLE_LABELS[problem]}</StatusPill></p>}
           {state === 'locked' && !undelivered && (
             <p role="status" className="mt-3 text-body-sm text-ink-muted">
-              Waiting for Cornerstone Payroll to confirm it received the hours. This usually takes under a minute.
+              {delivery?.status === 'delivered' ? 'Sent to Cornerstone Payroll.' : 'AIRE is sending the hours to Cornerstone Payroll.'} It shows as received once payroll imports the hours.
             </p>
           )}
           {undelivered && (

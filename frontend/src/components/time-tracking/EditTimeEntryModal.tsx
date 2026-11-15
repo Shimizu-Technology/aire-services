@@ -161,6 +161,8 @@ export default function EditTimeEntryModal({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [needsReload, setNeedsReload] = useState(false)
+  const editGeneration = useRef(0)
+  const reloadBusy = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [correctionReasonRequired, setCorrectionReasonRequired] = useState(false)
   const [correctionReason, setCorrectionReason] = useState('')
@@ -181,6 +183,9 @@ export default function EditTimeEntryModal({
   const [confirm, confirmDialog] = useConfirm()
 
   useEffect(() => {
+    ++editGeneration.current
+    reloadBusy.current = false
+    setSaving(false)
     if (!isOpen || !sourceEntry) return
 
     setReloadedEntry(null)
@@ -312,6 +317,8 @@ export default function EditTimeEntryModal({
       setLocalError('Reload this entry before submitting the correction')
       return false
     }
+    // A save finishing after another shift opens must not unlock that shift's form.
+    const generation = editGeneration.current
     setSaving(true)
     setLocalError(null)
 
@@ -375,10 +382,10 @@ export default function EditTimeEntryModal({
       await onSaved()
       return true
     } catch {
-      setLocalError('Failed to save time entry')
+      if (generation === editGeneration.current) setLocalError('Failed to save time entry')
       return false
     } finally {
-      setSaving(false)
+      if (generation === editGeneration.current) setSaving(false)
     }
   }
 
@@ -755,10 +762,14 @@ export default function EditTimeEntryModal({
                   <div role="alert" ref={errorRef} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
                     {needsReload && (
-                      <button type="button" className="mt-2 block underline" onClick={async () => {
+                      <button type="button" className="mt-2 block min-h-11 underline disabled:opacity-50" disabled={saving} onClick={async () => {
+                        if (reloadBusy.current) return
+                        reloadBusy.current = true
+                        const generation = ++editGeneration.current
                         setSaving(true)
                         try {
                           const response = await api.getTimeEntry(entry.id)
+                          if (generation !== editGeneration.current) return
                           if (!response.data) {
                             setLocalError(response.error || "Couldn't reload this shift. Try again.")
                             return
@@ -772,9 +783,12 @@ export default function EditTimeEntryModal({
                           setNeedsReload(false)
                           setLocalError(null)
                         } catch {
-                          setLocalError("Couldn't reload this shift. Try again.")
+                          if (generation === editGeneration.current) setLocalError("Couldn't reload this shift. Try again.")
                         } finally {
-                          setSaving(false)
+                          if (generation === editGeneration.current) {
+                            reloadBusy.current = false
+                            setSaving(false)
+                          }
                         }
                       }}>
                         Reload this shift

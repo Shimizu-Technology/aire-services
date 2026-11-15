@@ -43,6 +43,14 @@ RSpec.describe Payroll::CarryoverQueue do
            origin_reason: exclusion.reason, original_work_date: record.work_date)
   end
 
+  it "identifies a still-open carried clock even when its stored hours are zero" do
+    target = create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 9, 3),
+      status: "clocked_in", hours: 0, entry_method: "clock", clock_in_at: Time.utc(2026, 9, 2, 22),
+      end_time: nil, approval_status: "pending")
+    exclude(target, reason: "open_clock")
+    expect(read_queue.fetch(:items).sole).to include(still_clocked_in: true, current_total_hours: 0.0)
+  end
+
   context "with only historical denied approval" do
     let(:target) { entry(date: Date.new(2026, 5, 4), hours: 4, approval_status: "approved", overtime_status: "none") }
     let!(:exclusion) { exclude(target, reason: "denied_approval") }

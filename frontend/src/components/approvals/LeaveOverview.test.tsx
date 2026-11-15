@@ -48,7 +48,8 @@ it('shows correction reasons in history and requires a reason to save', async ()
   vi.mocked(api.getLeaveRequests).mockResolvedValue(response([approved]))
   vi.mocked(api.changeLeaveDecision).mockResolvedValue({ data: { leave_request: { ...row, version: 2 } } })
   show()
-  await screen.findByRole('button', { name: /Change decision for Ana/ })
+  await screen.findByText('No leave requests waiting.')
+  expect(screen.queryByText('Just decided')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Past decisions' }))
   expect(await screen.findByText(/Coverage arranged/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
@@ -91,14 +92,17 @@ it('reloads after a sheet conflict and shows a single page alert', async () => {
   expect(screen.getByRole('alert')).toHaveTextContent('This leave request changed')
   expect(changed).toHaveBeenCalled()
 })
-it('keeps the expired Undo guidance visible and offers no Undo after a correction', async () => {
+it('excludes expired decisions from Just decided but keeps them in history', async () => {
   vi.mocked(api.getLeaveRequests).mockResolvedValue(response([{ ...decided(), undo_expires_at: new Date(Date.now() - 1).toISOString() }]))
   show()
+  await screen.findByText('No leave requests waiting.')
+  expect(screen.queryByText('Just decided')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Past decisions' }))
   expect(await screen.findByText('Undo time is over — use Change decision.')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Undo approval/ })).not.toBeInTheDocument()
 })
 
-it('replaces Undo with expiry guidance when its single timeout fires', async () => {
+it('removes a decision from Just decided when its undo window expires', async () => {
   vi.useFakeTimers()
   try {
     vi.mocked(api.getLeaveRequests).mockResolvedValue(response([{ ...decided(), undo_expires_at: new Date(Date.now() + 1000).toISOString() }]))
@@ -106,7 +110,8 @@ it('replaces Undo with expiry guidance when its single timeout fires', async () 
     expect(screen.getByRole('button', { name: /Undo approval for Ana/ })).toBeInTheDocument()
     await act(async () => { vi.advanceTimersByTime(1001) })
     expect(screen.queryByRole('button', { name: /Undo approval for Ana/ })).not.toBeInTheDocument()
-    expect(screen.getByText('Undo time is over — use Change decision.')).toBeInTheDocument()
+    expect(screen.queryByText('Just decided')).not.toBeInTheDocument()
+    expect(screen.queryByText('Undo time is over — use Change decision.')).not.toBeInTheDocument()
   } finally { vi.useRealTimers() }
 })
 

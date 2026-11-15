@@ -37,6 +37,11 @@ RSpec.describe AuditLogPresenter do
     expect(text).to eq("Roke Reyes asked to move the lock to Thu, Nov 19, 5:00 PM — refused: This period is already locked")
   end
 
+  it "says when Cornerstone hadn't confirmed a lock request yet" do
+    text = summary_for("payroll_calendar_period.cutoff_change_requested", outcome: "deferred", metadata: { error: "timed out" })
+    expect(text).to eq("Roke Reyes asked to move the lock to now — Cornerstone Payroll hadn't confirmed it yet")
+  end
+
   it "supports pay stub admin downloads without exposing delivery identifiers" do
     expect(summary_for("pay_documents.admin_pdf_downloaded")).to eq("Roke Reyes downloaded Ethan Cruz's pay stub")
   end

@@ -10,13 +10,14 @@ export function approvalLockCopy(response: PayrollCutoffResponse | null, now = n
   }
   if (!response) return fallback
   const { cutoff, lock_control: control } = response
-  const period = control?.period ?? cutoff.period
-  const at = control?.cutoff_at ?? cutoff.cutoff_at
+  const next = !control ? response.next_lock : null
+  const period = control?.period ?? next?.period ?? cutoff.period
+  const at = control?.cutoff_at ?? next?.cutoff_at ?? cutoff.cutoff_at
   if (!period || !at || !Number.isFinite(Date.parse(at))) return fallback
 
   if (control) {
     if (control.status !== 'scheduled') return fallback
-  } else if (cutoff.stage !== 'finalizing' && Date.parse(at) <= now.getTime()) {
+  } else if ((next || cutoff.stage !== 'finalizing') && Date.parse(at) <= now.getTime()) {
     return fallback
   }
 

@@ -11,6 +11,7 @@ module Payroll
     # effect can't change once it is this close, so delivery lands in time.
     MIN_LEAD = 15.minutes
     REQUESTED = "payroll_calendar_period.cutoff_change_requested"
+    PROCESSING = "A lock-time change may still be processing. Check this page in a minute before trying again."
     REJECTED = "payroll_calendar_period.publication_rejected"
 
     class Error < StandardError; end
@@ -96,16 +97,31 @@ module Payroll
       raise Error, "Keep the reason under #{REASON_MAX} characters" if reason.length > REASON_MAX
 
       target = validate_action!(action.to_s, cutoff_at)
-      change = CutoffChangeClient.new.request_change(
-        external_pay_period_id: period.external_pay_period_id,
-        action: action.to_s,
-        cutoff_at: target,
-        reason: reason,
-        actor: actor_json(user),
-        request_id: request_id
-      )
-      audit!(user, action, target, reason, "succeeded", change: change)
-      change
+      with_change_lock do
+        # A timed-out request may still have gone through; give Cornerstone a minute to publish it.
+        recent = AuditLog.where(action: REQUESTED, auditable: period)
+          .where("occurred_at > ?", Time.current - 1.minute).order(occurred_at: :desc, id: :desc).first
+        raise Error, PROCESSING if recent&.outcome == "deferred"
+
+        begin
+          change = CutoffChangeClient.new.request_change(
+            external_pay_period_id: period.external_pay_period_id,
+            action: action.to_s,
+            cutoff_at: target,
+            reason: reason,
+            actor: actor_json(user),
+            request_id: request_id
+          )
+        rescue CutoffChangeClient::Unconfirmed => e
+          # Recorded before the lock is released, so the next request sees it.
+          audit!(user, action, target, reason, "deferred", error: e.message)
+          raise
+        end
+        audit!(user, action, target, reason, "succeeded", change: change)
+        change
+      end
+    rescue CutoffChangeClient::Unconfirmed
+      raise
     rescue CutoffChangeClient::Error => e
       audit!(user, action, target, reason, "failed", error: e.message)
       raise
@@ -229,9 +245,23 @@ module Payroll
       }
     end
 
+    # One request per period at a time, across processes, without holding a row lock during the HTTP call.
+    # A session advisory lock: needs a direct (non-pooled) database connection, which production uses.
+    def with_change_lock
+      connection = ActiveRecord::Base.connection
+      key = Zlib.crc32("payroll_cutoff_change:#{period.id}")
+      raise Error, PROCESSING unless connection.select_value(ActiveRecord::Base.sanitize_sql_array([ "SELECT pg_try_advisory_lock(?)", key ]))
+
+      begin
+        yield
+      ensure
+        connection.select_value(ActiveRecord::Base.sanitize_sql_array([ "SELECT pg_advisory_unlock(?)", key ]))
+      end
+    end
+
     def audit!(user, action, target, reason, outcome, change: nil, error: nil)
       AuditLog.record!(
-        action: "payroll_calendar_period.cutoff_change_requested",
+        action: REQUESTED,
         actor: user,
         source: "admin",
         event_category: "payroll",

@@ -42,3 +42,16 @@ RSpec.describe Payroll::CutoffChangeClient do
       .to raise_error(described_class::Unavailable, /PAYROLL_SHARED_SECRET/)
   end
 end
+
+RSpec.describe Payroll::CutoffChangeClient, "transport outcomes" do
+  it "distinguishes uncertain read/write timeouts from connection failures" do
+    env = { "CORNERSTONE_PAYROLL_EVENTS_URL" => "https://payroll.example.test/events", "PAYROLL_SHARED_SECRET" => "synthetic" }
+    [ Net::ReadTimeout, Net::WriteTimeout, Net::OpenTimeout, Errno::ECONNREFUSED ].each do |error|
+      client = described_class.new(env: env, http: ->(*) { raise error })
+      expected = [ Net::ReadTimeout, Net::WriteTimeout ].include?(error) ? described_class::Unconfirmed : described_class::Unavailable
+      expect do
+        client.request_change(external_pay_period_id: "6c6f636b-0000-4000-8000-000000000001", action: "lock_now", reason: "Ready", actor: {}, request_id: "synthetic")
+      end.to raise_error(expected)
+    end
+  end
+end

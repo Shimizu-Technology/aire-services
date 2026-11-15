@@ -4,7 +4,7 @@ import { payPeriodIncludes, type PayPeriod } from '../../lib/payPeriods'
 import { PAYROLL_WORDS } from '../../lib/payrollTerms'
 import { HelpTip } from '../ui'
 import { dayLabel } from '../today/format'
-import { payPeriodHoursLabel as hoursLabel, carriedDestination, carriedHours } from './payPeriodModel'
+import { payPeriodHoursLabel as hoursLabel, carriedDestination, carriedHours, carriedStillClockedIn } from './payPeriodModel'
 
 export interface CarriedHoursProps {
   truncated?: boolean
@@ -36,11 +36,11 @@ export function CarriedHours({ items, range, recordsHref, truncated = false }: C
             <li key={`${item.source_time_entry_id}-${item.exclusion_reason}`} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3.5 py-3 text-body-sm">
               <span className="min-w-0">
                 <span className="font-semibold text-ink">{item.display_name}</span>
-                <span className="text-ink-muted"> · {dayLabel(item.original_work_date)} · {hoursLabel(hours.carried)}{hours.shift !== null && ` of a ${hoursLabel(hours.shift)} shift`}</span>
+                <span className="text-ink-muted"> · {dayLabel(item.original_work_date)} · {carriedStillClockedIn(item) ? 'Still clocked in' : <>{hoursLabel(hours.carried)}{hours.shift !== null && ` of a ${hoursLabel(hours.shift)} shift`}</>}</span>
               </span>
               <span className="text-ink-muted">
                 <span aria-hidden="true">→ </span>
-                {destination.to
+                {carriedStillClockedIn(item) ? <span className="font-semibold text-ink">Needs a clock-out</span> : destination.to
                   ? <Link to={destination.to} className="font-semibold text-primary underline">{destination.label}</Link>
                   : <span className="font-semibold text-ink">{destination.label}</span>}
               </span>

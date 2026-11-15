@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
@@ -480,4 +480,63 @@ it('blocks repeat edits after a server stale conflict and reloads the shift', as
   expect(onClose).not.toHaveBeenCalled()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(apiMock.updateTimeEntry).toHaveBeenCalledOnce()
+})
+
+it('disables duplicate reloads and ignores an old response after another shift opens', async () => {
+  apiMock.getTimeEntry.mockReset()
+  apiMock.updateTimeEntry.mockReset().mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  const oldEntry = { id: 99, version: 4, work_date: '2026-11-10', start_time: '08:00', end_time: '16:00', break_minutes: 0, description: 'Original', user: { id: 2, email: 'worker@aire.test' }, time_category: { id: 1, name: 'Ground' } }
+  const nextEntry = { ...oldEntry, id: 100, description: 'Next shift' }
+  const callbacks = { onClose: vi.fn(), onSaved: vi.fn(), onDeleted: vi.fn() }
+  const view = (entry: typeof oldEntry) => <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'Ground' }]} canDelete {...callbacks} />
+  let oldResolve!: (value: unknown) => void
+  let newResolve!: (value: unknown) => void
+  apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { oldResolve = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { newResolve = resolve }))
+  const { rerender } = render(view(oldEntry))
+  const conflict = async () => {
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Changed locally' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    await screen.findByRole('button', { name: 'Reload this shift' })
+  }
+  await conflict()
+  const reload = screen.getByRole('button', { name: 'Reload this shift' })
+  fireEvent.click(reload)
+  expect(reload).toBeDisabled()
+  fireEvent.click(reload)
+  expect(apiMock.getTimeEntry).toHaveBeenCalledTimes(1)
+  rerender(view(nextEntry))
+  await conflict()
+  fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+  await act(async () => newResolve({ data: { time_entry: { ...nextEntry, version: 5, description: 'Newest server response' } } }))
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Keep my new edit' } })
+  await act(async () => oldResolve({ data: { time_entry: { ...oldEntry, version: 5, description: 'Late old response' } } }))
+  expect(screen.getByLabelText('Description')).toHaveValue('Keep my new edit')
+  expect(apiMock.getTimeEntry.mock.calls.map(call => call[0])).toEqual([99, 100])
+})
+
+it('keeps the next shift locked while it saves, even when the previous save finishes late', async () => {
+  const first = { id: 99, version: 4, work_date: '2026-11-10', start_time: '08:00', end_time: '16:00', break_minutes: 0, description: 'First', user: { id: 2, email: 'worker@aire.test' }, time_category: { id: 1, name: 'Ground' } }
+  const second = { ...first, id: 100, description: 'Second' }
+  let finishFirst!: (value: unknown) => void
+  let finishSecond!: (value: unknown) => void
+  apiMock.updateTimeEntry.mockReset()
+    .mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { finishSecond = resolve }))
+  const callbacks = { onClose: vi.fn(), onSaved: vi.fn(), onDeleted: vi.fn() }
+  const view = (entry: typeof first) => <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'Ground' }]} canDelete {...callbacks} />
+  const { rerender } = render(view(first))
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'First edit' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1))
+
+  rerender(view(second))
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Second edit' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+
+  await act(async () => finishFirst({ data: { time_entry: {} } }))
+  expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+  await act(async () => finishSecond({ data: { time_entry: {} } }))
 })

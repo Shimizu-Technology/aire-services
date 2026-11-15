@@ -166,4 +166,46 @@ RSpec.describe "Payroll lock time", type: :request do
     expect(response).to have_http_status(:bad_gateway)
     expect(AuditLog.where(action: "payroll_calendar_period.cutoff_change_requested", outcome: "failed").count).to eq(2)
   end
+  it "reports an uncertain timeout honestly, defers its audit and refuses a second press" do
+    allow(client).to receive(:request_change).and_raise(Payroll::CutoffChangeClient::Unconfirmed, "timeout")
+    request_change(admin)
+    expect(response).to have_http_status(:gateway_timeout)
+    expect(response.parsed_body.fetch("error")).to include("may still be processing", "Check this page in a minute", "Do not press Lock now again")
+    expect(response.parsed_body.fetch("error")).not_to include("Nothing changed")
+    expect(AuditLog.where(action: Payroll::LockControl::REQUESTED).pluck(:outcome)).to eq([ "deferred" ])
+
+    request_change(admin, request_id: SecureRandom.uuid)
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body.fetch("error")).to include("may still be processing")
+    expect(client).to have_received(:request_change).once
+  end
+
+  it "lets an admin make another change right after one that succeeded" do
+    target = 20.minutes.from_now.change(sec: 0).iso8601
+    allow(client).to receive(:request_change).and_return("override_id" => "abc", "cutoff_at" => target, "action" => "change")
+    request_change(admin, lock_action: "change", cutoff_at: target)
+    expect(response).to have_http_status(:ok)
+
+    request_change(admin, lock_action: "change", cutoff_at: target, request_id: SecureRandom.uuid)
+    expect(response).to have_http_status(:ok)
+    expect(client).to have_received(:request_change).twice
+    expect(AuditLog.where(action: Payroll::LockControl::REQUESTED).pluck(:outcome)).to eq(%w[succeeded succeeded])
+  end
+
+  it "refuses a second request while one for the same period is still being sent" do
+    key = Zlib.crc32("payroll_cutoff_change:#{period.id}")
+    # A separate session: transactional tests pin one shared connection, so the pool can't provide one.
+    config = ActiveRecord::Base.connection_db_config.configuration_hash
+    other = PG.connect(dbname: config[:database], host: config[:host], port: config[:port], user: config[:username], password: config[:password])
+    begin
+      expect(other.exec_params("SELECT pg_try_advisory_lock($1)", [ key ]).getvalue(0, 0)).to eq("t")
+      allow(client).to receive(:request_change)
+      request_change(admin)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.parsed_body.fetch("error")).to include("may still be processing")
+      expect(client).not_to have_received(:request_change)
+    ensure
+      other.close
+    end
+  end
 end
