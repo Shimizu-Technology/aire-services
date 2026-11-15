@@ -273,11 +273,16 @@ it('shows Pay stubs only when the viewer can send them and visible requests exis
   ).toBeInTheDocument()
 })
 
-it('asks before approving a By day group spanning people', async () => {
+it('asks before approving a By day group spanning people and keeps focus inside confirmation', async () => {
+  const pending = response()
+  pending.data.pending_entries = [...rows, row(6, 3, { work_date: '2026-11-11' })]
+  vi.mocked(approvalsApi.pending).mockResolvedValue(pending)
   renderInbox('/admin/approvals?group=day')
   fireEvent.click(await screen.findByRole('button', { name: /Approve 3 shifts for/ }))
   expect(approvalsApi.review).not.toHaveBeenCalled()
   expect(screen.getByRole('alertdialog')).toHaveTextContent('2 people')
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)) })
+  expect(screen.getByRole('alertdialog').contains(document.activeElement)).toBe(true)
   fireEvent.click(
     within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Approve 3 shifts' }),
   )
@@ -614,4 +619,49 @@ it.each(['cfi', 'ops'])('accepts displayed fallback department %s when group met
     expect.objectContaining({ approval_group: department }),
     expect.any(AbortSignal),
   ))
+})
+
+it.each([403, 422, 409])('keeps a %s refusal visible in the banner after the toast is gone', async status => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status, error: 'Approval refused by server.' })
+  renderInbox()
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+  await waitFor(() => expect(screen.getAllByText(/Approval refused by server/).length).toBeGreaterThanOrEqual(2))
+})
+
+it('ignores older extras success and errors after a newer retry completes', async () => {
+  let oldStubs!: (value: Awaited<ReturnType<typeof payStubsApi.requests>>) => void
+  let oldWorkers!: (value: Awaited<ReturnType<typeof api.getWhosWorking>>) => void
+  let newStubs!: (value: Awaited<ReturnType<typeof payStubsApi.requests>>) => void
+  vi.mocked(api.getWhosWorking)
+    .mockResolvedValueOnce({ error: 'Unavailable' })
+    .mockImplementationOnce(() => new Promise(resolve => { oldWorkers = resolve }))
+    .mockResolvedValue({ data: { workers: [] } })
+  vi.mocked(payStubsApi.requests)
+    .mockResolvedValueOnce({ requests: [], open_count: 0 })
+    .mockImplementationOnce(() => new Promise(resolve => { oldStubs = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { newStubs = resolve }))
+  renderInbox('/admin/approvals?kind=stubs&dept=all')
+  fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(api.getWhosWorking).toHaveBeenCalledTimes(2))
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(api.getWhosWorking).toHaveBeenCalledTimes(3))
+  await act(async () => { newStubs({ requests: [stubRequest], open_count: 1 }) })
+  expect(await screen.findByText('An owner or admin needs to send this one')).toBeInTheDocument()
+  expect(screen.queryByText("Couldn't check open clocks.")).not.toBeInTheDocument()
+  await act(async () => { oldStubs({ requests: [], open_count: 0 }); oldWorkers({ error: 'Old error' }) })
+  expect(screen.getByText('An owner or admin needs to send this one')).toBeInTheDocument()
+  expect(screen.queryByText("Couldn't check open clocks.")).not.toBeInTheDocument()
+})
+
+it('keeps a partial approval refusal and its earlier Undo visible', async () => {
+  const pending = response()
+  pending.data.review_summary.batch_limit = 1
+  vi.mocked(approvalsApi.pending).mockResolvedValue(pending)
+  vi.mocked(approvalsApi.review)
+    .mockResolvedValueOnce({ data: { review_batch_id: 'partial', undo_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), approved_count: 1, time_entries: [] } })
+    .mockResolvedValueOnce({ status: 422, error: 'Remaining shift refused.' })
+  renderInbox()
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+  await waitFor(() => expect(screen.getAllByText(/Remaining shift refused/).length).toBeGreaterThanOrEqual(2))
+  expect(screen.getByRole('region', { name: 'Recent approvals' })).toHaveTextContent('Marcus Quinata · 1 shift')
 })

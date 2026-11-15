@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ReviewSheet from './ReviewSheet'
 import { reviewEntry } from '../../test/approvalFixtures'
 import { api } from '../../lib/api'
@@ -36,6 +36,12 @@ const props = () => ({
   categories: [],
   onDirty: vi.fn(),
 })
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-06T12:00:00Z'))
+})
+afterEach(() => vi.useRealTimers())
+
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })

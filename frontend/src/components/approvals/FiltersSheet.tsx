@@ -40,7 +40,7 @@ export default function FiltersSheet({
         ? 'through_date'
         : query.has('since_date')
           ? 'since_date'
-          : query.has('start_date') || query.has('period')
+          : query.has('start_date') || query.has('end_date') || query.has('period')
             ? 'range'
             : 'all',
   )
