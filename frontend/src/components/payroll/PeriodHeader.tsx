@@ -48,7 +48,9 @@ export function PeriodHeader({ range, period, loaded, control, paused, connectio
   const locked = Boolean(period && isLockedState(period.handoff_state, period.status))
   const cutoffAt = period && !locked && !paused ? control?.cutoff_at ?? period.cutoff_at : null
   const status = period && !locked && !paused && period.handoff_state !== 'before_locking'
-    ? lockStatus({ period: asAttentionPeriod(period), control, cutoffAt, now, paused })
+    ? !control && period.status === 'failed'
+      ? { kind: 'failed' as const, label: 'Lock failed', tone: 'needs-fix' as const, prefix: 'Lock time' }
+      : lockStatus({ period: asAttentionPeriod(period), control, cutoffAt, now, paused })
     : null
   const pill = period
     ? status?.label

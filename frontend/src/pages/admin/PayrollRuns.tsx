@@ -53,7 +53,9 @@ export default function PayrollRuns() {
   if (routeStart !== undefined && !parsePayPeriodStart(routeStart)) {
     if (isIsoDate(routeStart)) {
       const period = payPeriodContaining(routeStart)
-      return <Navigate replace to={`${periodHref(period.start)}?start_date=${routeStart}`} />
+      const normalized = new URLSearchParams(params)
+      normalized.set('start_date', routeStart)
+      return <Navigate replace to={`${periodHref(period.start)}?${normalized.toString()}`} />
     }
     return (
       <ErrorState
@@ -106,9 +108,12 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   useEffect(() => {
     if (!hasPayload) return
     const key = `pay-period-scroll:${returnTo}`
-    const saved = sessionStorage.getItem(key)
+    let saved: string | null = null
+    try { saved = sessionStorage.getItem(key) } catch { /* Scrolling works without storage. */ }
     const frame = requestAnimationFrame(() => { if (saved) window.scrollTo(0, Number(saved)) })
-    const save = () => sessionStorage.setItem(key, String(window.scrollY))
+    const save = () => {
+      try { sessionStorage.setItem(key, String(window.scrollY)) } catch { /* Keep scrolling usable. */ }
+    }
     window.addEventListener('scroll', save, { passive: true })
     return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', save) }
   }, [returnTo, hasPayload])
@@ -261,7 +266,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
               period={period}
               previousStart={show.data.previous_start_date}
               sources={[
-                { load: blockLoad(show), loadedAt: show.loadedAt },
+                { load: blockLoad(show), loadedAt: show.loadedAt, maxAgeMs: REFRESH_MS + 60_000 },
                 ...(!period ? [{ load: blockLoad(waiting), loadedAt: waiting.loadedAt, maxAgeMs: STALE_AFTER_MS }] : []),
                 { load: blockLoad(preview), loadedAt: preview.loadedAt, maxAgeMs: STALE_AFTER_MS },
                 ...(isCurrent ? [{ load: blockLoad(attention), loadedAt: attention.loadedAt, maxAgeMs: REFRESH_MS + 60_000 }] : []),
@@ -316,6 +321,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
 
       {dialog === 'manual' && range && (
         <ManualProcessingDialog
+          key={`${range.start}:${range.end}`}
           period={range}
           onClose={() => setDialog(null)}
           onRecorded={async (created) => { setDialog(null); openBatch(created) }}

@@ -36,8 +36,11 @@ export default function PayrollLockControl({ variant = 'full', refreshKey }: Pro
   // Count down from the server's clock, as the cutoff notice does, not the device's.
   const serverOffset = useRef(0)
 
+  const loadSequence = useRef(0)
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
     const result = await api.getPayrollCutoff()
+    if (sequence !== loadSequence.current) return undefined
     if (result.data) {
       const serverNow = Date.parse(result.data.cutoff?.now ?? '')
       if (Number.isFinite(serverNow)) serverOffset.current = serverNow - Date.now()
