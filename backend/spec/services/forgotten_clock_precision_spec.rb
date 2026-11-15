@@ -43,14 +43,14 @@ RSpec.describe "Forgotten clock correction hold", type: :service do
     end
   end
 
-  it "keeps a sub-24h overnight span and nominal corrected stop separate from the actual punch" do
+  it "requires manager correction for an overnight or longer-than-12h employee stop" do
     start = now - 23.hours - 59.minutes
     entry = create(:time_entry, user: employee, time_category: category, work_date: start.in_time_zone("Pacific/Guam").to_date,
       entry_method: "clock", status: "clocked_in", start_time: start, clock_in_at: start, end_time: nil, clock_out_at: nil, hours: 0)
-    TimeClockService.clock_out(user: employee, corrected_end_time: (now - 1.hour).in_time_zone("Pacific/Guam").iso8601)
-    expect(entry.reload.hours).to eq(22.98)
-    expect(entry.clock_out_at).to eq(now)
-    expect(entry.needs_administrator_correction?).to be(false)
+    expect {
+      TimeClockService.clock_out(user: employee, corrected_end_time: (now - 1.hour).in_time_zone("Pacific/Guam").iso8601)
+    }.to raise_error(TimeClockService::ClockError, /Ask a manager/)
+    expect(entry.reload).to have_attributes(status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
   end
 
   it "holds corrected personal clock-out too when the actual forgotten session is over 24h" do

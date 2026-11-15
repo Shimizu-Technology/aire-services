@@ -30,6 +30,7 @@ class AuditLogPresenter
     "time_entry.overtime_denied" => "Denied overtime for",
     "time_entry.clocked_in" => "Clocked in for",
     "time_entry.clocked_out" => "Clocked out from",
+    "time_entry.clock_out_refused" => "Clock-out refused for",
     "time_entry.legacy_lock_archived" => "Archived legacy lock state for",
     "leave_request.created" => "Requested leave for",
     "leave_request.approved" => "Approved leave for",

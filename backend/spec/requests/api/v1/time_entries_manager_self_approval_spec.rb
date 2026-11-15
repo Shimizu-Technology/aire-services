@@ -5,6 +5,7 @@ require "rails_helper"
 # Every path a manager could use to approve, deny, override or correct their own
 # time, with "Managers can approve their own time" on (the default) and off.
 RSpec.describe "Manager self-approval setting", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
   let(:category) { create(:time_category) }
   let(:manager) { create(:user, :manager, time_tracking_enabled: true, kiosk_enabled: true) }
   let(:other_manager) { create(:user, :manager, first_name: "Mindy") }
@@ -53,6 +54,7 @@ RSpec.describe "Manager self-approval setting", type: :request do
     it "lets a manager clock themselves in with an override; the time waits for their own approval" do
       post "/api/v1/time_entries/clock_in", params: { admin_override: true, time_category_id: category.id }, headers: headers_for(manager)
       expect(response).to have_http_status(:created)
+      travel 2.minutes
       post "/api/v1/time_entries/clock_out", headers: headers_for(manager)
       expect(response).to have_http_status(:ok)
       expect(json.dig("time_entry", "approval_status")).to eq("pending")
@@ -132,6 +134,7 @@ RSpec.describe "Manager self-approval setting", type: :request do
     it "sends a manager's unscheduled clock to the queue, read-only for them and open to others" do
       post "/api/v1/time_entries/clock_in", params: { time_category_id: category.id }, headers: headers_for(manager)
       expect(response).to have_http_status(:created)
+      travel 2.minutes
       post "/api/v1/time_entries/clock_out", headers: headers_for(manager)
       entry = manager.time_entries.last
       expect(entry).to have_attributes(approval_status: "pending", approval_note: "Clocked in without a schedule | Supervisor's own time")

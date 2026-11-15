@@ -70,7 +70,7 @@ module Api
         end
 
         def kiosk_error(error)
-          render json: { error: error.message, code: "kiosk_session" }, status: :unprocessable_entity
+          render json: { error: error.message, code: error.is_a?(AireKioskService::DeviceRevoked) ? "kiosk_device_revoked" : "kiosk_employee_session_refused" }, status: :unprocessable_entity
         end
 
         def pay_document_error(error)

@@ -170,3 +170,9 @@ describe('timecardDays order', () => {
     expect(day.map(item => item.entry.id)).toEqual([1, 2])
   })
 })
+
+ it.each(['07:00', '07:01'])('keeps a legacy mis-tap ending %s on one day', end => {
+  const entry = { work_date: '2026-11-15', start_time: '07:00', end_time: end, hours: 0, breaks: [], status: 'completed' } as unknown as TimeEntry
+  expect(entrySegments(entry)).toEqual([{ date: '2026-11-15', hours: 0 }])
+  expect(timecardDays([entry], { start: '2026-11-01', end: '2026-11-15' }).get('2026-11-15')?.[0].partial).toBe(false)
+})

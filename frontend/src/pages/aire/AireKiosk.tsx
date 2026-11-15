@@ -1,5 +1,6 @@
 import { clearKioskSession, readKioskSession, storeKioskSession, type StoredKioskAccessSession } from '../../lib/kioskSession'
-import { clockTime, needsClockOutConfirm, workedMilliseconds } from '../../lib/myTime'
+import { clockTime, needsClockOutConfirm, workedMilliseconds, stoppedAt } from '../../lib/myTime'
+import { guamDate } from '../../lib/timecards'
 import { formatElapsed } from '../../lib/formatElapsed'
 import { ConfirmDialog } from '../../components/ui'
 import { outcomeUnknown } from '../../lib/api/timecards'
@@ -72,6 +73,9 @@ function ClerkKiosk() {
 
 function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Promise<unknown> }) {
   const [managerPin, setManagerPin] = useState('')
+  const [lockError, setLockError] = useState('')
+  const [earlier, setEarlier] = useState(false)
+  const [stopTime, setStopTime] = useState('')
   const { isClerkEnabled, isSignedIn, userRole } = useAuthContext()
   const [cutoffNotice, setCutoffNotice] = useState<PayrollCutoffResponse | null>(null)
   const [pin, setPin] = useState('')
@@ -153,6 +157,8 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     coolingUntil.current = 0
     setActionsCooling(false)
     setConfirmClockOut(false)
+    setEarlier(false)
+    setStopTime('')
     setConfirmLock(false)
     setConfirmSwitch(false)
     setIdleWarning(null)
@@ -173,6 +179,21 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     setRequestingStub(false)
     setPayStubRequestsEnabled(false)
   }, [])
+
+  const lockDevice = useCallback((action?: KioskAction | null, uncertain = false) => {
+    clearKioskSession()
+    setKioskAccessSession(null)
+    clearSession()
+    setError(uncertain
+      ? 'This kiosk was locked by an admin. We could not confirm whether your action was saved. Ask a manager to check your time before trying again.'
+      : action
+      ? `This kiosk was locked by an admin. Your ${action === 'clock_in' ? 'clock-in' : action === 'clock_out' ? 'clock-out' : 'change'} wasn't saved.`
+      : 'This kiosk was locked by an admin. Ask a manager to unlock it.')
+  }, [clearSession])
+  const sessionRefused = (result: { code?: string }) => result.code === 'kiosk_device_revoked'
+  const endEmployeeSession = () => { clearSession(); setError('Please enter your PIN again.') }
+  const employeeRefused = (result: { code?: string }) => result.code === 'kiosk_employee_session_refused'
+
 
   const clearExpiredKioskAccessSession = useCallback(() => {
     if (!kioskAccessSession) return
@@ -285,7 +306,10 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   const requestCutoffNotice = async (employeeToken: string) => {
     const request = ++warningRequestRef.current
     const result = await api.getPayrollCutoff(kioskAccessToken || '', employeeToken)
-    if (request === warningRequestRef.current) setCutoffNotice(result.data ?? null)
+    if (request !== warningRequestRef.current) return
+    if (sessionRefused(result)) { lockDevice(actionLoading); return }
+    if (employeeRefused(result)) { endEmployeeSession(); return }
+    setCutoffNotice(result.data ?? null)
   }
 
   const handleVerify = async () => {
@@ -311,13 +335,10 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       clearExpiredKioskAccessSession()
       return
     }
+    if (sessionRefused(result)) { lockDevice(); return }
     if (result.error || !result.data) {
       setError(/invalid pin/i.test(result.error || '') ? "That PIN didn't match. Try again." : result.error || 'PIN verification failed.')
       setPin('')
-      if (result.error?.match(/kiosk is locked/i)) {
-        setKioskAccessSession(null)
-        if (typeof window !== 'undefined') clearKioskSession()
-      }
       setLoading(false)
       return
     }
@@ -391,7 +412,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
         case 'clock_in':
           return api.aireKioskClockIn(kioskAccessToken || '', kioskToken, selectedCategoryId)
         case 'clock_out':
-          return api.aireKioskClockOut(kioskAccessToken || '', kioskToken)
+          return api.aireKioskClockOut(kioskAccessToken || '', kioskToken, earlier && status?.clock_in_at ? stoppedAt(status.clock_in_at, stopTime)?.toISOString() : undefined)
         case 'start_break':
           return api.aireKioskStartBreak(kioskAccessToken || '', kioskToken)
         case 'end_break':
@@ -405,16 +426,15 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     const result = await request
     if (generation !== sessionGeneration.current) return
     setConfirmSwitch(false)
+    if (sessionRefused(result)) { lockDevice(action); return }
+    if (employeeRefused(result)) { endEmployeeSession(); return }
     if (result.error || !result.data) {
       const unknown = outcomeUnknown(result) || !result.error
       // Every refusal refreshes stale kiosk state; uncertain writes are never retried.
       const refreshed = await api.aireKioskVerify(verifiedPinRef.current, kioskAccessToken || '')
       if (generation !== sessionGeneration.current) return
+      if (sessionRefused(refreshed)) { lockDevice(action, unknown); return }
       if (!refreshed.data || refreshed.error) {
-        if (refreshed.error?.match(/kiosk is locked/i)) {
-          clearKioskSession()
-          setKioskAccessSession(null)
-        }
         clearSession()
         setError('Could not check your clock status. Enter your PIN again before trying another action.')
         return
@@ -457,7 +477,11 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
     const responseCategory = data.time_entry.time_category
       ? categories.find((category) => category.id === data.time_entry.time_category?.id) ?? selectedCategory
       : selectedCategory
-    setSuccess(formatSuccessMessage(action, data.employee, responseCategory))
+    setEarlier(false)
+    setStopTime('')
+    setSuccess(action === 'clock_out'
+      ? `${data.employee.display_name} clocked out — ${formatElapsed(Math.round((data.time_entry.hours + (status?.session?.completed_work_seconds ?? 0) / 3600) * 60) * 60_000, 'short')} ${data.time_entry.work_date === guamDate(new Date()) ? 'today' : 'this shift'}`
+      : formatSuccessMessage(action, data.employee, responseCategory))
     setActionLoading(null)
     void requestCutoffNotice(kioskToken)
   }
@@ -499,12 +523,14 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   }
 
   const handleLock = async () => {
+    if (isClerkEnabled && !/^\d{4,8}$/.test(managerPin)) return
+    setLockError('')
     if (isClerkEnabled) {
       try {
         const result = await api.lockKiosk(kioskAccessToken || '', managerPin)
-        if (result.error && result.status !== 401) { setError(result.error); setConfirmLock(false); return }
-        if (result.status === 401) setError('Kiosk session expired or was locked. Ask a manager to unlock it.')
-      } catch { setError('Could not lock the kiosk. Check the connection and try again.'); setConfirmLock(false); return }
+        if (result.error && !sessionRefused(result)) { setLockError(/locked for now|try again after/i.test(result.error) ? result.error : result.status === 403 || result.status === 422 ? "That isn't a manager PIN" : 'Could not lock the kiosk. Check the connection and try again.'); return }
+        if (sessionRefused(result)) setError('Kiosk session expired or was locked. Ask a manager to unlock it.')
+      } catch { setLockError('Could not lock the kiosk. Check the connection and try again.'); return }
     }
     setManagerPin('')
     setConfirmLock(false)
@@ -571,6 +597,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6 [-webkit-tap-highlight-color:transparent]">
         <div className="mx-auto max-w-3xl">
 
+          {error && <p role="alert" className="rounded-xl border border-amber-300 p-4">{error}</p>}
           <section className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-4xl">
@@ -618,9 +645,9 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
-        <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice }} />
+        <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice, onSessionRefused: (device) => { if (!inFlight.current) { if (device) lockDevice(); else endEmployeeSession() } } }} />
       </div>}
-      {kioskUnlocked && <div className="flex justify-end px-4"><button className="min-h-11 px-3 text-sm text-slate-400 underline" onClick={() => setConfirmLock(true)}>Supervisor</button></div>}
+      {kioskUnlocked && <div className="flex justify-end px-4"><button className="min-h-11 px-3 text-sm text-slate-400 underline" onClick={() => { setManagerPin(''); setLockError(''); setConfirmLock(true) }}>Supervisor</button></div>}
       {/* Staff share this device while it's unlocked; keep them on the kiosk. */}
 
       <div className={`mx-auto grid w-full gap-8 px-4 pb-8 pt-4 md:px-6 ${employee ? 'max-w-2xl' : 'max-w-6xl md:grid-cols-[1.15fr_1fr]'}`}>
@@ -691,6 +718,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
               kioskAccessToken={kioskAccessToken || ''}
               kioskToken={kioskToken}
               onActivity={bumpIdleTimer}
+              onSessionRefused={(device) => device ? lockDevice() : endEmployeeSession()}
               onCancel={() => { bumpIdleTimer(); setRequestingStub(false) }}
               onSent={(message) => { setRequestingStub(false); setSuccess(message) }}
             />
@@ -790,10 +818,18 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
         </section>}
       </div>
       <div>
-      <ConfirmDialog open={confirmClockOut} onCancel={() => setConfirmClockOut(false)}
-        title={`Clock out at ${clockTime(new Date())}?`}
+      <ConfirmDialog open={confirmClockOut} onCancel={() => { setConfirmClockOut(false); setEarlier(false); setStopTime('') }}
+        title={earlier ? 'When did you stop working?' : `Clock out at ${clockTime(new Date())}?`}
         description={`Worked ${status ? workedMilliseconds(status) < 60_000 ? 'less than a minute' : formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.`}
-        confirmLabel="Clock out" cancelLabel="Keep working" confirmDisabled={!!actionLoading || actionsCooling}
+        confirmLabel={earlier ? 'Clock out and send fix' : 'Clock out'} cancelLabel="Keep working"
+        confirmDisabled={!!actionLoading || actionsCooling || (earlier && (!status?.clock_in_at || !stoppedAt(status.clock_in_at, stopTime)))}
+        details={<div className="space-y-3">
+          {!earlier ? <button className="min-h-11 rounded border px-4" onClick={() => setEarlier(true)}>I stopped earlier</button> : <>
+            <p>You clocked in on {status?.clock_in_at && new Date(status.clock_in_at).toLocaleString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.</p>
+            <label className="block">Time you stopped (Guam)<input type="time" value={stopTime} onChange={event => setStopTime(event.target.value)} className="mt-2 min-h-11 w-full rounded border p-3" /></label>
+            {stopTime && (!status?.clock_in_at || !stoppedAt(status.clock_in_at, stopTime)) && <p role="alert">Pick a time after clock-in on the clock-in day and before now, within 12 hours of clock-in. For an overnight or longer shift, ask your manager to fix the date and time.</p>}
+          </>}
+        </div>}
         onConfirm={() => void runAction('clock_out', true)} />
       <ConfirmDialog open={confirmSwitch} onCancel={() => setConfirmSwitch(false)}
         title={`Switch work to ${selectedCategory?.name}?`} confirmLabel="Switch work"
@@ -801,10 +837,10 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
         onConfirm={() => void runAction('switch_category', true)} />
       <ConfirmDialog open={confirmLock} onCancel={() => setConfirmLock(false)}
         title="Lock the kiosk?" description="Staff can't clock in until a manager unlocks it."
-        confirmLabel="Lock kiosk" tone="danger" onConfirm={() => void handleLock()} details={
-        <label className="block">Manager PIN
-          <input aria-label="Manager PIN" type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={managerPin} onChange={e => setManagerPin(e.target.value)} className="mt-2 min-h-11 w-full rounded border p-3" />
-        </label>
+        confirmLabel="Lock kiosk" confirmDisabled={isClerkEnabled && !/^\d{4,8}$/.test(managerPin)} tone="danger" onConfirm={() => void handleLock()} details={
+        <div><label className="block">Manager PIN
+          <input aria-label="Manager PIN" type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={managerPin} onChange={e => { setManagerPin(e.target.value.replace(/\D/g, '')); setLockError('') }} className="mt-2 min-h-11 w-full rounded border p-3" />
+        </label>{lockError && <p role="alert" className="mt-3 text-red-700">{lockError}</p>}</div>
       } />
       </div>
       {idleWarning !== null && <div className="fixed inset-x-3 top-3 z-[calc(var(--z-dialog)+1)] rounded-2xl border border-amber-300 bg-slate-900 p-4 text-center text-lg text-white">

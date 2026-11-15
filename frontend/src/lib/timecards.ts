@@ -85,7 +85,10 @@ export function entrySegments(entry: Pick<TimeEntry, 'work_date' | 'start_time' 
   if (entry.status !== 'completed' || !entry.start_time || !entry.end_time) return whole
   const from = guamInstant(entry.work_date, entry.start_time).getTime()
   let to = guamInstant(entry.work_date, entry.end_time).getTime()
-  if (to <= from) to += 24 * HOUR
+  // Equal clock times are legacy mis-taps, not a 24-hour overnight shift.
+  if (to >= from && to <= from + MINUTE) return whole
+  if (to < from) to += 24 * HOUR
+  if (to <= from + MINUTE) return whole
   const nextDay = addDateDays(entry.work_date, 1)
   const midnight = guamInstant(nextDay, '00:00').getTime()
   if (to <= midnight) return whole

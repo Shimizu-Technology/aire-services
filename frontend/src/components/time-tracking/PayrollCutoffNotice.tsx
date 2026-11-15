@@ -14,7 +14,7 @@ import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
 import { formatPayPeriod } from '../../lib/payPeriods'
 
 interface Props {
-  kiosk?: { accessToken: string; employeeToken: string; sessionKey: string; notice: PayrollCutoffResponse | null }
+  kiosk?: { accessToken: string; employeeToken: string; sessionKey: string; notice: PayrollCutoffResponse | null; onSessionRefused?: (device: boolean) => void }
 }
 
 const CACHE_KEY = 'aire:last-payroll-cutoff'
@@ -76,6 +76,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   const bannerRef = useRef<HTMLElement>(null)
   const requestSequence = useRef(0)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const refusedRef = useRef(kiosk?.onSessionRefused)
+  useLayoutEffect(() => { refusedRef.current = kiosk?.onSessionRefused }, [kiosk?.onSessionRefused])
   const accessToken = kiosk?.accessToken
   const sessionKey = kiosk?.sessionKey ?? String(currentUser?.id ?? 'staff')
   const activeSession = useRef(sessionKey)
@@ -85,6 +87,10 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     const sequence = ++requestSequence.current
     const result = await api.getPayrollCutoff(accessToken)
     if (session !== activeSession.current || sequence !== requestSequence.current) return
+    if (accessToken && ['kiosk_device_revoked', 'kiosk_employee_session_refused'].includes(result.code ?? '')) {
+      refusedRef.current?.(result.code === 'kiosk_device_revoked')
+      return
+    }
     if (result.data) {
       setResponse(result.data); setStale(false); setValidated(true)
       try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ cutoff: result.data.cutoff, connected_payroll: result.data.connected_payroll })) } catch { /* Storage may be unavailable on shared devices. */ }
@@ -130,6 +136,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     const session = sessionKey
     void api.acknowledgePayrollCutoff({ period_id: noticeCutoff.period.id, publication_id: noticeCutoff.publication_id, version: noticeCutoff.version, stage: noticeCutoff.stage }, kiosk).then(result => {
       if (activeSession.current !== session) return
+      if (accessToken && ['kiosk_device_revoked', 'kiosk_employee_session_refused'].includes(result.code ?? '')) { refusedRef.current?.(result.code === 'kiosk_device_revoked'); return }
       setAckError(!!result.error)
       if (result.status === 409) void refresh()
     })
