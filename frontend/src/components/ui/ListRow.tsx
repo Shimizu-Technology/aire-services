@@ -21,6 +21,7 @@ export interface ListRowProps {
   title: ReactNode
   /** One secondary line: "2 shifts · Nov 10–11". */
   meta?: ReactNode
+  /** Allow important secondary facts to wrap instead of being ellipsized. */
   /** Avatar or icon tile. */
   leading?: ReactNode
   /**

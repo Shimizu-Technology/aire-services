@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { landingPathFor, legacyTimeRedirect } from '../../lib/adminRoutes'
 import { useCapabilities } from '../../lib/useCapabilities'
+
+const OwnLeavePage = lazy(() => import('../../components/approvals/OwnLeavePage'))
 
 /** /admin: Today for owners and admins; managers go to Approvals, employees to My Time. */
 export function AdminLanding({ children }: { children: ReactNode }) {
@@ -27,6 +29,17 @@ export function LegacyTimeRedirect() {
 export function MovedPage({ to }: { to: string }) {
   const location = useLocation()
   return <Navigate replace to={`${to}${location.search}${location.hash}`} state={location.state} />
+}
+
+/** Supervisors review leave in the inbox; employees keep their Leave page. */
+export function SupervisorLeaveRedirect({ children }: { children: ReactNode }) {
+  const capabilities = useCapabilities()
+  const location = useLocation()
+  if (!capabilities.approve_leave) return <>{children}</>
+  if (new URLSearchParams(location.search).get('mine') === '1') return <Suspense fallback={<p>Loading your leave…</p>}><OwnLeavePage /></Suspense>
+  const query = new URLSearchParams(location.search)
+  query.set('kind', 'leave')
+  return <Navigate replace to={`/admin/approvals?${query}${location.hash}`} state={location.state} />
 }
 
 // Anchor map is shared with SettingsHome.

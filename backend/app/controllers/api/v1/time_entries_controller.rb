@@ -16,7 +16,9 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :reject_change, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action -> { require_capability!(:approve_time) }, only: [ :reject_change, :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :reject_change, :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval, :review_history ]
+
+      around_action :check_expected_time_entry_version, only: [ :update, :approve, :deny, :approve_overtime, :deny_overtime ]
 
       # GET /api/v1/time_entries
       def index
@@ -88,6 +90,14 @@ module Api
         render json: { time_entry: serialize_time_entry(@time_entry) }
       end
 
+      # GET /api/v1/time_entries/:id/review_history
+      def review_history
+        entry = TimeEntry.find(params[:id])
+        return render json: { error: "Time entry not found" }, status: :not_found unless current_user.can_review_time_of?(entry.user_id)
+
+        render json: { entry_id: entry.id, changes: ::Approvals::ReviewHistory.new(entry).call }
+      end
+
       # POST /api/v1/time_entries
       def create
         entry_owner = resolve_entry_owner
@@ -151,6 +161,7 @@ module Api
 
         return unless require_correction_reason_for_payroll_entry!
 
+        was_denied = @time_entry.approval_status == "denied"
         supervisor_edit = current_user.can_manage_team_time? && !own_time_needs_another_approver?(@time_entry)
         if !supervisor_edit && @time_entry.approval_status == "denied"
           return render json: { error: "This shift was denied. Ask a manager to review it before making changes." }, status: :unprocessable_entity
@@ -227,7 +238,8 @@ module Api
             raise ActiveRecord::Rollback unless saved
 
             if @time_entry.status == "completed" &&
-               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
+               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601 ||
+                (was_denied && @time_entry.approval_status == "pending"))
               new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
               overtime_attrs = { overtime_status: new_overtime }
 
@@ -496,8 +508,8 @@ module Api
         entry = EmployeeTimeChange.reject!(entry: @time_entry, actor: current_user,
                                            version: params[:expected_version], note: params[:note])
         render json: { time_entry: serialize_time_entry(entry) }
-      rescue EmployeeTimeChange::Stale => e
-        render json: { error: e.message, code: "stale_entry" }, status: :conflict
+      rescue EmployeeTimeChange::Stale
+        render_stale_time_entry
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError, ActiveRecord::RecordInvalid => e
@@ -704,6 +716,7 @@ module Api
           ordinary_hours: by_kind.fetch(::Approvals::ReviewClassifier::ORDINARY, []).sum { |entry| entry.hours.to_f }.round(2),
           needs_look_count: by_kind.fetch(::Approvals::ReviewClassifier::NEEDS_LOOK, []).size,
           batch_limit: ::Approvals::ApproveReviewBatch::MAX_ITEMS,
+          ordinary_max_shift_hours: Setting.auto_approve_max_shift_hours,
           by_person: entries.group_by(&:user_id).map do |_user_id, rows|
             user = rows.first.user
             ordinary = rows.select { |entry| @review_kinds.dig(entry.id, :review_kind) == ::Approvals::ReviewClassifier::ORDINARY }
@@ -722,6 +735,35 @@ module Api
       def own_time_needs_another_approver?(entry)
         @own_time_needs_another_approver = current_user.own_time_needs_another_approver? if @own_time_needs_another_approver.nil?
         @own_time_needs_another_approver && entry.user_id == current_user.id
+      end
+
+      # TimeEntry#lock! acquires the employee lock before reloading the entry.
+      # Keep the comparison and the entire write in that same transaction so a
+      # change after a client's preflight GET cannot slip past the check.
+      def check_expected_time_entry_version
+        attributes = action_name == "update" ? params[:time_entry] : params
+        return yield unless attributes&.key?(:expected_version)
+        return yield if action_name == "update" && attributes[:review_action].present?
+
+        @time_entry.with_lock do
+          version = attributes[:expected_version]
+          if version.to_s.match?(/\A\d+\z/) && @time_entry.lock_version == version.to_i
+            yield
+            raise ActiveRecord::Rollback unless response.successful?
+          else
+            render_stale_time_entry
+          end
+        end
+      end
+
+      def render_stale_time_entry
+        @skip_time_entry_request_audit = true
+        render json: { error: "This shift changed since you opened it. Nothing was saved.", code: "stale_entry" }, status: :conflict
+      end
+
+      # Stale version refusals must not create a fallback request audit.
+      def write_default_audit_event
+        super unless @skip_time_entry_request_audit
       end
 
       def with_export_invalidation(entry, reason)
@@ -782,8 +824,8 @@ module Api
                                        action: attributes.delete("review_action"), attributes: attributes,
                                        reason: correction_reason)
         render json: { time_entry: serialize_time_entry(@time_entry) }
-      rescue TimeEntryReviewCorrection::StaleEntryError => e
-        render json: { error: e.message, code: "stale_entry" }, status: :conflict
+      rescue TimeEntryReviewCorrection::StaleEntryError
+        render_stale_time_entry
       rescue TimeEntryReviewCorrection::CorrectionError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end

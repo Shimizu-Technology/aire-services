@@ -69,6 +69,7 @@ module Api
           role: user.role,
           is_intern: user.is_intern,
           approval_group: user.approval_group,
+          approval_group_keys: user.approval_group_keys,
           is_active: user.is_active,
           is_admin: user.administrator?,
           is_owner: user.owner?,

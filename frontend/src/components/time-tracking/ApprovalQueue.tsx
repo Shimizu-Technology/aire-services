@@ -514,13 +514,13 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     try {
       const isOvertimeOnly = entry.approval_status !== 'pending' && entry.overtime_status === 'pending'
       const result = isOvertimeOnly
-        ? await api.approveOvertime(entry.id, note)
+        ? await api.approveOvertime(entry.id, note, entry.version)
         : entry.overtime_status === 'pending' && entry.pending_overtime_hours !== undefined
-          ? await api.approveTimeEntry(entry.id, note, { includeOvertime: true })
-          : await api.approveTimeEntry(entry.id, note)
+          ? await api.approveTimeEntry(entry.id, note, { includeOvertime: true, expectedVersion: entry.version })
+          : await api.approveTimeEntry(entry.id, note, { expectedVersion: entry.version })
 
       if (result.error) {
-        setActionError(result.error)
+        setActionError(result.status === 409 && result.code === 'stale_entry' ? 'This shift changed since you opened it. Nothing was saved. The list has been refreshed.' : result.error)
         await fetchPending(approvalGroupFilter)
       } else {
         if (result.data?.time_entry?.payroll_cutoff_missed ?? entry.payroll_cutoff_missed) setApprovalNotice(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
@@ -558,9 +558,10 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     setActionError(null)
     setApprovalNotice(null)
     try {
-      const result = await api.denyOvertime(entry.id, reason)
+      const result = await api.denyOvertime(entry.id, reason, entry.version)
       if (result.error) {
-        setActionError(result.error)
+        if (result.status === 409) await fetchPending(approvalGroupFilter)
+        setActionError(result.status === 409 && result.code === 'stale_entry' ? 'This shift changed since you opened it. Nothing was saved. The list has been refreshed.' : result.error)
       } else {
         window.dispatchEvent(new Event('aire:approvals-updated'))
         await fetchPending(approvalGroupFilter)
@@ -589,12 +590,13 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
       const result = keepOriginal
         ? await api.rejectTimeEntryChange(entry.id, entry.version ?? -1, note)
         : isOvertimeOnly
-        ? await api.denyOvertime(entry.id, note)
-        : await api.denyTimeEntry(entry.id, note)
+        ? await api.denyOvertime(entry.id, note, entry.version)
+        : await api.denyTimeEntry(entry.id, note, entry.version)
 
       if (result.error) {
+        if (result.status === 409) await fetchPending(approvalGroupFilter)
         if (/reason is required/i.test(result.error)) askForReason(entry, result.error)
-        else setActionError(result.error)
+        else setActionError(result.status === 409 && result.code === 'stale_entry' ? 'This shift changed since you opened it. Nothing was saved. The list has been refreshed.' : result.error)
       } else {
         window.dispatchEvent(new Event('aire:approvals-updated'))
         await fetchPending(approvalGroupFilter)

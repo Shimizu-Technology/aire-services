@@ -16,8 +16,11 @@ const apiMock = vi.hoisted(() => ({
   getHoursReport: vi.fn(),
   getWhosWorking: vi.fn(),
   getPayrollCutoff: vi.fn(),
+  getLeaveRequests: vi.fn().mockResolvedValue({ data: { leave_requests: [], pagination: { total_pages: 1 } } }),
 }))
 vi.mock('./lib/api', () => ({ api: apiMock }))
+vi.mock('./lib/api/approvals', () => ({ approvalsApi: { pending: apiMock.getPendingApprovals } }))
+vi.mock('./lib/payStubsApi', () => ({ payStubsApi: { requests: vi.fn().mockResolvedValue({ requests: [] }) } }))
 vi.mock('./contexts/AuthContext', () => ({
   useAuthContext: () => ({ isClerkEnabled: true, userRole: 'admin', currentUser: { id: 1 } }),
 }))
@@ -52,7 +55,7 @@ describe('App time-section routes', () => {
     apiMock.getUsers.mockResolvedValue({ data: { users: [] } })
     apiMock.getCurrentUser.mockResolvedValue({ data: { user: { id: 1, is_admin: true } } })
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
-    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null } })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null, review_summary: { complete: true, batch_limit: 100 } } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
     apiMock.getWhosWorking.mockResolvedValue({ data: { workers: [] } })
     apiMock.getPayrollCutoff.mockResolvedValue({ data: { cutoff: { period: null, cutoff_at: null } } })
@@ -62,15 +65,14 @@ describe('App time-section routes', () => {
   it('opens Reports without the period from a dated Approvals view', async () => {
     window.history.pushState({}, '', '/admin/approvals?start_date=2026-08-01&end_date=2026-08-15')
     render(<App />)
-    // The lazy route must finish importing before its data effect can run.
-    expect(await screen.findByDisplayValue('2026-08-01', {}, {
-      timeout: 10_000,
-    })).toBeInTheDocument()
-    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' })))
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' }), expect.any(AbortSignal)))
+    fireEvent.click(await screen.findByRole('button', { name: /Filters/ }, { timeout: 10_000 }))
+    expect(await screen.findByDisplayValue('2026-08-01')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 
     fireEvent.click(screen.getByRole('link', { name: 'Go to Reports' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reports' }, { timeout: 10_000 })).toBeInTheDocument()
     await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalled())
     expect(apiMock.getHoursReport).not.toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01' }))
     expect(screen.queryByDisplayValue('2026-08-01')).not.toBeInTheDocument()
