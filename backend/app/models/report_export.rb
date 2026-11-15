@@ -26,6 +26,7 @@ class ReportExport < ApplicationRecord
     entries = snapshot_entries(report, employee_ids: employee_ids)
     entry_ids = entries.map { |entry| entry.fetch("id").to_i }.uniq.sort
     checksum = Digest::SHA256.hexdigest(JSON.generate(entries))
+    protects_entries &&= report_ready?(report)
     now = Time.current
     attributes = {
       export_type: export_type,
@@ -211,9 +212,16 @@ class ReportExport < ApplicationRecord
   end
 
   private_class_method def self.report_ready?(report)
-    return report[:ready] unless report[:ready].nil?
-
-    (report[:summary] || {})[:uncategorized_count].to_i.zero?
+    summary = report[:summary] || {}
+    hours = summary[:payroll_hours] || {}
+    waiting = if hours.key?(:time_waiting_hours) && hours.key?(:overtime_waiting_hours)
+      hours[:time_waiting_hours].to_f.positive? || hours[:overtime_waiting_hours].to_f.positive?
+    else
+      summary[:pending_count].to_i.positive? || summary[:pending_overtime_count].to_i.positive?
+    end
+    report[:ready] != false && summary[:uncategorized_count].to_i.zero? &&
+      summary[:open_clock_count].to_i.zero? && !waiting &&
+      Array(report[:employees]).all? { |employee| employee[:ready] != false && employee[:approval_complete] != false }
   end
 
   private_class_method def self.aggregate_issues(report)

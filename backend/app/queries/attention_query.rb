@@ -122,9 +122,14 @@ class AttentionQuery
       Arel.sql("SUM(CASE WHEN time_entries.entry_method = 'manual' THEN 1 ELSE 0 END)"),
       Arel.sql("SUM(CASE WHEN time_entries.entry_method = 'clock' THEN 1 ELSE 0 END)")
     )
+    entries = self.class.waiting_scope.includes(:time_entry_breaks).to_a
+    calculator = Payroll::ApprovalHours.for_entries(entries)
+    hours = Payroll::ApprovalHours.sum(entries.map { |entry| calculator.for(entry) })
     {
       count: count.to_i,
       total_hours: total_hours.to_f.round(2),
+      time_waiting_hours: hours[:time_waiting_hours],
+      overtime_waiting_hours: hours[:overtime_waiting_hours],
       oldest_work_date: oldest&.iso8601,
       by_kind: {
         time: pending_time.to_i,

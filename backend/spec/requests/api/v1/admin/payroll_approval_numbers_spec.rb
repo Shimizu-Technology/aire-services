@@ -58,7 +58,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
       "Approved for payroll" => "40.00", "Time waiting for approval" => "2.00",
       "Overtime waiting for approval — not included" => "3.50", "Report Status" => "Draft - needs review")
     capture = ReportExport.last
-    expect(capture.protects_entries).to be(true)
+    expect(capture.protects_entries).to be(false)
     expect(capture.entry_snapshot.find { |entry| entry["id"] == @overtime.id }).to include("total_hours" => 11.5, "overtime_hours" => 3.5)
     checksum = capture.checksum
     get "/api/v1/admin/hours_report/pdf", params: range.merge(acknowledge_draft: true), headers: headers
@@ -99,7 +99,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     csv = CSV.parse(response.body, headers: true)
     expect(csv.headers[4..6]).to eq([ "Approved regular hours", "Approved overtime hours", "Approved for payroll" ])
     expect(csv.headers.count("Approved for payroll")).to eq(1)
-    expect(csv.first.to_h).to include("Worked hours" => "3.00", "Approved for payroll" => "40.00",
+    expect(csv.first.to_h).to include("Worked hours" => "48.50", "Approved for payroll" => "40.00",
       "Time waiting for approval" => "2.00", "Overtime waiting for approval — not included" => "3.50")
     expect(response.headers["Content-Disposition"]).to include("Filtered")
     get "/api/v1/admin/hours_report/pdf", params: filters.merge(acknowledge_draft: true), headers: headers
@@ -164,7 +164,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     get "/api/v1/admin/payroll_batches/#{id}/export", headers: headers
     frozen_csv = response.body.dup
     expect(CSV.parse(frozen_csv).first).to eq([
-      "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
+      "Batch ID", "Period start", "Period end", "Lock at (Guam, ChST UTC+10)", "Employee", "Email",
       "Source entry", "Type", "Original work date", "Category", "Regular hours", "Overtime hours", "Total hours"
     ])
     get "/api/v1/admin/hours_report/summary_csv", params: range.merge(acknowledge_draft: true), headers: headers

@@ -79,6 +79,18 @@ RSpec.describe "Attention", type: :request do
     end
   end
 
+  it "counts each waiting source shift once while showing only its live waiting time and overtime" do
+    pending = shift(employee, date: Date.new(2026, 11, 9), hours: 4, approval_status: "pending", overtime_status: "pending")
+    approved = shift(caleb, date: Date.new(2026, 11, 9), hours: 8, overtime_status: "pending")
+    # A source shift needing both reviews still counts once. Approved regular
+    # time is never waiting, including a stale pending-overtime flag with no OT.
+    body = attention.fetch("approvals")
+    calculator = Payroll::ApprovalHours.for_entries([ pending, approved ])
+    expected = Payroll::ApprovalHours.sum([ pending, approved ].map { |row| calculator.for(row) })
+    expect(body).to include("count" => 2, "time_waiting_hours" => expected[:time_waiting_hours], "overtime_waiting_hours" => expected[:overtime_waiting_hours])
+    expect(body["time_waiting_hours"]).to eq(4.0)
+  end
+
   it "orders the whole list: clocks, approvals, overtime, categories, payroll, leave, PINs, stub requests" do
     publish_november!
     open_clock(caleb, at: zone.local(2026, 11, 10, 7, 2))

@@ -221,7 +221,7 @@ module Payroll
         approval_group_labels: user.approval_group_labels,
         approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
         payroll_hours: payroll_hours_for(@approval_entries_by_user.fetch(user.id, [])),
-        worked_hours: round_hours(period_entries.select { |entry| entry.status == "completed" && entry.work_date.between?(start_date, end_date) }.sum { |entry| entry.hours.to_d }),
+        worked_hours: round_hours(control_period_entries.select { |entry| entry.status == "completed" && entry.work_date.between?(start_date, end_date) }.sum { |entry| entry.hours.to_d }),
         total_hours: total_hours,
         regular_hours: regular_hours,
         overtime_hours: overtime_hours,

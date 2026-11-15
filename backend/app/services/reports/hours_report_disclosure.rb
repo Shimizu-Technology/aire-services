@@ -10,7 +10,7 @@ module Reports
       open_clock_count: "open clock"
     }.freeze
 
-    APPROVAL_FACTS_NOTE = "Approved and waiting hours are period facts and ignore status filters; worked hours follow the filters."
+    APPROVAL_FACTS_NOTE = "Approved and waiting hours are period facts and ignore status filters; worked hours include all completed time in the selected staff/date scope."
 
     def self.filtered_status?(report)
       filters = (report[:filters] || {}).symbolize_keys
@@ -95,7 +95,7 @@ module Reports
         when :approval_group then "Department"
         else key.to_s.humanize
         end
-        "#{label}: #{value.to_s.humanize}"
+        "#{label}: #{key.to_sym == :approval_group ? Setting.approval_group_label_for(value) : value.to_s.humanize}"
       end
       labels.presence&.join("; ") || "all staff, all entry filters"
     end

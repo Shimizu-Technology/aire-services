@@ -76,6 +76,30 @@ RSpec.describe "Api::V1::Admin::AuditLogs", type: :request do
     expect(json.dig(:audit_logs, 0, :action)).to eq("time_entry.approved")
   end
 
+  it "lets managers read only an editable shift history, never the global log or export" do
+    manager = create(:user, :manager)
+    shift = create(:time_entry, user: employee)
+    event = AuditLog.record!(action: "time_entry.updated", auditable: shift, actor: admin)
+    filters = { subject_type: "TimeEntry", subject_id: shift.id }
+    get "/api/v1/admin/audit_logs", params: filters, headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:ok)
+    expect(json[:audit_logs].map { |row| row[:id] }).to eq([ event.id ])
+    get "/api/v1/admin/audit_logs/#{event.id}", params: filters, headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:ok)
+    get "/api/v1/admin/audit_logs", headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:forbidden)
+    get "/api/v1/admin/audit_logs", params: { subject_type: "User", subject_id: employee.id }, headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:forbidden)
+    get "/api/v1/admin/audit_logs/#{event.id}", params: { subject_type: "TimeEntry", subject_id: shift.id + 999 }, headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:forbidden)
+    get "/api/v1/admin/audit_logs/export", params: filters, headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:forbidden)
+    # Managers currently edit all team shifts. Respect the model policy if that scope narrows.
+    allow_any_instance_of(TimeEntry).to receive(:editable_by?).and_return(false)
+    get "/api/v1/admin/audit_logs", params: filters, headers: auth_headers_for[manager]
+    expect(response).to have_http_status(:forbidden)
+  end
+
   it "blocks non-admin staff" do
     get "/api/v1/admin/audit_logs", headers: auth_headers_for[employee]
 

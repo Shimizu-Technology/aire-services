@@ -293,7 +293,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(response.media_type).to eq("text/csv")
     csv = CSV.parse(response.body)
     expected_header = [
-      "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
+      "Batch ID", "Period start", "Period end", "Lock at (Guam, ChST UTC+10)", "Employee", "Email",
       "Source entry", "Type", "Original work date", "Category", "Regular hours",
       "Overtime hours", "Total hours"
     ]
@@ -301,7 +301,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(csv).to eq([
       expected_header,
       [
-        batch_id, "2026-08-01", "2026-08-15", batch.cutoff_at.iso8601,
+        batch_id, "2026-08-01", "2026-08-15", batch.cutoff_at.in_time_zone("Guam").iso8601,
         "Alice Pilot", employee.email, entry.id.to_s, "current", "2026-08-15",
         category.name, "8.0", "0.0", "8.0"
       ]

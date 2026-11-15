@@ -11,7 +11,7 @@ module Api
         EXPORT_MAX_WINDOW_DAYS = 366
         BUSINESS_TIME_ZONE = ActiveSupport::TimeZone["Guam"]
 
-        before_action -> { require_capability!(:view_activity) }
+        before_action :require_history_access!
 
         def index
           scope = filtered_scope
@@ -53,6 +53,20 @@ module Api
         end
 
         private
+
+        # Managers can read only the history of a shift they can edit. Never
+        # accept a global list, another subject type, or an unscoped detail/export.
+        def require_history_access!
+          authenticate_user! unless current_user
+          return if performed?
+          return if current_user.can_view_activity?
+
+          if current_user.can_manage_team_time? && action_name.in?(%w[index show]) && params[:subject_type] == "TimeEntry" && params[:subject_id].to_s.match?(/\A[1-9]\d*\z/)
+            entry = TimeEntry.find_by(id: params[:subject_id])
+            return if entry&.editable_by?(current_user) && (action_name == "index" || AuditLog.where(id: params[:id], auditable: entry).exists?)
+          end
+          render json: { error: "You do not have access to this history." }, status: :forbidden
+        end
 
         def filtered_scope
           scope = AuditLog.all
