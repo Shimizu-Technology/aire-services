@@ -83,7 +83,7 @@ export interface LockStatusInput {
  * - upcoming: a countdown, waiting while it is more than a day away, needs-fix inside 24 hours
  * - requested: Lock now was asked for and Cornerstone Payroll hasn't confirmed it yet
  * - due: the lock time passed and the connection is up, so AIRE is locking
- * - hold: the lock is due or requested but the connection is paused, so nothing will lock
+ * - hold: the connection is paused, so nothing will lock
  */
 export function lockStatus({ period, control, cutoffAt, now, paused }: LockStatusInput): LockStatus {
   if (isLocked(period)) return { kind: 'locked', label: period?.label ?? null, tone: 'approved', prefix: null }
@@ -93,7 +93,7 @@ export function lockStatus({ period, control, cutoffAt, now, paused }: LockStatu
   const remaining = Date.parse(cutoffAt) - now.getTime()
   const requested = control?.pending_change?.state === 'pending' && control.pending_change.action === 'lock_now'
   const due = remaining <= 0 || control?.cutoff_state === 'due'
-  if (paused && (requested || due)) {
+  if (paused) {
     return { kind: 'hold', label: 'Lock on hold: connection paused', tone: 'needs-fix', prefix: 'Lock time' }
   }
   if (requested) {

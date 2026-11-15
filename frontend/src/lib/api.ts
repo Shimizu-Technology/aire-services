@@ -2064,10 +2064,11 @@ export const api = {
     return fetchDownload(`/api/v1/admin/hours_report/${type}?${searchParams.toString()}`);
   },
 
-  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25, view?: 'decisions', startDate?: string) => {
+  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25, view?: 'decisions', startDate?: string, scope?: 'mine') => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     if (view) params.set('view', view);
+    if (scope) params.set('scope', scope);
     if (startDate) params.set('start_date', startDate);
     params.set('page', String(page));
     params.set('per_page', String(perPage));

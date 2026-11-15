@@ -167,7 +167,7 @@ export const myTimeApi = {
   leave: async (viewerId: number) => {
     const requests: LeaveRequest[] = []
     for (let page = 1; page <= 20; page += 1) {
-      const result = await api.getLeaveRequests(undefined, page, 100)
+      const result = await api.getLeaveRequests(undefined, page, 100, undefined, undefined, 'mine')
       if (!result.data)
         return { error: result.error || "Couldn't load your requests." }
       requests.push(

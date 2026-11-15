@@ -84,6 +84,13 @@ describe('PayPeriodCard', () => {
     expect(screen.getByText('Wed, Nov 11, 7:30 PM')).toBeInTheDocument()
   })
 
+  it('explains that future locking is paused instead of counting down', () => {
+    renderCard({ paused: true })
+    expect(screen.getByText("Locking is paused. AIRE won't lock these hours until Cornerstone Payroll resumes the connection.")).toBeInTheDocument()
+    expect(screen.queryByText(/^Locks in/)).not.toBeInTheDocument()
+    expect(screen.getByText('Lock on hold: connection paused')).toBeInTheDocument()
+  })
+
   it('names a failed lock', () => {
     renderCard({ lock: lockControl({ status: 'failed', cutoff_state: 'attention_required' }) })
     expect(screen.getByText('Lock failed').closest('[data-tone]')).toHaveAttribute('data-tone', 'needs-fix')

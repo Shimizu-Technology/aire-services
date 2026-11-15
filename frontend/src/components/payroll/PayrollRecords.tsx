@@ -150,7 +150,7 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
       {items.map(([label, value]) => (
         <div key={label} className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">{label}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
           <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
         </div>
       ))}
@@ -943,7 +943,7 @@ export default function PayrollRecords() {
         <>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs font-semibold text-slate-400">{selectedBatch ? 'Locked batch' : 'Live preview'}</p>
+              <p className="text-xs font-semibold text-slate-500">{selectedBatch ? 'Locked batch' : 'Live preview'}</p>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">{formatDate(activePayload.start_date)}–{formatDate(activePayload.end_date)}</h2>
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · locked {formatDateTime(selectedBatch.finalized_at)}</p>}
               {selectedBatch?.processing && <p className={`mt-1 text-sm font-medium ${selectedBatch.processing.status === 'payment_failed' ? 'text-red-700' : 'text-emerald-700'}`}>{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
@@ -969,7 +969,7 @@ export default function PayrollRecords() {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div>
-          <p className="text-xs font-semibold text-slate-400">Payroll history</p>
+          <p className="text-xs font-semibold text-slate-500">Payroll history</p>
           <h2 className="mt-1 text-xl font-semibold text-slate-950">Locked payroll batches</h2>
         </div>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
