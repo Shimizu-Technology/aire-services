@@ -97,4 +97,36 @@ RSpec.describe "Rejecting an employee change", type: :request do
     expect(entry.reload.original_employee_change).to be_nil
     expect(entry.approval_status).to eq("pending")
   end
+  it "rejects invalid original time with 422 and preserves the requested change" do
+    entry.update!(original_employee_change: entry.original_employee_change.merge("clock_out_at" => nil))
+    before = entry.attributes
+    post "/api/v1/time_entries/#{entry.id}/reject_change", params: { expected_version: entry.lock_version, note: "Original" }, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload.attributes).to eq(before)
+  end
+
+  it "approves an edited clock shift through the inbox and clears the snapshot" do
+    original = entry.original_employee_change
+    post "/api/v1/time_entries/review_batch", params: {
+      mode: "reviewed", items: [ { id: entry.id, version: entry.lock_version, approve_time: true, approve_overtime: false } ]
+    }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid)
+    expect(response).to have_http_status(:created)
+    expect(entry.reload.approval_status).to eq("approved")
+    expect(entry.original_employee_change).to be_nil
+    batch_id = response.parsed_body.fetch("review_batch_id")
+    post "/api/v1/time_entries/review_batches/#{batch_id}/undo", headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.approval_status).to eq("pending")
+    expect(entry.original_employee_change).to eq(original)
+  end
+
+  it "denies the whole edited shift only with a reason and clears the snapshot" do
+    post "/api/v1/time_entries/#{entry.id}/deny", headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload.approval_status).to eq("pending")
+    post "/api/v1/time_entries/#{entry.id}/deny", params: { note: "No work occurred" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.approval_status).to eq("denied")
+    expect(entry.original_employee_change).to be_nil
+  end
 end

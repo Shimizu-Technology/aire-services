@@ -84,7 +84,7 @@ module Approvals
       locked_ids = LockedEntries.call(entries.values, now: @now)
       blocked = items.filter_map do |item|
         entry = entries[item.time_entry_id]
-        reason = if entry.nil? || entry.lock_version != item.version_after || ReviewBatchItem.review_state(entry) != item.after_state
+        reason = if entry.nil? || entry.lock_version != item.version_after || ReviewBatchItem.review_state(entry).slice(*item.after_state.keys) != item.after_state
           "changed"
         elsif locked_ids.include?(entry.id)
           "locked"

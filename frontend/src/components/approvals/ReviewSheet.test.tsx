@@ -10,6 +10,7 @@ vi.mock('../../lib/api', () => ({
     getTimeEntries: vi.fn(),
     denyTimeEntry: vi.fn(),
     denyOvertime: vi.fn(),
+    rejectTimeEntryChange: vi.fn(),
   },
 }))
 vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { history: vi.fn() } }))
@@ -36,7 +37,8 @@ const props = () => ({
   onDirty: vi.fn(),
 })
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
   vi.mocked(api.getTimeEntry).mockResolvedValue({ data: { time_entry: reviewEntry(7, 1) } })
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
   vi.mocked(api.getTimeEntries).mockResolvedValue({
@@ -339,4 +341,126 @@ it('preserves annotation-like words inside personal reasons and removes only com
     'Denied: Employee edited time entry after cutoff · Clocked in without a schedule by mistake',
   )).toBeInTheDocument()
   expect(screen.queryByText(/awaiting admin review/)).not.toBeInTheDocument()
+})
+
+const changedClockProps = () => {
+  const config = props()
+  config.entry = {
+    ...config.entry,
+    entry_method: 'clock',
+    original_employee_change: {
+      formatted_range: 'Fri, Nov 13, 7:00 AM–1:20 PM',
+      start_time: '07:00',
+      end_time: '13:20',
+      clock_in_at: null,
+      clock_out_at: null,
+      hours: 6.33,
+    },
+  }
+  return config
+}
+it('shows original and three choices and approves the requested change', async () => {
+  const config = changedClockProps()
+  render(<ReviewSheet {...config} />)
+  expect(
+    screen.getByText(/Original: Fri, Nov 13, 7:00 AM–1:20 PM · Marcus asked for/),
+  ).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Keep the original time' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Deny the whole shift…' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve the change' }))
+  await waitFor(() =>
+    expect(config.onApprove).toHaveBeenCalledWith(
+      [{ id: 7, version: 17, approve_time: true, approve_overtime: false }],
+      expect.any(String),
+    ),
+  )
+})
+it('requires a reason, refreshes restored pending time, and never approves or denies it', async () => {
+  vi.mocked(api.rejectTimeEntryChange).mockResolvedValue({
+    data: { time_entry: reviewEntry(7, 1) },
+  })
+  const config = changedClockProps()
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the original time' }))
+  expect(screen.getByRole('textbox')).toHaveFocus()
+  expect(screen.getByRole('button', { name: 'Keep the original time' })).toBeDisabled()
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } })
+  expect(screen.getByRole('button', { name: 'Keep the original time' })).toBeDisabled()
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: ' Original punches are correct. ' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the original time' }))
+  await waitFor(() =>
+    expect(config.onClose).toHaveBeenCalledWith(
+      true,
+      expect.stringContaining('Still waiting for approval.'),
+    ),
+  )
+  expect(api.rejectTimeEntryChange).toHaveBeenCalledWith(
+    7,
+    17,
+    'Original punches are correct.',
+  )
+  expect(config.onReload).toHaveBeenCalledOnce()
+  expect(config.onApprove).not.toHaveBeenCalled()
+  expect(api.denyTimeEntry).not.toHaveBeenCalled()
+})
+it.each([
+  [
+    409,
+    'stale_entry',
+    'This shift changed since you opened it. Review it again before keeping the original time.',
+  ],
+  [
+    409,
+    'payroll_busy',
+    'Payroll is working on this period right now. Try again in a minute. Nothing was changed.',
+  ],
+  [
+    422,
+    undefined,
+    "The original time couldn't be restored. Ask a manager to correct this shift. The requested change is still waiting.",
+  ],
+])('announces refusal %s %s through the inbox toast', async (status, code, message) => {
+  vi.mocked(api.rejectTimeEntryChange).mockResolvedValue({
+    error: 'Server refusal',
+    status,
+    code,
+  })
+  const config = changedClockProps()
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the original time' }))
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: 'Check original' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the original time' }))
+  await waitFor(() => expect(config.onClose).toHaveBeenCalledWith(true, message))
+  expect(config.onReload).toHaveBeenCalledOnce()
+})
+it('warns that whole-shift denial removes all hours and requires its reason', async () => {
+  vi.mocked(api.denyTimeEntry).mockResolvedValue({
+    data: { time_entry: reviewEntry(7, 1, { approval_status: 'denied' }) },
+  })
+  render(<ReviewSheet {...changedClockProps()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Deny the whole shift…' }))
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'no hours from this shift will count',
+  )
+  expect(screen.getByRole('button', { name: 'Deny the whole shift' })).toBeDisabled()
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: 'No work occurred' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Deny the whole shift' }))
+  await waitFor(() =>
+    expect(api.denyTimeEntry).toHaveBeenCalledWith(7, 'No work occurred'),
+  )
+})
+it('does not offer keep-original for hand-added time even with a snapshot', () => {
+  const config = changedClockProps()
+  config.entry.entry_method = 'manual'
+  render(<ReviewSheet {...config} />)
+  expect(
+    screen.queryByRole('button', { name: 'Keep the original time' }),
+  ).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Approve time' })).toBeEnabled()
 })
