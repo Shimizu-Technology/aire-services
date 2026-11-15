@@ -60,6 +60,7 @@ export default function ReviewSheet({
     entry.entry_method === 'clock' &&
     entry.approval_status === 'pending' &&
     Boolean(entry.original_employee_change)
+  const canKeepOriginal = pendingChange && entry.original_employee_change?.restorable !== false
   const overtime = entry.overtime_status === 'pending'
   useEffect(() => {
     if (!denying) return
@@ -303,7 +304,7 @@ export default function ReviewSheet({
                     {pendingChange ? 'Approve the change' : 'Approve time'}
                   </Button>
                 )}
-                {overtime && (
+                {overtime && (!pendingChange || canKeepOriginal) && (
                   <Button
                     onClick={() => {
                       void approve(true)
@@ -317,7 +318,7 @@ export default function ReviewSheet({
                       : 'overtime'}
                   </Button>
                 )}
-                {pendingChange && (
+                {canKeepOriginal && (
                   <Button
                     variant="secondary"
                     onClick={() => setDenying('change')}
@@ -326,7 +327,7 @@ export default function ReviewSheet({
                     Keep the original time
                   </Button>
                 )}
-                {(!pendingChange || overtime) && (
+                {(!pendingChange || (overtime && canKeepOriginal)) && (
                   <Button
                     variant="secondary"
                     onClick={() => setDenying(overtime ? 'overtime' : 'time')}
@@ -399,6 +400,9 @@ export default function ReviewSheet({
               {entry.formatted_end_time || entry.end_time}
             </p>
           )}
+          {pendingChange && !canKeepOriginal && (
+            <p className="text-body-sm">The original clock-out was missing, so there's no original time to keep.</p>
+          )}
           <dl className="space-y-1 text-body-sm">
             <div>
               <dt className="inline font-semibold">Time: </dt>
@@ -451,7 +455,9 @@ export default function ReviewSheet({
                     {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week
                     ·{' '}
                     {(entry.pending_overtime_hours ?? 0) > 0
-                      ? `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
+                      ? entry.approval_status === 'pending'
+                        ? `Would add ${entry.pending_overtime_hours!.toFixed(1)}h overtime`
+                        : `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
                       : `${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime to review`}
                   </p>
                   <ul className="divide-y divide-line text-body-sm">
@@ -506,8 +512,8 @@ export default function ReviewSheet({
           </section>
           {pendingChange && denying === 'time' && (
             <p role="alert" className="text-body-sm font-semibold text-danger">
-              Deny the whole shift: no hours from this shift will count. To keep the hours
-              they worked, choose Keep the original time instead.
+              Deny the whole shift: no hours from this shift will count.
+              {canKeepOriginal && ' To keep the hours they worked, choose Keep the original time instead.'}
             </p>
           )}
           {denying && (

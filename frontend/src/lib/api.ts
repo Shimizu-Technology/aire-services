@@ -622,7 +622,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
-  original_employee_change?: { formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
+  original_employee_change?: { restorable?: boolean; restoration_reason?: string | null; formatted_range: string; start_time: string | null; end_time: string | null; clock_in_at: string | null; clock_out_at: string | null; hours: number } | null;
   rejected_employee_change?: { note: string; manager: string; at: string } | null;
   payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
   payroll_cutoff_missed?: boolean;

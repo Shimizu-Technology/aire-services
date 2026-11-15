@@ -34,13 +34,13 @@ export default function NeedsLookList({
           )
           const overtime = entries.some(
             (entry) =>
-              entry.overtime_status === 'pending' ||
-              entry.exceptions.some((reason) => reason.key === 'overtime'),
+              entry.approval_status !== 'pending' && entry.overtime_status === 'pending',
           )
           const overtimeHours = entries.reduce(
-            (sum, entry) => sum + (entry.pending_overtime_hours ?? 0),
+            (sum, entry) => sum + (entry.approval_status !== 'pending' && entry.overtime_status === 'pending' ? (entry.pending_overtime_hours ?? 0) : 0),
             0,
           )
+          const timeHours = entries.reduce((sum, entry) => sum + (entry.approval_status === 'pending' ? entry.hours : 0), 0)
           const reasons = reasonChips(entries)
           const name = row.user.id === viewerId ? 'You' : row.user.full_name
           const open = reviewable ? () => onReview(reviewable) : undefined
@@ -59,6 +59,7 @@ export default function NeedsLookList({
                   {entries.length === 1
                     ? `${formatApprovalDate(row.work_date)} · ${row.hours.toFixed(1)}h`
                     : `${entries.length} shifts this week · ${formatApprovalDateRange(entries.map((entry) => entry.work_date))}`}
+                  {timeHours > 0 && ` · ${timeHours.toFixed(1)}h time waiting`}
                   {overtime &&
                     (overtimeHours > 0
                       ? ` · ${overtimeHours.toFixed(1)}h overtime waiting`

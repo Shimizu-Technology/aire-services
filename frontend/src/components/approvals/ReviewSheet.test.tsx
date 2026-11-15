@@ -464,3 +464,16 @@ it('does not offer keep-original for hand-added time even with a snapshot', () =
   ).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Approve time' })).toBeEnabled()
 })
+
+it('hides keep-original when the server marks the original nonrestorable', () => {
+  const config = changedClockProps()
+  config.entry.overtime_status = 'pending'
+  config.entry.pending_overtime_hours = 2
+  config.entry.original_employee_change = { ...config.entry.original_employee_change!, restorable: false, restoration_reason: 'Original clock-out missing' }
+  render(<ReviewSheet {...config} />)
+  expect(screen.queryByRole('button', { name: 'Keep the original time' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Approve the change' })).toBeInTheDocument()
+  expect(screen.getByText("The original clock-out was missing, so there's no original time to keep.")).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Approve time \+/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Deny overtime…' })).not.toBeInTheDocument()
+})
