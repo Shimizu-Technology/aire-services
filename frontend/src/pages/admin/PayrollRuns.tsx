@@ -1,6 +1,6 @@
 import { payrollConnectionCopy } from '../../lib/payrollConnection'
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, type HoursReportDownloadType, type PayrollBatchDetail } from '../../lib/api'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { downloadBlob } from '../../lib/download'
@@ -9,7 +9,7 @@ import { withPayrollPeriod } from '../../lib/payrollPeriods'
 import { isLockedState, PAYROLL_WORDS } from '../../lib/payrollTerms'
 import { useCapabilities } from '../../lib/useCapabilities'
 import PayrollLockControl from '../../components/payroll/PayrollLockControl'
-import PayrollRecords, { FinalizeDialog, ManualProcessingDialog } from '../../components/payroll/PayrollRecords'
+import { FinalizeDialog, ManualProcessingDialog } from '../../components/payroll/PayrollRecords'
 import { BeforeLockChecklist } from '../../components/payroll/BeforeLockChecklist'
 import { CarriedHours } from '../../components/payroll/CarriedHours'
 import { EarlierPeriods } from '../../components/payroll/EarlierPeriods'
@@ -17,7 +17,7 @@ import { periodHref } from '../../components/payroll/payPeriodModel'
 import { HandoffSteps } from '../../components/payroll/HandoffSteps'
 import { PayStubsStep } from '../../components/payroll/PayStubsStep'
 import { PeriodHeader } from '../../components/payroll/PeriodHeader'
-import { SLOW_REFRESH_MS, blockLoad, usePayPeriodData } from '../../components/payroll/usePayPeriodData'
+import { REFRESH_MS, SLOW_REFRESH_MS, blockLoad, usePayPeriodData } from '../../components/payroll/usePayPeriodData'
 import { WhatGoesToPayroll } from '../../components/payroll/WhatGoesToPayroll'
 import { ConnectionCard, PausedBanner } from '../../components/today/ConnectionCard'
 import { periodLabel } from '../../components/today/format'
@@ -49,7 +49,7 @@ export default function PayrollRuns() {
   const { start: routeStart } = useParams()
   const [params] = useSearchParams()
   const linked = linkedPeriodStart(params)
-  if (params.has('batch_id') || linked === 'records') return <PayrollRecords />
+  if (params.has('batch_id') || linked === 'records') return <Navigate replace to={`${PAYROLL_RECORDS_PATH}?${params.toString()}`} />
   if (routeStart !== undefined && !parsePayPeriodStart(routeStart)) {
     return (
       <ErrorState
@@ -67,7 +67,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const location = useLocation()
   const [params] = useSearchParams()
   const data = usePayPeriodData(requestedStart)
-  const { periods, show, range, isCurrent, attention, cutoff, connection, waiting, preview, batch, carryovers, now, refresh } = data
+  const { periods, show, range, isCurrent, attention, cutoff, connection, waiting, preview, batch, carryovers, now, deviceNow, refresh } = data
   const [dialog, setDialog] = useState<'manual' | 'finalize' | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
@@ -86,9 +86,9 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
     document.title = label ? `${label} pay period | AIRE Ops` : 'Pay period | AIRE Ops'
   }, [label])
 
-  const connectionEnabled = periods.data?.connected_payroll.enabled === true
   const paused = periods.data?.connected_payroll.enabled === false || connection.data?.state === 'paused'
     || cutoff.data?.connected_payroll?.enabled === false
+  const connectionEnabled = periods.data?.connected_payroll.enabled === true && !paused
   const connectionCopy = connection.data ? payrollConnectionCopy(connection.data) : null
   const connectionPill: { label: string; tone: StatusTone } | null = paused
     ? { label: 'Payroll connection paused', tone: 'needs-fix' }
@@ -250,9 +250,9 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
                 { load: blockLoad(show), loadedAt: show.loadedAt },
                 ...(!period ? [{ load: blockLoad(waiting), loadedAt: waiting.loadedAt, maxAgeMs: STALE_AFTER_MS }] : []),
                 { load: blockLoad(preview), loadedAt: preview.loadedAt, maxAgeMs: STALE_AFTER_MS },
-                ...(isCurrent ? [{ load: blockLoad(attention), loadedAt: attention.loadedAt }] : []),
+                ...(isCurrent ? [{ load: blockLoad(attention), loadedAt: attention.loadedAt, maxAgeMs: REFRESH_MS + 60_000 }] : []),
               ]}
-              now={now}
+              now={deviceNow}
               onRetry={() => void refresh()}
             />
           )}
@@ -278,6 +278,13 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
           )}
           {exportError && <p role="alert" className="rounded-card border border-red-200 bg-danger-soft px-4 py-3 text-body-sm text-red-900">{exportError}</p>}
 
+          {locked && range && !carryovers.data && (
+            <section aria-label="Carried hours" className="space-y-2">
+              {carryovers.error
+                ? <ErrorState title="Couldn't load carried hours." description={carryovers.error} onRetry={() => void carryovers.reload()} />
+                : <p role="status" className="text-body-sm text-ink-muted">Loading carried hours…</p>}
+            </section>
+          )}
           {locked && range && carryovers.data && (
             <CarriedHours items={carryovers.data.items} truncated={carryovers.data.truncated} range={range} recordsHref={PAYROLL_RECORDS_PATH} />
           )}

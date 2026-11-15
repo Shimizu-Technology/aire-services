@@ -13,7 +13,7 @@ import { isLockedState } from '../../lib/payrollTerms'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import type { PeriodWaiting } from './payPeriodModel'
 
-const REFRESH_MS = 60_000
+export const REFRESH_MS = 60_000
 // The preview and the overtime projection are heavy server work, so they
 // refresh every 5 minutes (and on focus) instead of every minute.
 export const SLOW_REFRESH_MS = 5 * 60_000
@@ -133,6 +133,8 @@ export interface PayPeriodData {
   carryovers: PeriodBlock<PayrollCarryoverQueue>
   /** The server's clock, so a wrong device clock doesn't change the countdown. */
   now: Date
+  /** Device clock, matching loadedAt timestamps for freshness checks. */
+  deviceNow: Date
   refresh: () => Promise<void>
 }
 
@@ -224,5 +226,5 @@ export function usePayPeriodData(requestedStart: string | null): PayPeriodData {
   }, [])
   const now = useMemo(() => new Date(clock + offset), [clock, offset])
 
-  return { periods, show, range, isCurrent, attention, cutoff, connection, waiting, preview, batch, carryovers, now, refresh }
+  return { periods, show, range, isCurrent, attention, cutoff, connection, waiting, preview, batch, carryovers, now, deviceNow: new Date(clock), refresh }
 }

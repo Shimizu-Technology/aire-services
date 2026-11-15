@@ -44,9 +44,24 @@ describe('Before it locks', () => {
       ['approvals', 'todo', '31 shifts waiting for approval', '276.1h', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['open_clocks', 'todo', '1 person still clocked in from an earlier day', caleb.full_name, '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
       ['overtime', 'todo', '6h overtime waiting', ethan.full_name, '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
-      ['missing_category', 'todo', '2 shifts have no work category', null, '/admin/timecards?entry_id=640'],
+      ['missing_category', 'todo', '3 shifts have no work category', null, '/admin/timecards?entry_id=640'],
       ['late_hours', 'info', '1 shift approved after the Oct 16–31 lock goes into this payroll', '8.9h', null],
     ])
+  })
+
+  it('deduplicates category shifts repeated in the preview and Today', () => {
+    const items = attention().items.map(item => item.type === 'missing_category' ? { ...item, entry_ids: [640, 902] } : item)
+    const entries = byKey(checklistEntries(input({ attention: attention({ items }), preview: uncategorizedCarryIn() })))
+    expect(entries.missing_category.text).toBe('2 shifts have no work category')
+  })
+
+  it('reports full counts separately when Today only supplies a sample of category shifts', () => {
+    const items = attention().items.map(item => item.type === 'missing_category' ? { ...item, count: 25 } : item)
+    const entries = byKey(checklistEntries(input({ attention: attention({ items }), preview: uncategorizedCarryIn() })))
+    expect(entries.missing_category).toMatchObject({
+      text: '25 finished shifts have no work category',
+      meta: '1 approved shift in payroll also needs a category. These groups may overlap.',
+    })
   })
 
   it('reads all clear when nothing is waiting', () => {
@@ -78,7 +93,7 @@ describe('Before it locks', () => {
   })
 
   // Re-check 1: Today's list refreshes every minute; the preview every five.
-  it("takes the larger category count, so a shift Today just flagged shows before the next preview", () => {
+  it("combines distinct category shifts, so a shift Today just flagged shows before the next preview", () => {
     const entries = byKey(checklistEntries(input({ preview: preview() })))
     expect(entries.missing_category).toMatchObject({ status: 'todo', text: '2 shifts have no work category', action: { to: '/admin/timecards?entry_id=901' } })
   })

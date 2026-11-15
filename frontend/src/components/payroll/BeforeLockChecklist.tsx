@@ -17,7 +17,7 @@ export interface ChecklistSource {
 export interface BeforeLockChecklistProps extends ChecklistInput {
   /** Every source the checklist needs. Readiness is claimed only when all of them just loaded. */
   sources: ChecklistSource[]
-  /** The page's clock, for the age of each source. */
+  /** The device clock, matching loadedAt, for the age of each source. */
   now: Date
   onRetry: () => void
 }

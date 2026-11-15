@@ -7,6 +7,7 @@ import { NOW, allItems, attention, connection, cutoff, lockControl } from '../..
 import { carried, lockedBatch, paidPeriod, periodSummary, periodsIndex, preview } from '../../test/fixtures/payPeriod'
 import type { PayrollPeriodSummary } from '../../lib/api/payrollPeriod'
 import PayrollRuns from './PayrollRuns'
+import PayrollRecords from '../../components/payroll/PayrollRecords'
 
 const mocks = vi.hoisted(() => ({
   periods: vi.fn(),
@@ -52,6 +53,7 @@ async function open(path = '/admin/payroll') {
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/admin/payroll" element={<PayrollRuns />} />
+        <Route path="/admin/payroll/records" element={<PayrollRecords />} />
         <Route path="/admin/payroll/periods/:start" element={<PayrollRuns />} />
         <Route path="*" element={<p>Somewhere else</p>} />
       </Routes>
@@ -150,7 +152,7 @@ describe('pay period page: open period', () => {
       ['Review: Time waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['Fix: 1 person still clocked in from an earlier day', '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
       ['Review: Overtime waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
-      ['Fix: 2 shifts have no work category', '/admin/timecards?entry_id=640'],
+      ['Fix: 3 shifts have no work category', '/admin/timecards?entry_id=640'],
     ])
     expect(checklist().getByText('Note:').closest('li')).toHaveTextContent('1 shift approved after an earlier lock goes into this payroll')
     expect(screen.getByRole('heading', { name: /Before it locks · 4 things to do/ })).toBeInTheDocument()
@@ -257,6 +259,26 @@ describe('pay period page: open period', () => {
     await settle(7 * 60_000)
     expect(screen.queryByText(/things to do|all clear/)).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: /Before it locks/ })).getByRole('status')).toHaveTextContent('Some lines were last updated 7:41 PM. It may not be ready to lock.')
+  })
+
+  it.each([-12, 12])('ages sources on the device clock with a %sh server offset', async (hours) => {
+    mocks.getPayrollCutoff.mockImplementation(async () => ({ data: cutoff(lockControl(), new Date(Date.now() + hours * 3_600_000).toISOString()) }))
+    await open()
+    expect(checklist().queryByRole('status')).not.toBeInTheDocument()
+    mocks.previewPayrollBatch.mockReturnValue(new Promise(() => undefined))
+    await settle(7 * 60_000)
+    expect(checklist().getByRole('status')).toHaveTextContent('Some lines were last updated')
+    expect(screen.queryByText(/things to do|all clear/)).not.toBeInTheDocument()
+  })
+
+  it('qualifies the checklist when only the attention refresh hangs', async () => {
+    mocks.getPayrollCutoff.mockImplementation(async () => ({ data: cutoff(lockControl(), new Date().toISOString()) }))
+    await open()
+    mocks.attention.mockReturnValue(new Promise(() => undefined))
+    await settle(150_000)
+    expect(checklist().getByRole('status')).toHaveTextContent('Some lines were last updated')
+    expect(screen.queryByText(/things to do|all clear/)).not.toBeInTheDocument()
+    expect(mocks.previewPayrollBatch).toHaveBeenCalledTimes(1)
   })
 
   // Re-check 5: a pending overtime flag with no projected overtime holds nothing back.
@@ -431,11 +453,18 @@ describe('pay period page: past periods and other states', () => {
     await settle()
     expect(screen.getByRole('heading', { name: 'Payroll records' })).toBeInTheDocument()
     expect(mocks.getPayrollBatch).toHaveBeenCalledWith('AIRE-PAY-20261031-OCT')
+    expect(screen.getByTestId('location')).toHaveTextContent('/admin/payroll/records?batch_id=AIRE-PAY-20261031-OCT&entry_id=601')
   })
 
   it('opens the records page for a range that is not a pay period', async () => {
     await open('/admin/payroll?start_date=2026-11-03&end_date=2026-11-09')
     expect(screen.getByRole('heading', { name: 'Payroll records' })).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/admin/payroll/records?start_date=2026-11-03&end_date=2026-11-09')
+    fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-11-01' } })
+    fireEvent.change(screen.getByLabelText('Period end'), { target: { value: '2026-11-15' } })
+    await settle()
+    expect(screen.getByRole('heading', { name: 'Payroll records' })).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/admin/payroll/records?start_date=2026-11-01&end_date=2026-11-15')
   })
 
   it('explains when Cornerstone Payroll has not published a period, with the manual tools under More', async () => {
@@ -486,8 +515,35 @@ describe('pay period page: past periods and other states', () => {
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Payroll connection paused')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
-    expect(screen.queryByRole('menuitem', { name: /Record payroll/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Record manual payroll/ })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'All payroll records' })).toBeInTheDocument()
+  })
+
+  it.each([true, false])('holds actions when only the connection reports paused (published: %s)', async (published) => {
+    if (!published) publish()
+    mocks.connection.mockResolvedValue({ data: connection({ state: 'paused', mode: 'paused', enabled: false }) })
+    await open()
+    expect(screen.getByRole('alert')).toHaveTextContent('Payroll connection paused.')
+    expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change lock time' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
+    expect(screen.queryByRole('menuitem', { name: /Record manual payroll/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Finalize without/ })).not.toBeInTheDocument()
+  })
+
+  it('shows initial carried-hours loading and retries a failure', async () => {
+    let finish: (value: { error: string }) => void = () => undefined
+    mocks.getPayrollCarryovers.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    await open('/admin/payroll/periods/2026-10-16')
+    expect(within(screen.getByRole('region', { name: 'Carried hours' })).getByRole('status')).toHaveTextContent('Loading carried hours…')
+    await act(async () => { finish({ error: 'Synthetic carried-hours failure' }) })
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load carried hours.")
+    expect(screen.getByRole('alert')).toHaveTextContent('Synthetic carried-hours failure')
+    mocks.getPayrollCarryovers.mockResolvedValue({ data: { items: [carried()], truncated: false } })
+    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Try again' }))
+    await settle()
+    expect(screen.queryByText("Couldn't load carried hours.")).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /Hours carried to a later period/ })).toHaveTextContent('Jun Santos')
   })
 
   it('shows a period from before locking without a checklist or a preview', async () => {

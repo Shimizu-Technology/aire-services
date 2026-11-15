@@ -138,8 +138,8 @@ const timecardHref = (entryId: string, query: Record<string, string> = {}) =>
  * - Unpublished waiting: qualified whole-shift pending-queue fallback.
  * - Earlier-day clocks: Today's attention list for the current period, else
  *   the preview's open clocks from before today.
- * - Work categories: the larger of the preview's blocking count (what stops
- *   the lock, carried-in work included) and Today's (refreshed every minute).
+ * - Work categories: distinct shifts from the preview (carried-in included)
+ *   and Today's list (refreshed every minute).
  */
 export function checklistEntries({ range, today, attention, preview, waiting, previousStart, period }: ChecklistInput): ChecklistEntry[] {
   const forThisPeriod = attention?.period?.start_date === range.start ? attention : null
@@ -172,15 +172,27 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
   })
   else if (!period && waiting) items.push(overtimeItem(range, waiting.overtime.count, waiting.overtime.hours, waiting.overtime.people))
 
-  // The preview counts approved work going to payroll (carried-in included);
-  // Today's list counts this period's finished shifts and refreshes every
-  // minute. The current period takes the larger, so a shift that loses its
-  // category shows up before the next preview.
+  // Count each source shift once, including carried-in work absent from Today.
   const missing = forThisPeriod?.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
   if (preview || forThisPeriod) {
-    const count = Math.max(preview?.issues.missing_category_count ?? 0, missing?.count ?? 0)
+    const previewIds = new Set(preview?.employees.flatMap(employee => employee.adjustments)
+      .filter(line => !line.category && line.source_kind !== 'correction' && line.total_hours > 0)
+      .map(line => String(line.source_time_entry_id)) ?? [])
+    const previewCount = preview?.issues.missing_category_count ?? 0
     const entryId = blockingEntryId(preview, missing?.entry_ids)
-    items.push(missingCategoryItem(count, entryId ? timecardHref(entryId) : missingCategoryHref(undefined), forThisPeriod ? 'finished' : 'approved'))
+    const to = entryId ? timecardHref(entryId) : missingCategoryHref(undefined)
+    // Today samples at most 20 IDs. If either source cannot identify every
+    // shift, report its full count separately rather than guess the overlap.
+    if (missing && (missing.count > missing.entry_ids.length || previewCount > previewIds.size)) {
+      items.push({
+        ...missingCategoryItem(missing.count, to, 'finished'),
+        text: `${plural(missing.count, 'finished shift')} ${missing.count === 1 ? 'has' : 'have'} no work category`,
+        ...(previewCount > 0 ? { meta: `${plural(previewCount, 'approved shift')} in payroll also ${previewCount === 1 ? 'needs' : 'need'} a category. These groups may overlap.` } : {}),
+      })
+    } else {
+      const count = missing ? new Set([...previewIds, ...missing.entry_ids.map(String)]).size : Math.max(previewCount, previewIds.size)
+      items.push(missingCategoryItem(count, to, forThisPeriod ? 'finished' : 'approved'))
+    }
   }
 
   if (preview) items.push(lateHoursItem(preview, previousStart))

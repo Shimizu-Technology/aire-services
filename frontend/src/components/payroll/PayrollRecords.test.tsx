@@ -1052,11 +1052,11 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
 
     expect(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
-    resolveInitialHistory({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [], total_count: 0, truncated: false } })
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
+    await act(async () => {
+      resolveInitialHistory({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [], total_count: 0, truncated: false } })
+      await initialHistory
     })
+    expect(screen.getByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
   })
 
   it('ignores an older carryover response that finishes after finalization refreshes it', async () => {
@@ -1346,23 +1346,22 @@ describe('PayrollRuns', () => {
    expect(employeeUrl.searchParams.get('start_date')).toBe('2026-05-04')
  })
 
-})
+  it('keeps paid positive lines and a committed accounting correction distinct on the batch ledger', async () => {
+    const context = { accounting_only: true, correction_disposition_id: '9', original_pay_period_id: '10', original_payroll_item_id: '11', corrective_pay_period_id: '44', corrective_payroll_item_id: '55' }
+    const accountingBatch = { ...finalized, processing: { status: 'partially_paid' as const, occurred_at: '2026-09-01T08:00:00Z', external_system: 'cornerstone_payroll', external_pay_period_id: null,
+      paid_hours: 8, outstanding_hours: 0, accounting_only: false, accounting_correction_line_count: 1, accounting_correction_hours: -1,
+      lines: [{ source_time_entry_id: '51', source_line_key: 'negative', source_kind: 'correction', total_hours: -1, regular_hours: -1, overtime_hours: 0, status: 'committed', accounting_only: true, accounting_correction: context, external_pay_period_id: '44', external_payroll_item_id: '55' }],
+    } }
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [accountingBatch], total_count: 1, truncated: false } })
+    apiMock.getPayrollBatch.mockResolvedValue({ data: accountingBatch })
+    renderPayrollRuns()
+    const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123.*accounting correction recorded/i })
+    expect(screen.getByText(/8.00 hrs paid · 0.00 hrs cash outstanding · -1.00 hrs accounting correction/)).toBeInTheDocument()
+    fireEvent.click(batchButton)
+    expect(await screen.findByText(/Accounting correction committed · entry 51/)).toBeInTheDocument()
+    expect(screen.getByText(/Corrective payroll period 44 · item 55 · disposition 9/)).toBeInTheDocument()
+    expect(screen.getByText(/No new payment or recovery recorded/)).toBeInTheDocument()
+    expect(screen.queryByText(/^Paid$/)).not.toBeInTheDocument()
+  })
 
-
-it('keeps paid positive lines and a committed accounting correction distinct on the batch ledger', async () => {
-  const context = { accounting_only: true, correction_disposition_id: '9', original_pay_period_id: '10', original_payroll_item_id: '11', corrective_pay_period_id: '44', corrective_payroll_item_id: '55' }
-  const accountingBatch = { ...finalized, processing: { status: 'partially_paid' as const, occurred_at: '2026-09-01T08:00:00Z', external_system: 'cornerstone_payroll', external_pay_period_id: null,
-    paid_hours: 8, outstanding_hours: 0, accounting_only: false, accounting_correction_line_count: 1, accounting_correction_hours: -1,
-    lines: [{ source_time_entry_id: '51', source_line_key: 'negative', source_kind: 'correction', total_hours: -1, regular_hours: -1, overtime_hours: 0, status: 'committed', accounting_only: true, accounting_correction: context, external_pay_period_id: '44', external_payroll_item_id: '55' }],
-  } }
-  apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [accountingBatch], total_count: 1, truncated: false } })
-  apiMock.getPayrollBatch.mockResolvedValue({ data: accountingBatch })
-  renderPayrollRuns()
-  const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123.*accounting correction recorded/i })
-  expect(screen.getByText(/8.00 hrs paid · 0.00 hrs cash outstanding · -1.00 hrs accounting correction/)).toBeInTheDocument()
-  fireEvent.click(batchButton)
-  expect(await screen.findByText(/Accounting correction committed · entry 51/)).toBeInTheDocument()
-  expect(screen.getByText(/Corrective payroll period 44 · item 55 · disposition 9/)).toBeInTheDocument()
-  expect(screen.getByText(/No new payment or recovery recorded/)).toBeInTheDocument()
-  expect(screen.queryByText(/^Paid$/)).not.toBeInTheDocument()
 })
