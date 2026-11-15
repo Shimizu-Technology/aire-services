@@ -35,7 +35,7 @@ describe('period evidence', () => {
   it('shows totals in plain words, each shift and the frozen lines', async () => {
     renderEvidence(PERIOD)
     expect(screen.getByText('Paid (confirmed by Payroll)')).toBeInTheDocument()
-    expect(screen.getByText('In a payroll run, not paid yet')).toBeInTheDocument()
+    expect(screen.getByText('In payroll, not paid yet')).toBeInTheDocument()
     expect(screen.getByText('Not matched to a paycheck yet')).toBeInTheDocument()
     expect(screen.queryByText('Issued source coverage')).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: /2026-09-08/ }))

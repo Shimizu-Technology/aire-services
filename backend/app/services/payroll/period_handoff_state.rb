@@ -10,17 +10,17 @@ module Payroll
   class PeriodHandoffState
     STATES = %w[open locked received in_run paid before_locking].freeze
     STEPS = %w[open locked received in_run paid].freeze
-    # The glossary draft (DESIGN.md §5). Chels hasn't confirmed these yet.
+    # Plain glossary words decided by Leon.
     LABELS = {
       "open" => "Open",
       "locked" => "Locked for payroll",
       "received" => "Received by Payroll",
-      "in_run" => "In a payroll run",
+      "in_run" => "In payroll",
       "paid" => "Paid",
       "before_locking" => "Before locking"
     }.freeze
-    LABELS_PROVISIONAL = true
-    LABEL_NOTE = "Plain labels from the glossary draft, pending Chels's confirmation."
+    LABELS_PROVISIONAL = false
+    LABEL_NOTE = "Plain payroll labels decided by Leon."
     # Batch processing status (Batch#processing_summary) to hand-off step.
     # Payment problems stay "in a payroll run"; payroll_status says which.
     RECEIVED_STATUSES = %w[imported].freeze

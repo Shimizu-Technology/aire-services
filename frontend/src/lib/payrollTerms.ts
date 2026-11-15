@@ -1,12 +1,7 @@
-// The plain payroll words from the glossary draft (DESIGN.md §5). Chels hasn't
-// confirmed them yet, so every payroll label lives here and changes in one
-// line. The backend holds the same words in PeriodHandoffState::LABELS (pay
-// period states) and EntryLifecycleResolver::LABELS (shift lifecycle);
-// payrollTerms.test.ts and payroll_glossary_spec.rb fail if the two disagree.
-export const PAYROLL_TERMS_PROVISIONAL = true
-
-/** The glossary words Chels still has to confirm (DESIGN.md §5 questions). */
-export const UNCONFIRMED_TERMS = ['In a payroll run', 'Received by Payroll', 'On hold', 'Payroll done outside the connection'] as const
+// Plain payroll words decided by Leon. Backend labels and glossary snapshots
+// keep the frontend and API wording in sync.
+export const PAYROLL_TERMS_PROVISIONAL = false
+export const UNCONFIRMED_TERMS: readonly string[] = []
 
 /** Where a published pay period is in the hand-off to Cornerstone Payroll. */
 export type HandoffState = 'open' | 'locked' | 'received' | 'in_run' | 'paid' | 'before_locking'
@@ -15,7 +10,7 @@ export const HANDOFF_STATE_LABELS: Record<HandoffState, string> = {
   open: 'Open',
   locked: 'Locked for payroll',
   received: 'Received by Payroll',
-  in_run: 'In a payroll run',
+  in_run: 'In payroll',
   paid: 'Paid',
   before_locking: 'Before locking',
 }
@@ -49,8 +44,8 @@ export const PERSON_TOTAL_LABELS: Record<PersonTotal, string> = {
   overtimeWaiting: 'Overtime waiting',
   denied: "Denied, won't be paid",
   paid: 'Paid (confirmed by Payroll)',
-  inRun: 'In a payroll run, not paid yet',
-  sent: 'Sent to Payroll, not in a run yet',
+  inRun: 'In payroll, not paid yet',
+  sent: 'Sent to Payroll, not in payroll yet',
   onHold: 'On hold',
   notMatched: 'Not matched to a paycheck yet',
   correction: 'Correction to an earlier payroll',
@@ -97,7 +92,7 @@ export const LIFECYCLE_LABELS: Record<LifecycleStatus, string> = {
   ready_for_cutoff: 'Approved, not locked yet',
   finalized: 'Locked for payroll',
   imported: 'Received by Payroll',
-  committed: 'In a payroll run',
+  committed: 'In payroll',
   payment_prepared: 'Check prepared',
   payment_issued: 'Paid',
   payment_failed: 'Payment problem',
@@ -116,16 +111,16 @@ export const LIFECYCLE_HELP: Record<LifecycleStatus, string> = {
   ready_for_cutoff: 'Approved. It goes to payroll at the next lock.',
   finalized: 'AIRE froze it at the lock and is sending it to Cornerstone Payroll.',
   imported: 'Cornerstone Payroll has it.',
-  committed: "Part of a payroll run in Cornerstone Payroll, not paid yet.",
+  committed: "In Cornerstone Payroll, not paid yet.",
   payment_prepared: 'The check or deposit is prepared but not issued.',
   payment_issued: 'Paid.',
   payment_failed: 'Payroll reported a problem paying this. Follow up in Cornerstone Payroll.',
-  payment_cancelled: 'The payment was cancelled. The hours are still in the payroll run.',
+  payment_cancelled: 'The payment was cancelled. The hours are still in payroll.',
   payment_voided: 'The payment was voided in Payroll.',
   partially_paid: "Some hours of this shift are paid, the rest aren't yet.",
   partially_prepared: 'Some hours of this shift have a check prepared, the rest are still in payroll.',
   partially_processed: 'Some hours of this shift are at a different payroll step than the rest.',
-  partially_allocated: 'Some hours of this shift are already in a payroll run, the rest are not.',
+  partially_allocated: 'Some hours of this shift are already in payroll, the rest are not.',
   payment_attested_pending_evidence: "An owner said it was paid (for example, a manual check). The check details aren't recorded yet.",
 }
 
@@ -143,8 +138,8 @@ export const PAYROLL_WORDS = {
   carriedHoursHelp: 'Hours approved after a lock. They go into the next payroll.',
   lateHours: 'Late hours (added to the next payroll)',
   lock: 'Lock',
-  manualPayroll: 'Payroll done outside the connection',
-  manualPayrollHelp: 'A payroll run without the AIRE connection, recorded so the hours count as paid.',
+  manualPayroll: 'Manual payroll',
+  manualPayrollHelp: 'Payroll handled without the AIRE connection, recorded so the hours count as paid.',
   paymentFollowUp: 'Payment follow-up',
   closedWithoutPay: 'Closed without pay',
 } as const

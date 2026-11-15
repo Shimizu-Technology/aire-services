@@ -456,7 +456,7 @@ describe('PayrollRuns', () => {
     ['ready_for_next_batch', 'Late hours (added to the next payroll)'],
     ['scheduled_supplemental', 'Scheduled for supplemental payroll'],
     ['payment_issued', 'Paid'],
-    ['committed', 'In a payroll run'],
+    ['committed', 'In payroll'],
     ['partially_allocated', 'Partly in payroll'],
     ['partially_paid', 'Partly paid'],
     ['payment_attested_pending_evidence', 'Paid outside payroll, details pending'],
@@ -868,7 +868,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
     await screen.findByText(/Finalization is blocked/)
     fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
-    await screen.findByRole('heading', { name: 'Record payroll done outside the connection' })
+    await screen.findByRole('heading', { name: 'Record manual payroll' })
 
     fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
     fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })

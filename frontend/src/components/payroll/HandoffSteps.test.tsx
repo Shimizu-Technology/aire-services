@@ -25,7 +25,7 @@ describe('HandoffSteps', () => {
     ['open', 'Open', ['now', 'next', 'next', 'next', 'next']],
     ['locked', 'Locked for payroll', ['done', 'now', 'next', 'next', 'next']],
     ['received', 'Received by Payroll', ['done', 'done', 'now', 'next', 'next']],
-    ['in_run', 'In a payroll run', ['done', 'done', 'done', 'now', 'next']],
+    ['in_run', 'In payroll', ['done', 'done', 'done', 'now', 'next']],
   ])('marks %s as the current step', (state, current, expected) => {
     const list = renderSteps({ handoff_state: state, status: state === 'open' ? 'scheduled' : 'finalized' })
     expect(list.getByText(current).closest('li')).toHaveAttribute('aria-current', 'step')

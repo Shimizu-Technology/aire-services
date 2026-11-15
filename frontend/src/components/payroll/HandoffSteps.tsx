@@ -12,7 +12,7 @@ export interface HandoffStepsProps {
   period: Pick<PayrollPeriodSummary, 'handoff_state' | 'status' | 'delivery' | 'payroll_status'>
 }
 
-/** Open → Locked → Received by Payroll → In a payroll run → Paid. */
+/** Open → Locked → Received by Payroll → In payroll → Paid. */
 export function HandoffSteps({ period }: HandoffStepsProps) {
   const state = period.handoff_state
   const problem = period.payroll_status && PAYMENT_PROBLEMS.has(period.payroll_status.status) ? period.payroll_status.status as LifecycleStatus : null

@@ -2,8 +2,7 @@
 
 module Payroll
   class EntryLifecycleResolver
-    # The plain words from the glossary draft (DESIGN.md §5), pending Chels's
-    # confirmation. frontend/src/lib/payrollTerms.ts LIFECYCLE_LABELS holds the
+    # Plain words decided by Leon. frontend/src/lib/payrollTerms.ts holds the
     # same words; spec/services/payroll/payroll_glossary_spec.rb checks they match.
     LABELS = {
       "awaiting_approval" => "Waiting for approval",
@@ -11,7 +10,7 @@ module Payroll
       "ready_for_cutoff" => "Approved, not locked yet",
       "finalized" => "Locked for payroll",
       "imported" => "Received by Payroll",
-      "committed" => "In a payroll run",
+      "committed" => "In payroll",
       "payment_prepared" => "Check prepared",
       "payment_issued" => "Paid",
       "payment_failed" => "Payment problem",
@@ -24,7 +23,7 @@ module Payroll
       "payment_attested_pending_evidence" => "Paid outside payroll, details pending"
     }.freeze
     # Payroll run without the AIRE connection and recorded here (PayrollManualAllocation).
-    MANUAL_PAYROLL_LABEL = "Payroll done outside the connection"
+    MANUAL_PAYROLL_LABEL = "Manual payroll"
 
     def initialize(entries:, overtime_context_entries: nil, overtime_allocations: nil, weekly_overtime_reviews: nil)
       @entries = Array(entries).uniq(&:id)

@@ -46,7 +46,7 @@ describe('payroll glossary', () => {
     expect(LIFECYCLE_LABELS).toMatchInlineSnapshot(`
       {
         "awaiting_approval": "Waiting for approval",
-        "committed": "In a payroll run",
+        "committed": "In payroll",
         "finalized": "Locked for payroll",
         "imported": "Received by Payroll",
         "not_payable": "Denied, won't be paid",
@@ -76,13 +76,12 @@ describe('payroll glossary', () => {
     expect(labels.filter(label => /cutoff|eligible|imported|committed|evidence|reconciliation|carryover|Partially/i.test(label))).toEqual([])
   })
 
-  it('lists the words Chels still has to confirm, each in use', () => {
-    const used = [...Object.values(LIFECYCLE_LABELS), ...Object.values(HANDOFF_STATE_LABELS), ...Object.values(PERSON_TOTAL_LABELS), ...Object.values(PAYROLL_WORDS)]
-    for (const term of UNCONFIRMED_TERMS) expect(used.some(label => label.includes(term))).toBe(true)
+  it('has no undecided glossary words', () => {
+    expect(UNCONFIRMED_TERMS).toEqual([])
   })
 
   it.each<[{ status: string; label?: string }, string]>([
-    [{ status: 'committed', label: 'Payroll committed' }, 'In a payroll run'],
+    [{ status: 'committed', label: 'Payroll committed' }, 'In payroll'],
     [{ status: 'payment_attested_pending_evidence', label: 'Payment reported; check evidence pending' }, 'Paid outside payroll, details pending'],
     [{ status: 'brand_new_status', label: 'Something newer' }, 'Something newer'],
     [{ status: 'brand_new_status' }, 'brand_new_status'],
@@ -101,7 +100,7 @@ describe('payroll terms', () => {
     expect(HANDOFF_STATE_LABELS).toMatchInlineSnapshot(`
       {
         "before_locking": "Before locking",
-        "in_run": "In a payroll run",
+        "in_run": "In payroll",
         "locked": "Locked for payroll",
         "open": "Open",
         "paid": "Paid",
