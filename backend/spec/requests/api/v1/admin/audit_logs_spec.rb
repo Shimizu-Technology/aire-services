@@ -79,13 +79,24 @@ RSpec.describe "Api::V1::Admin::AuditLogs", type: :request do
   it "lets managers read only an editable shift history, never the global log or export" do
     manager = create(:user, :manager)
     shift = create(:time_entry, user: employee)
-    event = AuditLog.record!(action: "time_entry.updated", auditable: shift, actor: admin)
+    Current.request_id = "private-request"
+    Current.ip_address = "192.0.2.1"
+    Current.user_agent = "private-browser"
+    event = AuditLog.record!(action: "time_entry.updated", auditable: shift, actor: admin,
+      metadata: { employee_email: employee.email, nested: { actor_email: admin.email }, note: "Contact #{admin.email}" })
+    Current.reset
     filters = { subject_type: "TimeEntry", subject_id: shift.id }
     get "/api/v1/admin/audit_logs", params: filters, headers: auth_headers_for[manager]
     expect(response).to have_http_status(:ok)
     expect(json[:audit_logs].map { |row| row[:id] }).to eq([ event.id ])
+    row = json[:audit_logs].first
+    expect(row).not_to have_key(:request)
+    expect(row[:actor]).not_to have_key(:email)
+    expect(response.body).not_to include(admin.email, employee.email, "192.0.2.1", "private-browser", "private-request")
     get "/api/v1/admin/audit_logs/#{event.id}", params: filters, headers: auth_headers_for[manager]
     expect(response).to have_http_status(:ok)
+    expect(json).not_to have_key(:request)
+    expect(response.body).not_to include(admin.email, employee.email, "192.0.2.1", "private-browser", "private-request")
     get "/api/v1/admin/audit_logs", headers: auth_headers_for[manager]
     expect(response).to have_http_status(:forbidden)
     get "/api/v1/admin/audit_logs", params: { subject_type: "User", subject_id: employee.id }, headers: auth_headers_for[manager]

@@ -504,11 +504,17 @@ describe('Timecards on a desktop', () => {
     expect(row).not.toHaveTextContent(/approved/i)
   })
 
+  it('defaults a past period to its latest complete week, including a final Saturday', async () => {
+    openAt('/admin/timecards?view=everyone&period=2026-10-16')
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-10-25' })))
+    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Oct 25 – Oct 31, 2026')
+  })
+
   it('starts Everyone inside the selected period on its final Sunday', async () => {
     vi.setSystemTime(new Date('2026-11-15T12:00:00+10:00'))
     openAt('/admin/timecards?view=everyone&period=2026-11-01')
-    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-01' })))
-    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Nov 1 – Nov 7, 2026')
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-08' })))
+    expect(await screen.findByRole('region', { name: "Everyone's week" })).toHaveTextContent('Nov 8 – Nov 14, 2026')
   })
 
   it('shows the people beside the timecard, and Everyone shows the week grid', async () => {

@@ -10,7 +10,7 @@ module Reports
       open_clock_count: "open clock"
     }.freeze
 
-    APPROVAL_FACTS_NOTE = "Approved and waiting hours are period facts and ignore status filters; worked hours include all completed time in the selected staff/date scope."
+    APPROVAL_FACTS_NOTE = "Approved, waiting and worked hours ignore approval-status filters. Employee, date, category, source and entry-method filters apply. Worked hours count completed time that counts toward hours or is still waiting; denied time is excluded."
 
     def self.filtered_status?(report)
       filters = (report[:filters] || {}).symbolize_keys

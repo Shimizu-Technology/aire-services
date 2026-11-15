@@ -13,7 +13,7 @@ class AttentionQuery
   # Keep in step with TimeEntriesController#pending_approval_entries_scope;
   # spec/requests/api/v1/attention_spec.rb fails if the counts drift apart.
   def self.waiting_scope
-    TimeEntry.where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
+    TimeEntry.where("(time_entries.approval_status = ? OR time_entries.overtime_status = ?) AND (time_entries.approval_status IS NULL OR time_entries.approval_status <> ?)", "pending", "pending", "denied")
   end
 
   def self.call(viewer:, now: Time.current)
@@ -31,7 +31,7 @@ class AttentionQuery
     period = Payroll::PeriodHandoffState.current_period_summary(today: today, now: now)
     items = [
       *open_clock_items,
-      approvals_item(approvals),
+      approvals_item(approvals, period),
       overtime_item,
       missing_category_item(period),
       *payroll_problem_items,
@@ -113,37 +113,44 @@ class AttentionQuery
   def approvals_summary
     return unless viewer.can_approve_time?
 
-    total_hours, count, oldest, pending_time, pending_overtime, manual, clock = self.class.waiting_scope.pick(
-      Arel.sql("COALESCE(SUM(time_entries.hours), 0)"),
-      Arel.sql("COUNT(time_entries.id)"),
-      Arel.sql("MIN(time_entries.work_date)"),
-      Arel.sql("SUM(CASE WHEN time_entries.approval_status = 'pending' THEN 1 ELSE 0 END)"),
-      Arel.sql("SUM(CASE WHEN time_entries.overtime_status = 'pending' THEN 1 ELSE 0 END)"),
-      Arel.sql("SUM(CASE WHEN time_entries.entry_method = 'manual' THEN 1 ELSE 0 END)"),
-      Arel.sql("SUM(CASE WHEN time_entries.entry_method = 'clock' THEN 1 ELSE 0 END)")
-    )
-    entries = self.class.waiting_scope.includes(:time_entry_breaks).to_a
-    calculator = Payroll::ApprovalHours.for_entries(entries)
-    hours = Payroll::ApprovalHours.sum(entries.map { |entry| calculator.for(entry) })
+    @waiting_entries = self.class.waiting_scope.includes(:time_entry_breaks).to_a
+    @waiting_calculator = Payroll::ApprovalHours.for_entries(@waiting_entries)
+    summarize_waiting(@waiting_entries)
+  end
+
+  def summarize_waiting(entries)
+    hours = Payroll::ApprovalHours.sum(entries.map { |entry| @waiting_calculator.for(entry) })
     {
-      count: count.to_i,
-      total_hours: total_hours.to_f.round(2),
+      count: entries.size,
+      total_hours: entries.sum { |entry| entry.hours.to_f }.round(2),
       time_waiting_hours: hours[:time_waiting_hours],
       overtime_waiting_hours: hours[:overtime_waiting_hours],
-      oldest_work_date: oldest&.iso8601,
+      oldest_work_date: entries.map(&:work_date).min&.iso8601,
       by_kind: {
-        time: pending_time.to_i,
-        overtime: pending_overtime.to_i,
-        added: manual.to_i,
-        clocked: clock.to_i
+        time: entries.count { |entry| entry.approval_status == "pending" },
+        overtime: entries.count { |entry| entry.overtime_status == "pending" },
+        added: entries.count(&:manual_entry?),
+        clocked: entries.count(&:clock_entry?)
       }
     }
   end
 
-  def approvals_item(approvals)
+  def approvals_item(approvals, period)
     return unless approvals && approvals[:count].positive?
 
-    { key: "approvals_waiting", type: "approvals_waiting", tone: "waiting" }.merge(approvals)
+    start_date = Date.iso8601(period[:start_date])
+    current = summarize_waiting(@waiting_entries.select { |entry| entry.work_date.between?(start_date, Date.iso8601(period[:end_date])) })
+    current.merge!(count: period[:waiting_count], time_waiting_hours: period[:time_waiting_hours],
+      overtime_waiting_hours: period[:overtime_waiting_hours])
+    earlier = @waiting_entries.select { |entry| entry.work_date < start_date }.group_by do |entry|
+      date = entry.work_date
+      [ date.change(day: date.day <= 15 ? 1 : 16), date.day <= 15 ? date.change(day: 15) : date.end_of_month ]
+    end.map do |(first, last), entries|
+      hours = summarize_waiting(entries)
+      { start_date: first.iso8601, end_date: last.iso8601,
+        hours: (hours[:time_waiting_hours] + hours[:overtime_waiting_hours]).round(2) }
+    end.select { |row| row[:hours].positive? }.sort_by { |row| row[:start_date] }
+    { key: "approvals_waiting", type: "approvals_waiting", tone: "waiting", earlier_periods: earlier }.merge(current)
   end
 
   # Counts, people and weeks come from one aggregate, so they stay exact and
@@ -155,7 +162,7 @@ class AttentionQuery
     return unless viewer.can_approve_time?
 
     week_start = "time_entries.work_date - EXTRACT(DOW FROM time_entries.work_date)::integer"
-    rows = TimeEntry.where(overtime_status: "pending").group(:user_id).pluck(
+    rows = self.class.waiting_scope.where(overtime_status: "pending").group(:user_id).pluck(
       :user_id, Arel.sql("COUNT(*)"), Arel.sql("MIN(time_entries.work_date)"),
       Arel.sql("ARRAY_AGG(DISTINCT (#{week_start}) ORDER BY (#{week_start}))")
     )

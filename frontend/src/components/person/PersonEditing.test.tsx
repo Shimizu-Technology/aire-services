@@ -232,6 +232,18 @@ describe('Employment', () => {
 })
 
 describe('End employment', () => {
+  it('uses singular consequences and safely blocks a five-digit year', async () => {
+    mocks.preview.mockResolvedValue({ data: { preview: { ...preview, open_pay_stub_links: 1, open_pay_stub_requests: 1, pending_leave_requests: 1, approved_leave_requests: 1 } } })
+    open(<EndEmploymentFlow user={person} onClose={vi.fn()} onEnded={onSaved} />)
+    await screen.findByText('1 open pay stub link revoked.')
+    expect(screen.getByText('1 open pay stub request closed.')).toBeInTheDocument()
+    expect(screen.getByText('1 pending leave request is cancelled, regardless of dates.')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Last day worked/), { target: { value: '10000-11-14' } })
+    expect(await screen.findByText(/starting after the last day worked/)).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type Ana Rivera to confirm' }), { target: { value: 'Ana Rivera' } })
+    expect(screen.getByRole('button', { name: 'End employment' })).toBeDisabled()
+  })
+
   it('requires the full name before submitting date and version', async () => {
     const close = vi.fn()
     open(<EndEmploymentFlow user={person} onClose={close} onEnded={onSaved} />)

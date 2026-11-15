@@ -26,6 +26,12 @@ function formatLabel(value: string) {
   return CATEGORY_LABELS[value] || value.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+function sourceLabel(event: AuditLogEntry) {
+  if (event.source === 'admin') return ''
+  if (event.details.clock_source === 'mobile' || event.source === 'phone') return 'Phone'
+  return formatLabel(event.source)
+}
+
 // Recorded field names people actually see in changes and context.
 const FIELD_LABELS: Record<string, string> = {
   time_category_id: 'Work category',
@@ -159,7 +165,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-slate-600">
             <dt className="text-slate-500">Actor</dt><dd>{event.actor.name || event.actor.email || formatLabel(event.actor.kind)}</dd>
             {event.actor.email && <><dt className="text-slate-500">Email</dt><dd className="break-all">{event.actor.email}</dd></>}
-            <dt className="text-slate-500">Source</dt><dd>{formatLabel(event.source)}</dd>
+            {sourceLabel(event) && <><dt className="text-slate-500">Source</dt><dd>{sourceLabel(event)}</dd></>}
             <dt className="text-slate-500">Outcome</dt><dd>{formatLabel(event.outcome)}</dd>
           </dl>
         </section>
@@ -211,8 +217,8 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <dl className="mt-3 space-y-2 text-xs text-slate-600">
             <div><dt className="inline text-slate-500">Event: </dt><dd className="inline font-mono">{event.action}</dd></div>
             <div><dt className="inline text-slate-500">Event ID: </dt><dd className="inline">{event.id}</dd></div>
-            {event.request.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request.id}</dd></div>}
-            {event.request.ip_address && <div><dt className="inline text-slate-500">IP address: </dt><dd className="inline">{event.request.ip_address}</dd></div>}
+            {event.request?.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request?.id}</dd></div>}
+            {event.request?.ip_address && <div><dt className="inline text-slate-500">IP address: </dt><dd className="inline">{event.request?.ip_address}</dd></div>}
             {hiddenIdRows.map(([field, value]) => <div key={field}><dt className="inline text-slate-500">{fieldLabel(field)}: </dt><dd className="inline">{valueText(value)}</dd></div>)}
           </dl>
         </details>
@@ -457,7 +463,7 @@ export default function ActivityHistory() {
               {events.map((event) => (
                 <button key={event.id} type="button" onClick={() => selectEvent(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
                   <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-500 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
-                  <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary} {event.outcome !== 'succeeded' && <span className="ml-2 rounded bg-red-100 px-2 py-1 text-sm font-semibold text-red-900">Not saved</span>}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type} · {event.source === 'admin' ? 'in AIRE Ops' : formatLabel(event.source)}</p></div>
+                  <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary} {event.outcome !== 'succeeded' && /\.(create|update|delete)$/.test(event.action) && <span className="ml-2 rounded bg-red-100 px-2 py-1 text-sm font-semibold text-red-900">Not saved</span>}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type}{sourceLabel(event) ? ` · ${sourceLabel(event)}` : ''}</p></div>
                   <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>
                 </button>
               ))}

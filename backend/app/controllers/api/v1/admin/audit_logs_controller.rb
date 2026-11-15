@@ -116,7 +116,7 @@ module Api
 
         def serialize(record)
           presenter = AuditLogPresenter.new(record)
-          {
+          payload = {
             id: record.id,
             action: record.action,
             event_category: record.event_category,
@@ -145,6 +145,21 @@ module Api
               correlation_id: record.correlation_id
             }
           }
+          current_user.can_view_activity? ? payload : private_history_payload(payload)
+        end
+
+        def private_history_payload(value)
+          case value
+          when Hash
+            value.except(:request).reject { |key, _| key.to_s.match?(/email|ip_address|user_agent|request|correlation_id/) }
+              .transform_values { |item| private_history_payload(item) }
+          when Array
+            value.map { |item| private_history_payload(item) }
+          when String
+            value.gsub(/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i, "[email hidden]")
+          else
+            value
+          end
         end
 
         def csv_for(scope)

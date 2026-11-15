@@ -208,7 +208,7 @@ export function approvalBadgeText(count: number) {
 }
 
 /** "Approvals, 12 waiting" for screen readers; the plain name otherwise. */
-export function navItemLabel(navItem: NavItem, approvalCount: number, badgeFirst = false) {
-  if (navItem.badge === 'approvals' && approvalCount > 0) return `${badgeFirst ? `${approvalBadgeText(approvalCount)} ${navItem.name}` : `${navItem.name} ${approvalBadgeText(approvalCount)}`}, ${approvalCount} waiting`
+export function navItemLabel(navItem: NavItem, approvalCount: number, tabBar = false) {
+  if (navItem.badge === 'approvals' && approvalCount > 0) return `${navItem.name}${tabBar ? '' : ` ${approvalBadgeText(approvalCount)}`}, ${approvalCount} waiting`
   return navItem.external ? `${navItem.name} (opens in a new tab)` : navItem.name
 }

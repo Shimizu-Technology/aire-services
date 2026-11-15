@@ -324,10 +324,13 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
+  const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
+  const problem = ['payment_failed', 'payment_cancelled', 'payment_voided', 'payment_attested_pending_evidence']
+    .map(status => entries.find(entry => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
+  if (problem) return problem
   if (employee.payroll_hours && (employee.payroll_hours.time_waiting_hours > 0 || employee.payroll_hours.overtime_waiting_hours > 0)) {
     return { status: 'awaiting_approval', label: 'Some time still waiting', settlements: [], payment_method: null, payment_reference: null }
   }
-  const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
   const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_cancelled', 'payment_voided', 'payment_attested_pending_evidence', 'partially_allocated', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
 
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
@@ -2131,6 +2134,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <ReportMetric label="Approved overtime" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_overtime_hours) : 'Unavailable'} />
             <ReportMetric label="Time waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.time_waiting_hours) : 'Unavailable'} />
             <ReportMetric label="Overtime waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.overtime_waiting_hours) : 'Unavailable'} tone="warning" />
+            <ReportMetric label="Worked hours (approved + waiting)" value={reportLoading ? '…' : reportSummary.worked_hours === undefined ? 'Unavailable' : formatHours(reportSummary.worked_hours)} />
             <ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} />
           </div>
           <p className="text-sm text-text-muted">Waiting hours are not included in payroll totals. Approval totals include all approval statuses; status filters narrow the worked-hour details below.</p>
@@ -2164,16 +2168,13 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
               {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (
-                <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition hover:bg-red-100">
+                <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className="mt-3 pointer-coarse:min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition hover:bg-red-100">
                   Show entries missing categories
                 </button>
               )}
             </div>
           )}
 
-          <details className="rounded-card border border-line bg-surface p-4">
-            <summary className="min-h-11 cursor-pointer font-semibold">More detail</summary>
-            <div className="mt-3 space-y-4">
           <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-primary-dark">Live hours, not a finalized payroll record</h2>
@@ -2188,6 +2189,10 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               Open the pay period
             </Link>}
           </section>
+          <details open={Boolean((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) + (reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0))} className="rounded-card border border-line bg-surface p-4">
+            <summary className="min-h-11 cursor-pointer font-semibold">More detail</summary>
+            <div className="mt-3 space-y-4">
+
           {hoursReport?.quality.status === 'needs_review' && (
             <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4" aria-labelledby="report-quality-heading">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2289,6 +2294,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       <span className="mt-0.5 block text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                   </span>
+                  <span className="mt-3 block text-xs text-text-muted">Worked hours (approved + waiting): {employee.worked_hours?.toFixed(2) ?? '—'}h</span>
                   <span className="mt-3 block text-xs text-amber-900">Time waiting for approval: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h · Overtime waiting for approval: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</span>
                   <span className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-text-muted">{employee.entries_count} {employee.entries_count === 1 ? 'entry' : 'entries'} · {formatHours(employee.break_hours)} break hours</span>
@@ -2880,7 +2886,7 @@ function DetailedEntriesTable({
                       </td>
                       {canManageTeamTime && (
                         <td className="px-4 py-3 text-right">
-                          {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button>}
+                          {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className="pointer-coarse:min-h-11 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button>}
                         </td>
                       )}
                     </tr>
@@ -2902,7 +2908,7 @@ function DetailedEntriesTable({
                           <EntryQualityFlags flags={entry.quality_flags} />
                         </td>
                         <td className="px-4 py-2 text-xs"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></td>
-                        {canManageTeamTime && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
+                        {canManageTeamTime && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="pointer-coarse:min-h-11 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
                       </tr>
                     ))}
                   </Fragment>

@@ -16,7 +16,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     from = zone.local(2026, 11, day, 7)
     create(:time_entry, user: worker, time_category: category, work_date: from.to_date,
       start_time: from, end_time: from + hours.hours, clock_in_at: from, clock_out_at: from + hours.hours,
-      hours: hours, status: "completed", entry_method: "clock", approval_status: approval)
+      hours: hours, status: "completed", entry_method: "clock", clock_source: "kiosk", approval_status: approval)
   end
 
   before do
@@ -54,7 +54,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     get "/api/v1/admin/hours_report/summary_csv", params: range.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     row = CSV.parse(response.body, headers: true).first
-    expect(row.to_h).to include("Approved regular hours" => "40.00", "Approved overtime hours" => "0.00", "Worked hours" => "48.50",
+    expect(row.to_h).to include("Approved regular hours" => "40.00", "Approved overtime hours" => "0.00", "Worked hours (approved + waiting)" => "45.50",
       "Approved for payroll" => "40.00", "Time waiting for approval" => "2.00",
       "Overtime waiting for approval — not included" => "3.50", "Report Status" => "Draft - needs review")
     capture = ReportExport.last
@@ -93,14 +93,18 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
   end
 
   it "labels filtered summaries and preserves filtered worked hours beside period approval facts" do
-    filters = range.merge(approval_status: "denied")
+    other = create(:time_category)
+    TimeEntry.where(user: worker).where.not(id: @overtime.id).update_all(time_category_id: other.id)
+    shift(11, 1).update!(clock_source: "mobile")
+    shift(12, 1).update!(entry_method: "manual", clock_in_at: nil, clock_out_at: nil)
+    filters = range.merge(time_category_id: category.id, clock_source: @overtime.clock_source, entry_method: "clock", approval_status: "denied")
     get "/api/v1/admin/hours_report/summary_csv", params: filters.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     csv = CSV.parse(response.body, headers: true)
     expect(csv.headers[4..6]).to eq([ "Approved regular hours", "Approved overtime hours", "Approved for payroll" ])
     expect(csv.headers.count("Approved for payroll")).to eq(1)
-    expect(csv.first.to_h).to include("Worked hours" => "48.50", "Approved for payroll" => "40.00",
-      "Time waiting for approval" => "2.00", "Overtime waiting for approval — not included" => "3.50")
+    expect(csv.first.to_h).to include("Worked hours (approved + waiting)" => "11.50", "Approved for payroll" => "8.00",
+      "Time waiting for approval" => "0.00", "Overtime waiting for approval — not included" => "3.50")
     expect(response.headers["Content-Disposition"]).to include("Filtered")
     get "/api/v1/admin/hours_report/pdf", params: filters.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)

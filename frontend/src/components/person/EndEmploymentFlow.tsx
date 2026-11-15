@@ -19,7 +19,7 @@ export function EndEmploymentFlow({ user, onClose, onEnded }: { user: AdminUser;
   const [retry, setRetry] = useState(0)
   const loaded = useLoadable(`${user.id}:${date}:${retry}`, async () => dataOrThrow(await peopleApi.terminationPreview(user.id, date), "Couldn't check this person's open work.").preview, "Couldn't check this person's open work.")
   const preview = loaded.status === 'ready' ? loaded.value : null
-  const blocked = !preview || preview.open_clock || !date || date > todayInGuam() || preview.admin_edit_version !== (user.admin_edit_version ?? 0)
+  const blocked = !preview || preview.open_clock || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(new Date(`${date}T12:00:00+10:00`).getTime()) || date > todayInGuam() || preview.admin_edit_version !== (user.admin_edit_version ?? 0)
   const end = async () => {
     if (blocked || saving || (phone && typed !== name)) return
     setSaving(true); setError('')
@@ -29,12 +29,14 @@ export function EndEmploymentFlow({ user, onClose, onEnded }: { user: AdminUser;
     onEnded(response.data.user)
     onClose()
   }
-  const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Pacific/Guam' }).format(new Date(`${date || todayInGuam()}T12:00:00+10:00`))
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00+10:00`) : new Date(NaN)
+  const validDate = Number.isFinite(parsedDate.getTime())
+  const dayLabel = validDate ? new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Pacific/Guam' }).format(parsedDate) : 'the last day worked'
   const consequences = preview ? [
-    { count: preview.open_pay_stub_links, text: `${preview.open_pay_stub_links} open pay stub links revoked.` },
-    { count: preview.open_pay_stub_requests, text: `${preview.open_pay_stub_requests} open pay stub requests closed.` },
-    { count: preview.pending_leave_requests, text: `${preview.pending_leave_requests} pending leave requests are cancelled, regardless of dates.` },
-    { count: preview.approved_leave_requests, text: `${preview.approved_leave_requests} approved leave requests starting after ${dayLabel} cancelled. Earlier approved leave stays unchanged.` },
+    { count: preview.open_pay_stub_links, text: `${preview.open_pay_stub_links} open pay stub link${preview.open_pay_stub_links === 1 ? '' : 's'} revoked.` },
+    { count: preview.open_pay_stub_requests, text: `${preview.open_pay_stub_requests} open pay stub request${preview.open_pay_stub_requests === 1 ? '' : 's'} closed.` },
+    { count: preview.pending_leave_requests, text: `${preview.pending_leave_requests} pending leave request${preview.pending_leave_requests === 1 ? ' is' : 's are'} cancelled, regardless of dates.` },
+    { count: preview.approved_leave_requests, text: `${preview.approved_leave_requests} approved leave request${preview.approved_leave_requests === 1 ? '' : 's'} starting after ${dayLabel} cancelled. Earlier approved leave stays unchanged.` },
   ] : []
   const details = <div className="space-y-4">
     <Field label="Last day worked" required><Input type="date" max={todayInGuam()} value={date} disabled={saving} onChange={e => setDate(e.target.value)} /></Field>

@@ -26,11 +26,16 @@ class ReportExport < ApplicationRecord
     entries = snapshot_entries(report, employee_ids: employee_ids)
     entry_ids = entries.map { |entry| entry.fetch("id").to_i }.uniq.sort
     checksum = Digest::SHA256.hexdigest(JSON.generate(entries))
-    protects_entries &&= report_ready?(report)
+    ready = if export_type == "payroll_time_summary"
+      report[:ready].nil? ? (report[:summary] || {})[:uncategorized_count].to_i.zero? : report[:ready]
+    else
+      report_ready?(report)
+    end
+    protects_entries &&= ready unless export_type == "payroll_time_summary"
     now = Time.current
     attributes = {
       export_type: export_type,
-      readiness_status: report_ready?(report) ? "complete" : "draft",
+      readiness_status: ready ? "complete" : "draft",
       start_date: report.fetch(:start_date),
       end_date: report.fetch(:end_date),
       generated_by: generated_by,

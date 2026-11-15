@@ -79,6 +79,19 @@ RSpec.describe "Attention", type: :request do
     end
   end
 
+  it "matches the current-period card and separates older waiting time without denied overtime" do
+    publish_november!
+    shift(employee, date: Date.new(2026, 11, 9), hours: 4, approval_status: "pending")
+    shift(employee, date: Date.new(2026, 10, 28), hours: 6, approval_status: "pending")
+    shift(employee, date: Date.new(2026, 11, 10), hours: 8, approval_status: "denied", overtime_status: "pending")
+    body = attention
+    row = body.fetch("items").find { |item| item["type"] == "approvals_waiting" }
+    expect(row).to include("count" => body.dig("period", "waiting_count"), "time_waiting_hours" => body.dig("period", "time_waiting_hours"))
+    expect(row.fetch("earlier_periods")).to eq([ { "start_date" => "2026-10-16", "end_date" => "2026-10-31", "hours" => 6.0 } ])
+    expect(body.dig("approvals", "count")).to eq(2)
+    expect(body.fetch("items").none? { |item| item["type"] == "overtime_waiting" }).to be(true)
+  end
+
   it "counts each waiting source shift once while showing only its live waiting time and overtime" do
     pending = shift(employee, date: Date.new(2026, 11, 9), hours: 4, approval_status: "pending", overtime_status: "pending")
     approved = shift(caleb, date: Date.new(2026, 11, 9), hours: 8, overtime_status: "pending")
@@ -184,7 +197,7 @@ RSpec.describe "Attention", type: :request do
       shift(group_member, date: Date.new(2026, 11, 4), overtime_status: "pending")
       shift(group_member, date: Date.new(2026, 11, 5), approval_status: "pending", entry_method: "manual", clock_in_at: nil, clock_out_at: nil)
       shift(caleb, date: Date.new(2026, 10, 28), approval_status: "pending") # last period, still waiting
-      shift(caleb, date: Date.new(2026, 11, 6), approval_status: "denied")
+      shift(caleb, date: Date.new(2026, 11, 6), approval_status: "denied", overtime_status: "pending")
       shift(caleb, date: Date.new(2026, 11, 9))
       shift(manager, date: Date.new(2026, 11, 9), approval_status: "pending")
     end

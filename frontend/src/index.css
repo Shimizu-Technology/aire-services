@@ -255,10 +255,3 @@ input[type="button"],
 .animate-fadeInUp {
   animation: fadeInUp 0.4s ease-out forwards;
 }
-
-/* Coarse input takes precedence on devices that also expose a fine pointer. */
-@media (pointer: coarse) {
-  a, .aire-button { min-height: 44px; }
-  a { display: inline-flex; align-items: center; }
-  .aire-button { min-width: 44px; }
-}

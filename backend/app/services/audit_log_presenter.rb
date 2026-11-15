@@ -127,7 +127,7 @@ class AuditLogPresenter
       field = fields.include?("end_time") ? "clock-out" : fields.include?("start_time") ? "clock-in" : "shift"
       whose = metadata["employee_name"].presence
       target = whose ? "#{possessive(whose)} #{metadata['work_date']} #{field}" : subject
-      return readable_dates("#{actor} tried to change #{target} — not saved: #{reason}")
+      return readable_dates("#{actor} tried to change #{target} — #{reason}")
     end
     if audit_log.action == "payroll_calendar_period.cutoff_change_requested"
       target = metadata["requested_cutoff_at"]

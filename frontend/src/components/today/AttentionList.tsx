@@ -153,7 +153,11 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
         ].filter(Boolean).join(' · ')
         return (
           <AttentionItem key={item.key} tone="warn" icon={<ClipboardCheck />} meta={meta} action={<ActionLink to={approvalsHref()}>Review</ActionLink>}>
-            <b>{plural(item.count, 'shift')}</b> waiting for approval
+            <b>{plural(item.count, 'shift')}</b> waiting for approval this period
+            {item.earlier_periods?.map(period => <span key={period.start_date} className="mt-2 block text-body-sm">
+              plus {period.hours.toFixed(1)}h waiting from {dayLabel(period.start_date)}–{dayLabel(period.end_date)}{' '}
+              <ActionLink to={approvalsHref({ period: period.start_date })}>Review</ActionLink>
+            </span>)}
           </AttentionItem>
         )
       }

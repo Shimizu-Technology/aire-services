@@ -1253,7 +1253,7 @@ export interface AuditLogEntry {
   actor: {
     id: number | null;
     name: string | null;
-    email: string | null;
+    email?: string | null;
     role: string | null;
     kind: string;
   };
@@ -1264,7 +1264,7 @@ export interface AuditLogEntry {
   };
   changes: Record<string, unknown>;
   details: Record<string, unknown>;
-  request: {
+  request?: {
     id: string | null;
     ip_address: string | null;
     user_agent: string | null;

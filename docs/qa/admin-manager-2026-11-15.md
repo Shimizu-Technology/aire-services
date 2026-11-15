@@ -1,83 +1,74 @@
 # Admin and manager QA fixes — November 15, 2026
 
-Implementation starts from `origin/main` at `2781e01` in the isolated `fix/qa-admin-manager` worktree. AIRE Ops is the Rails/React timekeeping app for AIRE staff, supervisors, and payroll administrators; Cornerstone owns payroll calculations and payments (README product boundary). This task covers the twelve admin/manager findings supplied by the lead. Employee/kiosk work and approval denial are excluded and owned by the other worker.
+AIRE Ops is AIRE's Rails/React timekeeping app for staff, supervisors and payroll administrators. Cornerstone owns payroll calculations and payments. This record covers PR #207, branch `fix/qa-admin-manager`, including the implementation review after `2ad4c8e`. The first-round record remains in that commit; the decisions and results below supersede it.
 
-Acceptance: execute the supplied affected journeys at 1280 and 390 with synthetic local data; preserve complete-export and payroll-batch correction requirements; never send mail or contact Cornerstone. Managers currently edit all team shifts (`TimeEntry#editable_by?`); history must apply that policy and restrict results to the requested shift. Global history and exports remain administrator-only.
+Acceptance owner: agent. Scope: the lead's review findings and affected journeys, using synthetic local data only. No merge, production access, real email, Cornerstone call, review comment or additional agent was authorized or performed.
 
-Local environment: Node 24, Ruby 3.3.4; API 3445 and Vite 5445. `aire_fixadm_test` is the automated-test DB; `aire_fixadm_qa_test` restores the supplied synthetic dump. External harness: `/Users/agent/work/qa-fixadm`, with Clerk stub and blocked mail/payroll dispatch. Browser resizing tests responsive web behavior; real mobile Safari is not available on this host.
+## Final decisions and fixes
 
-The lifecycle helper failed with `Invalid machine profile: schema_version must be 1`; exact runtime identities and baseline are recorded manually in the external harness. The read-only shared-context check also failed because its configuration path points to the unavailable MacBook Brain Dump. Relevant installed guidance was read directly. No shared service is stopped; `agent-postgres` stays running.
-
-## Decisions and implementation notes
-
-- A waiting shift count is the number of distinct source entries with pending time or pending overtime, counted once even if both need review. Waiting hours use `Payroll::ApprovalHours`, excluding approved regular hours from waiting overtime shifts.
-- Draft downloads retain their snapshot and checksum but do not protect entries. Existing incorrectly protected drafts are released by a bounded migration with a five-second local lock timeout. Complete exports and finalized payroll batches retain their protections.
-- Worked hours include all completed time in the selected staff/date scope, including waiting regular time. Approved columns remain separate.
-- PINs currently accept 4–8 digits in the server and UI. The inline explanation preserves that rule, rather than changing it to the finding's 4–6 digits.
-
-## Verification ledger
-
-Results are being recorded in the external harness; final gate and browser results will be appended here before PR creation.
-
-## Final changes
-
-| Finding | Result |
+| Review item | Implementation |
 | --- | --- |
-| 1. Waiting totals | The attention row separates live waiting time from waiting overtime; a source shift is counted once even when both need review. A regression spec documents this definition. |
-| 2. Corrections after exports | Draft exports never protect shifts. The migration releases historical draft protections without rewriting their snapshots/checksums. Complete exports and payroll batches retain protection. Save-and-history keeps its reason prompt open, focuses the inline field, and confirms “Shift saved.” Export IDs are under Details; server copy identifies the actual protection. |
-| 3. Activity | Refused edits show Not saved and name the attempted change. Lock requests and pay-stub deliveries/downloads have plain sentences. Recorded old/new values are described. Read-only payroll previews no longer generate activity. The application source reads “in AIRE Ops.” |
-| 4. Reports | Date inputs and all nine selects have accessible names. Legacy panels are collapsed under More detail, use lock wording, and link to the pay period. Waiting people show “Some time still waiting.” |
-| 5. Manager history | Managers can list/read only a TimeEntry history permitted by the model edit policy. Global history, other subject types, mismatched detail records, and exports remain forbidden. The return link reopens the shift. |
-| 6. Old lock notice | Waiting hours in an old locked period use a compact status and Review link. Upcoming-lock context appears only when that old period has no waiting shifts. |
-| 7. Touch targets | Shared button/link styling enforces touch sizing; filters retain 44px coarse-pointer targets. Break presets and Add break are at least 44px, with the 1h preset also 44px wide. |
-| 8. End employment | Zero consequences are collapsed, dates are readable, and confirm actions stay outside the scrolling content. |
-| 9. Team search | An ended match gets a count and Show ended action that preserves the search. |
-| 10. Settings | Pay-period update and delivery receipt are distinguished; reminder and confirmation copy uses lock/role words. Coordinates/radius hide while enforcement is off. A short PIN has an inline 4–8 digit explanation matching existing server behavior. |
-| 11. Files | Batch CSV timestamps are labeled Guam/ChST and include +10:00. Hours CSV worked time includes waiting regular time. PDF employee summaries include Time waiting and use the configured department label. |
-| 12. Consistency | Navigation names include visible badge text; shift buttons derive names from their visible content. People-picker names/hours wrap. Everyone avoids an almost-outside final-Sunday week. Grouped entry counts use 14px text with sufficient contrast. |
+| B1 — coarse-pointer cascade | Removed the unlayered global anchor/button rules. Specific small buttons, links, role chips and report controls use coarse-pointer utilities. Block/hidden utilities retain their layout; large buttons retain 48px height. |
+| M1 — historical draft protections | Removed `20261115060000_release_draft_report_protections.rb`, its migration spec and structure version entry. No code depends on the migration. Existing protections remain; the draft-download rule applies going forward. |
+| M2 — worked hours | Use the same countable-plus-waiting ledger as Timecards, excluding denied shifts and respecting category, source and entry-method filters. Approval-status filters do not change these control totals. CSV, both PDF formats and screen identify worked hours as approved plus waiting; PDF disclosure explains filters and denied-time exclusion. Regression cases cover denied time and category/source/method filtering. |
+| M3 — payment warnings | Failed, cancelled, voided and evidence-needed payment states precede the waiting label. The live-report notice stays outside More detail. Positive payment warnings open More detail automatically. |
+| Minor 1 — time-summary contract | `payroll_time_summary` retains its previous readiness and protection behavior, including when time is waiting. Only hours-report downloads get the new draft rule. Model coverage exercises both paths and preserves an earlier protection. |
+| Minor 2 — manager privacy | Callers without `view_activity` receive no request context, IP, user agent or actor email. Nested email/request metadata is removed and email strings are redacted. List/detail specs cover both surfaces; the UI accepts the omitted fields. |
+| Minor 3 — Today periods | The row uses the current card's count/hours. Earlier waiting time appears separately with period-specific Review links. Denied shifts with pending overtime are excluded from attention and the inbox badge. One waiting-row load supplies totals and earlier-period grouping. |
+| Minor 4 — Not saved | Only refused create/update/delete events get the tag. Refused downloads do not; the sentence no longer repeats “not saved:”. |
+| Minor 5 — source | Removed “in AIRE Ops” and the admin source label. Kiosk and Phone remain meaningful source labels. |
+| Minor 6 — employment preview | Restored singular consequences and guarded invalid/five-digit dates before formatting or confirmation. |
+| Minor 7 — Everyone | Select the latest full week inside the period when the current week does not fit. Nov 15 selects Nov 8–14; a past period ending Saturday retains its final full week. |
+| Minor 8 — tab name | The tab's accessible name is “Approvals, 12 waiting”; the icon count stays decorative. |
 
-## Automated gates
+The original PR's correction-reason recovery, scoped manager history, old-period notice, ended-person search, settings explanations, Guam batch CSV timestamps and grouped-entry readability remain implemented. This round retested affected behavior; it does not claim a new full-app audit.
 
-Application code tested: `fda9555` (the final documentation commit only adds this record).
+## Environment and fixtures
+
+- Node 24, Ruby 3.3.4, local PostgreSQL; API 3445, application Vite 5445, read-only `origin/main` frontend snapshot on 5446.
+- Comparison source: `origin/main` at `8a961a267799c6e38be244808645c639dbb7e755`. Current comparison source is this commit's application changes on `2ad4c8e`.
+- Test DB: `aire_fixadm_test`. Browser DB: `aire_fixadm_qa_test`, restored from the supplied synthetic dump, then extended with owned review fixtures.
+- Roundtwo Review (`376`): category `399` has 8 approved, 8 denied and 2 pending November hours; category `400` has 4 approved hours. October has 6 waiting hours and a separate denied shift with pending overtime. A synthetic processing event fails one payment; a local attestation supplies the proof-needed warning.
+- DB, CSV, PDF and screen reconcile category `399` to **10.00 worked**, **8.00 approved**, **2.00 waiting**. Unfiltered non-denied November time is 14.00h.
+- Clerk is stubbed. My Pay comparison uses two local mocked statement responses so no provider is contacted. Other checked journeys use the local API. Mail and payroll dispatch are blocked; no worker runs.
+- Chromium: 390×844 with touch/coarse input and 1280×900 with mouse input. Pointer media queries are asserted on every matrix page. Screenshots use viewport capture because full-page capture with this older browser/harness can reset input emulation.
+
+## Final automated gates
 
 | Gate | Result |
 | --- | --- |
 | `npx tsc -b` | Passed |
 | `npx eslint .` | Passed |
-| Full Vitest | 1,531 passed across 129 files |
-| RuboCop | 630 files, zero offenses |
-| Full RSpec | 2,203 examples, zero failures, one pending |
-| Brakeman | Zero warnings |
-| Impeccable advisory | No findings on the scanned report, activity, and edit-sheet paths |
+| Full `npx vitest run` | **1,535 passed / 129 files** |
+| RuboCop | **628 files, zero offenses** |
+| Full RSpec | **2,204 examples, zero failures, one pending** |
+| Brakeman | **Zero warnings** |
+| Impeccable advisory | No findings on the six changed UI paths scanned |
 
-The pending RSpec example is the opt-in 250-shift review/undo benchmark (`REVIEW_BATCH_BENCHMARK=1`), not a failed acceptance scenario.
+The pending RSpec case is the opt-in 250-shift review/undo benchmark. Tests ran against local databases only. Frontend gates include the last full-week and invalid-year regression cases; the backend gate includes the final inbox/attention scope and time-summary exception.
 
-## Browser QA
+## Agent-executed browser acceptance
 
-Agent executed in Chromium. The main harness has 30 passing assertions across desktop and coarse-pointer phone contexts, the history/old-lock harness has 12, and complete-export editing has 10. These are assertions across the scenarios below, not 52 distinct user journeys.
+The before/after matrix has **80/80 passing assertions**. The acceptance harness has **31/31 passing assertions** across the cases below. These are assertions, not separate user journeys. Both viewport/input dimensions are required except Everyone, which is a desktop-only view.
 
-| Scenario | Desktop 1280 | Phone 390 | Saved outcome/evidence |
+| Case | 390 touch | 1280 mouse | Observed result and evidence |
 | --- | --- | --- | --- |
-| Today/attention/Reports totals | Passed | Passed | Initial fixture: 241.01h time, 10.68h overtime. After deliberate edits: 257.34h time, 10.68h overtime; card, row and report agree. |
-| Draft download then edit | Server regression plus browser download | Passed | Draft stored with protection false; Daniel’s clock-out changed from 15:39 to 15:30 without a reason. |
-| Complete export / save and history | Passed | Passed | Reasonless changes stay unsaved; focused inline prompt remains visible. Retry saves, opens history, and marks the complete export stale. |
-| Failed activity and application source | Passed | Passed | Not saved tag, named employee/change, and “in AIRE Ops” shown. |
-| Reports accessibility | Zero axe violations | Zero axe violations | 46/42 passing axe rules in final Chromium runs; no horizontal overflow at 390. |
-| Manager shift history and return | Roke and Mindy passed | Roke and Mindy passed | Global, other-subject, and missing-shift requests each 403. Scoped history and return-to-edit work. Backend also tests a model-policy refusal. |
-| Old-period status | Passed, 60px | Passed, 84px | October fixture has exactly one waiting shift. The QA server explicitly selects it because the restored rollout normally excludes October. This verifies rendering/counting, not publication-selection policy. |
-| Touch sizing | Passed | Passed with coarse pointer | Downloads 44px; break presets 44×44; Add break 44px high. |
-| End preview | Passed | Passed | Desktop action ends at y=736 of 800; phone action ends at y=828 of 844. Zero consequences are hidden. |
-| Team ended-person recovery | Passed | Passed | Daniel ended in the synthetic DB; Show ended finds him and retains the search. |
-| Settings | Passed | Passed | Location fields hidden when off; lock recipients and role confirmation; short PIN explanation. Confirmation was cancelled, with no setting saved. |
-| CSV/PDF | Passed | Responsive controls passed | Ethan CSV: 99.83h worked versus 83.50h approved. PDF extraction verifies department CFI and Time waiting. Batch CSV header was downloaded through the UI; a populated synthetic endpoint export verifies `2026-11-14T17:00:00+10:00`. |
-| Everyone | Passed | Desktop-only view | Defaults to Nov 1–7 inside Nov 1–15. Grouped “2 entries” measures 14px and 11.50:1 contrast against white. |
+| B1 — employee/admin layout | Passed | Passed | My Time/Clock, My Pay, My Hours, kiosk, Roles & access, Today, Approvals and Pay period compared to main. Pay-period and paycheck cards remain block layout; no horizontal overflow; hidden role link stays hidden on phones. `round2-{main,after}-*.png`. |
+| B1 — control sizes | Passed | Passed | Actual shared small/large Button components: small ≥44px on touch, ≥36px with mouse; large ≥48px. `round2-shared-button-sizes-*.png`. |
+| M2 — filtered worked hours | Passed | Passed | Category-filtered screen shows 10.00h. CSV and consolidated PDF downloaded through the 1280 UI and independently reconciled with DB rows. PDF table is 8.00 approved + 2.00 waiting, 10.00 worked. `round2-filtered.*`, `round2-reconciliation.json`. |
+| M3 — failed payment plus waiting | Passed | Passed | Employee badge says Payment needs attention instead of Some time still waiting; both warning counts are visible in opened detail; live notice is outside it. `round2-payment-warnings-*.png`. |
+| Manager history privacy | Passed | Passed | List payload has no request context or email; event detail renders without missing-field errors. `round2-manager-history.json`, `round2-manager-history-*.png`. |
+| Today current/earlier periods | Passed | Passed | Row/card: 35 current waiting shifts, 243.01h waiting time and 10.68h waiting overtime. Separate line shows 6.0h from October 16–31 with a period-specific Review action. Denied pending-OT shift adds no waiting. `round2-today-earlier-*.png`. |
+| Activity tags/source | Passed | Passed | Exactly one Not saved tag for the refused edit, none for refused download; no repeated sentence or admin source suffix. `round2-activity-tags-*.png`. |
+| End preview | Passed | Passed | A real local open link produces “1 open pay stub link revoked.” A five-digit year leaves the preview usable and confirmation disabled. `round2-end-{singular,invalid-year}-*.png`. |
+| Everyone | Not applicable | Passed | Defaults to Nov 8–14 for Nov 1–15 on Nov 15. `round2-everyone-full-week-1280.png`. |
 
-Evidence lives in `/Users/agent/work/qa-fixadm`: `shots/`, browser-result JSON/logs, gate logs, CSVs, extracted PDF text, and the adapted harness. The first browser checks used T3 Preview; remaining checks used the supplied Chromium harness after Preview timed out around an unsaved-settings browser dialog. The Preview tab and all harness browsers were closed.
+An early matrix run reset employee login to admin, and an early screenshot mode reset touch emulation. Those harness errors were corrected before the final 80-assertion matrix. Detail-panel probes were corrected to wait for rendering and to support both modal and desktop-region layouts; retained screenshots showed the panels rendering. PDF text reconciliation accounts for table headings wrapping across extraction lines. These were harness issues, not additional application fixes.
 
-Limits: local Clerk stub only; no real Clerk authentication, email delivery, Cornerstone calls, production data, WebKit, or physical mobile Safari. The synthetic October selection override is confined to the external harness. Two experimental CSV fixtures exposed missing fixture metadata; these were not application findings. The final CSV row evidence uses the authenticated export endpoint and full request specs.
+Evidence directory: `/Users/agent/work/qa-fixadm/`. Final logs use `round2-*`; screenshots are in `shots/round2-*`. The desktop report was also inspected with T3 Preview before the touch matrix. Real Clerk, provider transport, WebKit, physical mobile Safari and production behavior are not tested.
 
-## Disposition
+## Resource disposition
 
-Held for the lead: no merge or GitHub reviews/comments were posted. The main clone checkout and the employee/kiosk worker’s worktree were preserved. No production deployment was performed.
+The lifecycle helper reports `Invalid machine profile: schema_version must be 1`; the read-only shared-context checker also fails because `~/.config/shimizu-technology/agent-context.json` is missing. Applicable synced guidance was read directly. Exact ownership, process start signatures and the baseline are recorded manually in `round2-owned-resources.txt` and `round2-resource-baseline.txt`.
 
-Owned Puma and Vite were stopped, task browser contexts and the Preview tab closed, and both task databases dropped. Ports 3445/5445 have no listeners and no `aire_fixadm_*` databases remain. The shared `agent-postgres` server remains running. The worktree and external harness are retained. No runtime handoff remains.
+Final cleanup is recorded in `round2-resource-cleanup.txt`: task-owned API/Vite processes, browser contexts and Preview tab closed; `aire_fixadm_*` databases dropped. `agent-postgres` remains running. Worktree and harness retained. No runtime resources are handed off. PR is held for the lead; no merge or deployment was performed.

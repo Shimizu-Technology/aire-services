@@ -4,7 +4,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'danger-outline
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const base =
-  'aire-button inline-flex items-center justify-center gap-2 rounded-control font-semibold whitespace-nowrap ' +
+  'inline-flex items-center justify-center gap-2 rounded-control font-semibold whitespace-nowrap ' +
   'transition duration-(--dur-press) ease-out-strong active:scale-[0.97] motion-reduce:active:scale-100 ' +
   'disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 aria-busy:cursor-progress'
 

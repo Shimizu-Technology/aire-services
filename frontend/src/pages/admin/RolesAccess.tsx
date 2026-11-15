@@ -78,7 +78,7 @@ function Members({ members }: { members: { id: number; name: string }[] }) {
       <p className="[overflow-wrap:anywhere]">{preview.map((member) => member.name).join(', ')}</p>
       {rest.length > 0 && (
         <details className="mt-1">
-          <summary className="min-h-11 cursor-pointer py-2 font-semibold text-cyan-800 pointer-fine:min-h-0 pointer-fine:py-0">and {rest.length} more</summary>
+          <summary className="min-h-11 cursor-pointer py-2 font-semibold text-cyan-800 pointer-fine:min-h-0 pointer-coarse:min-h-11 pointer-fine:py-0">and {rest.length} more</summary>
           <p className="mt-1 [overflow-wrap:anywhere]">{rest.map((member) => member.name).join(', ')}</p>
         </details>
       )}
@@ -317,7 +317,7 @@ function AccessGuide() {
           : `You're ${/^[aeiou]/i.test(cards[0]?.label ?? '') ? 'an' : 'a'} ${cards[0]?.label ?? 'team member'}. Here's what that lets you do. Owners and admins change roles on the Team page.`}
       >
         {guide.viewer.can_change_settings && (
-          <Link to="/admin/settings" className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-cyan-800 hover:underline pointer-fine:min-h-0">
+          <Link to="/admin/settings" className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-cyan-800 hover:underline pointer-fine:min-h-0 pointer-coarse:min-h-11">
             <ArrowLeft aria-hidden="true" className="size-4" />Back to Settings
           </Link>
         )}
@@ -325,12 +325,12 @@ function AccessGuide() {
 
       <nav aria-label="On this page" className="flex flex-wrap gap-2">
         {cards.map((card) => (
-          <a key={card.key} href={`#role-${card.key}`} className="inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-body-sm font-medium text-ink hover:bg-surface-muted pointer-fine:min-h-9">
+          <a key={card.key} href={`#role-${card.key}`} className="inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-body-sm font-medium text-ink hover:bg-surface-muted pointer-fine:min-h-9 pointer-coarse:min-h-11">
             {card.label}
           </a>
         ))}
         <a href="#side-by-side" className="hidden min-h-9 items-center rounded-full border border-line bg-surface px-4 text-body-sm font-medium text-ink hover:bg-surface-muted lg:inline-flex">Side by side</a>
-        <a href="#settings-that-change" className="inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-body-sm font-medium text-ink hover:bg-surface-muted pointer-fine:min-h-9">Settings that change this</a>
+        <a href="#settings-that-change" className="inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-body-sm font-medium text-ink hover:bg-surface-muted pointer-fine:min-h-9 pointer-coarse:min-h-11">Settings that change this</a>
       </nav>
 
       <section aria-labelledby="everyone-title" className="rounded-card border border-line bg-surface-muted p-5">

@@ -144,6 +144,22 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
   })
 
+  it('keeps payment problems ahead of waiting time and opens warning details', async () => {
+    const lifecycle = { status: 'payment_failed' as const, label: 'Payment failed', settlements: [], payment_method: null, payment_reference: null }
+    const entry = { ...linkedFixture(), payroll_lifecycle: lifecycle }
+    prepareLinkedReport({ payroll_hours: { ...approvedHours(4), time_waiting_hours: 2 },
+      days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [entry] }] })
+    const response = await apiMock.getHoursReport()
+    response.data.summary.payroll_statuses = { payment_failed: 1, payment_attested_pending_evidence: 1 }
+    await waitFor(() => expect(screen.getAllByText('Payment failed').length).toBeGreaterThan(0))
+    expect(screen.queryByText('Some time still waiting')).not.toBeInTheDocument()
+    const notice = screen.getByText('Live hours, not a finalized payroll record')
+    expect(notice.closest('details')).toBeNull()
+    expect(screen.getByText('More detail').closest('details')).toHaveAttribute('open')
+    expect(screen.getByText('Needs attention')).toBeVisible()
+    expect(screen.getByText('Payment proof still needed')).toBeVisible()
+  })
+
   it('does not offer a zero-approved-OT button when only waiting overtime exists', async () => {
     prepareLinkedReport({ overtime_hours: 3.42, approval_complete: false, payroll_hours: { ...approvedHours(4), overtime_waiting_hours: 3.42 } })
     await screen.findByRole('button', { name: 'Review hours for Casey Employee' })

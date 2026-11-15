@@ -39,6 +39,7 @@ export interface ApprovalsSummary {
 
 export interface ApprovalsAttentionItem extends AttentionBase, ApprovalsSummary {
   type: 'approvals_waiting'
+  earlier_periods?: Array<{ start_date: string; end_date: string; hours: number }>
 }
 
 export interface OvertimeAttentionItem extends AttentionBase {

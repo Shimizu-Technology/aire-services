@@ -22,7 +22,7 @@ RSpec.describe AuditLogPresenter do
     text = summary_for("time_entries.update", outcome: "failed", metadata: {
       employee_name: "Daniel", work_date: "2026-11-03", changed_fields: [ "time_entry.end_time" ], error_message: "A reason was required"
     })
-    expect(text).to eq("Roke Reyes tried to change Daniel's Nov 3, 2026 clock-out — not saved: A reason was required")
+    expect(text).to eq("Roke Reyes tried to change Daniel's Nov 3, 2026 clock-out — A reason was required")
   end
 
   it "uses lock wording and Guam time for a refused lock request" do
