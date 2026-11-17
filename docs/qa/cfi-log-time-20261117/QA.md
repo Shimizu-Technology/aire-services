@@ -1,7 +1,7 @@
 # Instructor Log time verification
 
 November 17, 2026 (Guam). Base: `origin/main` at `afb49c0`. Latest browser-tested implementation:
-`e77fee42f9ed85246f4d90217b56395163a88aa7`. Original full-gate implementation:
+`4307c436f1d4799f356827ef7c836567c886b4e9`. Original full-gate implementation:
 `7af0cd66a1fbba3bbc01047691db8829385e6301`. The evidence commit changes only this
 record and screenshots. Worktree: `~/work/aire-cfi-log-time`; branch: `fix/cfi-log-time`.
 
@@ -17,7 +17,58 @@ The change is frontend only. Clock has a visible Log time card; Hours has one
 primary Log time button. New entries use Start/End and the student/aircraft/lesson
 note prompt. Existing-entry Ask for a fix keeps its labels and behavior.
 
-## Browser recheck after the lead’s polish
+## Final browser pass at 4307c436: overnight acceptance failed
+
+Agent executed on November 17, 2026 (Guam), Chromium 143.0.7499.4 / Playwright
+1.57.0 at 390×900 and 1280×900, with fresh pure-CFI and clock-only fixtures.
+No application code changed. The non-default Clock chip was Solo.
+
+| Requested check | 390 px | 1280 px | Result |
+| --- | --- | --- | --- |
+| Chosen Clock chip preselects Work | Passed | Passed | Solo stayed selected in Log time. A separate delayed real-category response also filled Work after the sheet opened. |
+| Save 22:00–01:30 overnight time | Failed | Failed | Form displayed 3.5h and Ends the next day; API refused with HTTP 422, End time must be after start time. Nothing saved. |
+| Saved overnight summary says next day | Blocked | Blocked | Cannot reach a saved overnight summary through the real API. |
+| Summary receives keyboard focus after a successful daytime save | Passed | Passed | Actual active element was the Sent for approval status, with Solo, day, range and 1.0h. |
+| Log another focuses Start and clears times without a premature next-day hint | Passed | Passed | Start was the active element; date/Solo retained; both times blank. Hint also absent after entering Start alone. |
+| Second daytime flight then Done; Hours pending with no stray toast | Passed | Passed | Both Solo entries pending. Also added a third entry directly from Hours to exercise its own callback; no duplicate added-time toast appeared after Done. |
+| Clock-only Clock in/out sanity | Passed | Passed | Admin Duties clock-in and clock-out succeeded at both widths. |
+
+The overnight refusal is a real application acceptance blocker. Reproduction:
+Clock → Solo → Log time → Nov 13 (390) or Nov 14 (1280) → 22:00–01:30 →
+Add 3.5h for approval. `POST /api/v1/time_entries` returns
+`{"error":"End time must be after start time"}`. Read-only source inspection
+finds the existing manual-time validator at `backend/app/models/time_entry.rb:275`
+rejecting an end wall-clock time at or before start; the controller normalizes
+both HH:MM fields to the same date at
+`backend/app/controllers/api/v1/time_entries_controller.rb:923`. No fix attempted.
+
+After recording each refusal, changed that form to 08:00–09:00 to continue the
+independent acceptance checks, then logged 10:00–11:00 through Log another.
+A third 12:00–13:00 entry was added directly from Hours. Six manual/pending
+entries and two clock sessions succeeded; two overnight writes were refused.
+The clock-only fixture alone was moved back two minutes after clock-in to pass
+the existing minimum duration. Keyboard focus was asserted against the actual
+active DOM element, not inferred from screenshots. The visible chip label was
+used after the initial harness tried to click its covered, visually hidden radio;
+that locator correction did not change the app or any saved data.
+
+Refreshed `cfi-clock-*`, `cfi-saved-*` and `cfi-hours-*`. Current saved screenshots
+show the successful daytime fallback, not an overnight save. Added
+`cfi-overnight-form-*`, `cfi-overnight-refused-*` and `cfi-log-another-*` for both
+widths. Clock-only screenshots remain from the earlier pass; its final clock
+sanity was interaction-tested without replacing those images. Earlier mixed
+and full-gate results below remain historical, not retests of this SHA.
+
+Local test-mode Rails/Vite used ports 3466/5466 and the dedicated
+`aire_cfi_log_time_qa` database, with the same temporary test-auth adapter.
+All browser contexts/processes and servers closed; temporary config removed;
+QA database dropped. Lifecycle `manual-20261117-175042-81123-035a` reports no
+active owned resources. No production, deployment or email actions. Physical
+phone and mobile Safari were not run. The full automated gates were not repeated
+for this evidence-only update. The lead must resolve or explicitly disposition
+the overnight blocker before treating the requested final acceptance as passed.
+
+## Earlier browser recheck after the lead’s polish
 
 Tested `e77fee42f9ed85246f4d90217b56395163a88aa7` on November 17, 2026 (Guam).
 Agent reran the local Playwright/Chromium harness at 390×900 and 1280×900 with
