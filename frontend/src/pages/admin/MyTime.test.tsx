@@ -830,3 +830,27 @@ it('never offers an employee the override', async () => {
   ).toBeVisible()
   expect(screen.queryByRole('button', { name: 'Clock in anyway' })).toBeNull()
 })
+
+it('offers Log time alongside Clock in with all assigned work types', async () => {
+  await open()
+  expect(screen.getByRole('button', { name: 'Clock in' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Log time' }))
+  const sheet = screen.getByRole('dialog', { name: 'Log time' })
+  fireEvent.change(within(sheet).getByLabelText(/Which day/), { target: { value: '2026-11-13' } })
+  expect(within(sheet).getByLabelText(/^Start/)).toBeInTheDocument()
+  expect(within(sheet).getByLabelText(/^End/)).toBeInTheDocument()
+  for (const category of categories) {
+    expect(within(sheet).getByRole('option', { name: category.name })).toBeInTheDocument()
+  }
+})
+
+it('uses a supervisor’s own assigned work for Log time too', async () => {
+  viewer.role = 'manager'
+  vi.mocked(myTimeApi.ownCategories).mockResolvedValue({ data: { time_categories: [categories[0]] } })
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: 'Log time' }))
+  const sheet = screen.getByRole('dialog', { name: 'Log time' })
+  fireEvent.change(within(sheet).getByLabelText(/Which day/), { target: { value: '2026-11-13' } })
+  expect(within(sheet).getByRole('option', { name: categories[0].name })).toBeInTheDocument()
+  expect(within(sheet).queryByRole('option', { name: categories[1].name })).not.toBeInTheDocument()
+})

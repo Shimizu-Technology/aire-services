@@ -40,6 +40,7 @@ export function ShiftForm({
   onClose: () => void
   onSaved: () => void
 }) {
+  const [saved, setSaved] = useState(false)
   const online = useOnlineStatus()
   const [entry, setEntry] = useState(initialEntry)
   // Added time starts blank: a prefilled day and 8–5 got saved on top of
@@ -103,7 +104,7 @@ export function ShiftForm({
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!online || saving || uncertain) return
+    if (!online || saving || uncertain || saved) return
     if (date > todayInGuam()) { setError("You can't add time for a day that hasn't happened yet."); return }
     if (!entry && (!date || !timesChosen)) {
       setError('Pick the day, then the times you worked.')
@@ -199,6 +200,7 @@ export function ShiftForm({
       )
       return
     }
+    if (!entry) setSaved(true)
     onSaved()
   }
 
@@ -208,9 +210,29 @@ export function ShiftForm({
       onClose={() => {
         if (!saving) onClose()
       }}
-      title={entry ? 'Ask for a fix' : 'Add time I forgot to clock'}
+      title={entry ? 'Ask for a fix' : 'Log time'}
       description="Your manager approves the change."
-      footer={
+      footer={saved ? (
+        <div className="space-y-2">
+          <p role="status">Your time was sent for approval.</p>
+          <Button
+            fullWidth
+            onClick={() => {
+              setStart('')
+              setEnd('')
+              setNote('')
+              setBreakMinutes(0)
+              setError(null)
+              setSaved(false)
+            }}
+          >
+            Log another
+          </Button>
+          <Button fullWidth variant="secondary" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      ) : (
         <Button
           fullWidth
           form="my-shift-form"
@@ -224,9 +246,9 @@ export function ShiftForm({
               ? `Add ${hours.toFixed(1)}h for approval`
               : 'Add time for approval'}
         </Button>
-      }
+      )}
     >
-      <form
+      {!saved && <form
         id="my-shift-form"
         noValidate
         onSubmit={submit}
@@ -247,7 +269,7 @@ export function ShiftForm({
         {date && (
           <>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Clock in" required>
+              <Field label={entry ? 'Clock in' : 'Start'} required>
                 <Input
                   type="time"
                   value={start}
@@ -255,7 +277,7 @@ export function ShiftForm({
                 />
               </Field>
               <Field
-                label="Clock out"
+                label={entry ? 'Clock out' : 'End'}
                 required
                 help={end < start ? 'Ends the next day' : undefined}
               >
@@ -347,6 +369,7 @@ export function ShiftForm({
             </Field>
             <Field label={entry ? 'What happened?' : 'Note'} required={!!entry}>
               <Textarea
+                placeholder={entry ? undefined : 'Student, aircraft or lesson'}
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
               />
@@ -371,7 +394,7 @@ export function ShiftForm({
             {error}
           </p>
         )}
-      </form>
+      </form>}
     </Sheet>
   )
 }

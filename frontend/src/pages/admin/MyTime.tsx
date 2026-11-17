@@ -26,6 +26,7 @@ import { ADMIN_PATHS, timeSectionHref } from '../../lib/adminRoutes'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
+import { ShiftForm } from '../../components/myhours/ShiftForm'
 import { WorkChips } from '../../components/clock/WorkChips'
 import { ClockActions } from '../../components/clock/ClockActions'
 import {
@@ -52,6 +53,7 @@ export default function MyTime() {
   const toast = useToast()
   const online = useOnlineStatus()
   const [status, setStatus] = useState<ClockStatus | null>(null)
+  const [logOpen, setLogOpen] = useState(false)
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [categoryState, setCategoryState] = useState<
     'loading' | 'ready' | 'error'
@@ -677,6 +679,30 @@ export default function MyTime() {
             )}
           </ClockActions>
         </>
+      )}
+      <section className="space-y-3 rounded-card border border-line bg-surface p-5">
+        <h2 className="text-title font-semibold">Log time</h2>
+        <p>Log a flight, lesson or other work after it's done.</p>
+        <Button fullWidth onClick={() => setLogOpen(true)}>
+          Log time
+        </Button>
+      </section>
+      {logOpen && (
+        <ShiftForm
+          categories={categories}
+          categoriesError={
+            categoryState === 'error' ? "Couldn't load your work types." : null
+          }
+          categoriesLoading={categoryState === 'loading'}
+          onRetryCategories={() => void retryCategories()}
+          onClose={() => {
+            setLogOpen(false)
+            void refreshSummary()
+          }}
+          onSaved={() => {
+            void refreshSummary()
+          }}
+        />
       )}
       <Link
         to={hoursHref}

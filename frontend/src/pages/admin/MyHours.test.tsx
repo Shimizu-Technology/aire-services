@@ -54,10 +54,10 @@ const fillAddedTime = (date = '2026-11-13') => {
   fireEvent.change(screen.getByLabelText(/Which day\?/), {
     target: { value: date },
   })
-  fireEvent.change(screen.getByLabelText(/^Clock in/), {
+  fireEvent.change(screen.getByLabelText(/^Start/), {
     target: { value: '08:00' },
   })
-  fireEvent.change(screen.getByLabelText(/^Clock out/), {
+  fireEvent.change(screen.getByLabelText(/^End/), {
     target: { value: '17:00' },
   })
 }
@@ -248,7 +248,7 @@ it('adds forgotten time for the viewer without accepting another user id', async
   })
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+    await screen.findByRole('button', { name: 'Log time' }),
   )
   expect(
     screen.queryByRole('combobox', { name: 'Who worked' }),
@@ -265,7 +265,7 @@ it('holds a forgotten-time form after an uncertain save', async () => {
     .mockResolvedValue({ error: 'Lost reply', status: 502 })
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+    await screen.findByRole('button', { name: 'Log time' }),
   )
   fillAddedTime()
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
@@ -316,7 +316,7 @@ it('retries failed work types inside a forgotten-time sheet', async () => {
   })
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+    await screen.findByRole('button', { name: 'Log time' }),
   )
   expect(screen.getByText("Couldn't load your work types.")).toBeInTheDocument()
   expect(
@@ -451,18 +451,18 @@ it('asks which day first and never prefills added time', async () => {
   const create = vi.spyOn(api, 'createTimeEntry')
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+    await screen.findByRole('button', { name: 'Log time' }),
   )
   const sheet = screen.getByRole('dialog', {
-    name: 'Add time I forgot to clock',
+    name: 'Log time',
   })
   expect(within(sheet).getByLabelText(/Which day\?/)).toHaveValue('')
   expect(within(sheet).queryByLabelText(/^Clock in/)).toBeNull()
   fireEvent.change(within(sheet).getByLabelText(/Which day\?/), {
     target: { value: '2026-11-13' },
   })
-  expect(within(sheet).getByLabelText(/^Clock in/)).toHaveValue('')
-  expect(within(sheet).getByLabelText(/^Clock out/)).toHaveValue('')
+  expect(within(sheet).getByLabelText(/^Start/)).toHaveValue('')
+  expect(within(sheet).getByLabelText(/^End/)).toHaveValue('')
   fireEvent.click(
     within(sheet).getByRole('button', { name: 'Add time for approval' }),
   )
@@ -481,15 +481,15 @@ it('shows the overlap refusal in the form, keeping what was typed', async () => 
   })
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+    await screen.findByRole('button', { name: 'Log time' }),
   )
   fillAddedTime('2026-11-14')
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
   const sheet = screen.getByRole('dialog', {
-    name: 'Add time I forgot to clock',
+    name: 'Log time',
   })
   expect(await within(sheet).findByRole('alert')).toHaveTextContent(overlap)
-  expect(within(sheet).getByLabelText(/^Clock in/)).toHaveValue('08:00')
+  expect(within(sheet).getByLabelText(/^Start/)).toHaveValue('08:00')
   expect(
     within(sheet).getByRole('button', { name: /Add 9.0h for approval/ }),
   ).toBeEnabled()
@@ -502,7 +502,7 @@ it('puts Add time right under the summary and confirms a save with a toast', asy
   })
   open()
   const add = await screen.findByRole('button', {
-    name: 'Add time I forgot to clock',
+    name: 'Log time',
   })
   const summary = screen.getByRole('region', { name: 'Pay period summary' })
   const firstShift = screen.getByRole('button', { name: /8:00 AM/ })
@@ -586,4 +586,41 @@ it.each(['button', 'Back'])('closing the sheet with %s consumes its history entr
   expect(router.state.location.search).toBe('?period=2026-11-01')
   await act(async () => { await router.navigate(-1) })
   expect(screen.getByRole('heading', { name: 'Previous page' })).toBeInTheDocument()
+})
+
+it('logs another on the same day and work, clearing times, break and note', async () => {
+  const add = vi.spyOn(myTimeApi, 'addTime').mockResolvedValue({ data: { time_entry: shift() } })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: 'Log time' }))
+  fillAddedTime()
+  fireEvent.change(screen.getByLabelText(/^Work/), { target: { value: String(categories[1].id) } })
+  fireEvent.change(screen.getByLabelText(/Break minutes/), { target: { value: '30' } })
+  fireEvent.change(screen.getByPlaceholderText('Student, aircraft or lesson'), { target: { value: 'Student A' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add 8.5h for approval' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Log another' }))
+  expect(screen.getByLabelText(/Which day/)).toHaveValue('2026-11-13')
+  expect(screen.getByLabelText(/^Work/)).toHaveValue(String(categories[1].id))
+  expect(screen.getByLabelText(/^Start/)).toHaveValue('')
+  expect(screen.getByLabelText(/^End/)).toHaveValue('')
+  expect(screen.getByLabelText(/Break minutes/)).toHaveValue(0)
+  expect(screen.getByPlaceholderText('Student, aircraft or lesson')).toHaveValue('')
+  fireEvent.change(screen.getByLabelText(/^Start/), { target: { value: '18:00' } })
+  fireEvent.change(screen.getByLabelText(/^End/), { target: { value: '19:00' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1.0h for approval' }))
+  await screen.findByRole('button', { name: 'Log another' })
+  expect(add).toHaveBeenCalledTimes(2)
+  expect(add.mock.calls[1][0]).toMatchObject({ work_date: '2026-11-13', time_category_id: categories[1].id, start_time: '18:00', end_time: '19:00', description: undefined })
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('never offers Log another when the saved outcome is unknown', async () => {
+  vi.spyOn(myTimeApi, 'addTime').mockResolvedValue({ error: 'Connection lost' })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: 'Log time' }))
+  fillAddedTime()
+  fireEvent.click(screen.getByRole('button', { name: 'Add 9.0h for approval' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't confirm this was saved")
+  expect(screen.queryByRole('button', { name: 'Log another' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Add 9.0h for approval' })).toBeDisabled()
 })

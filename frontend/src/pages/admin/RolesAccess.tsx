@@ -221,7 +221,7 @@ function EmployeeHelp() {
           Use <Link to={ADMIN_PATHS.myTime} className={pageLink}>Clock</Link>. Pick what you're working on, then tap Clock in.
         </HelpItem>
         <HelpItem icon={<Timer />} title="Fix a shift">
-          Go to <Link to={ADMIN_PATHS.myHours} className={pageLink}>Hours</Link>, tap the shift, then Ask for a fix. Forgot to clock? Tap Add time I forgot to clock.
+          Go to <Link to={ADMIN_PATHS.myHours} className={pageLink}>Hours</Link>, tap the shift, then Ask for a fix. To add a flight, lesson or other time, tap Log time.
         </HelpItem>
         <HelpItem icon={<CalendarPlus />} title="Time off">
           Go to <Link to={ADMIN_PATHS.leave} className={pageLink}>Leave</Link> and tap Request time off.

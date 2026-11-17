@@ -222,8 +222,8 @@ export default function MyHours() {
             period={period}
             approverNames={approverNames}
           />
-          <Button fullWidth variant="secondary" onClick={() => setForm('new')}>
-            Add time I forgot to clock
+          <Button fullWidth onClick={() => setForm('new')}>
+            Log time
           </Button>
           {days.size === 0 ? (
             <EmptyState title="No time recorded this pay period." />
@@ -324,7 +324,7 @@ export default function MyHours() {
                   ? 'Your time was added and sent for approval.'
                   : 'Your fix was sent for approval.',
             })
-            setForm(null)
+            if (form !== 'new') setForm(null)
             void currentLoad.current?.()
           }}
         />
