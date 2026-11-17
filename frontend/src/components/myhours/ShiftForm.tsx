@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { TimeEntry } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
@@ -33,6 +33,7 @@ function editableBreaks(entry?: TimeEntry) {
 export function ShiftForm({
   entry: initialEntry,
   categories,
+  defaultCategory,
   categoriesError,
   categoriesLoading = false,
   onRetryCategories,
@@ -41,6 +42,8 @@ export function ShiftForm({
 }: {
   entry?: TimeEntry
   categories: Array<{ id: number; name: string }>
+  /** Work to preselect for new time, e.g. the Clock page's current choice. */
+  defaultCategory?: number | null
   categoriesError?: string | null
   categoriesLoading?: boolean
   onRetryCategories?: () => void
@@ -77,9 +80,30 @@ export function ShiftForm({
         0,
       )
     : breakMinutes
+  const startingCategory = () =>
+    categories.find((row) => row.id === defaultCategory)?.id ??
+    categories[0]?.id ??
+    0
   const [category, setCategory] = useState(
-    entry?.time_category?.id ?? categories[0]?.id ?? 0,
+    entry?.time_category?.id ?? startingCategory(),
   )
+  // The sheet can open before work types load; pick one once they arrive.
+  useEffect(() => {
+    if (!entry && !category && categories.length) setCategory(startingCategory())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories])
+  const savedRef = useRef<HTMLDivElement>(null)
+  const startRef = useRef<HTMLInputElement>(null)
+  const loggingAnother = useRef(false)
+  // The focused button unmounts when the sheet switches between the form and
+  // the saved summary, so move focus to what replaced it.
+  useEffect(() => {
+    if (saved) savedRef.current?.focus()
+    else if (loggingAnother.current) {
+      loggingAnother.current = false
+      startRef.current?.focus()
+    }
+  }, [saved])
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [uncertain, setUncertain] = useState(false)
@@ -214,7 +238,7 @@ export function ShiftForm({
         [
           work,
           employeeDate(date, { weekday: 'short' }),
-          `${clockLabel(start)}–${clockLabel(end)}`,
+          `${clockLabel(start)}–${clockLabel(end)}${end < start ? ' next day' : ''}`,
           `${hours.toFixed(1)}h`,
         ]
           .filter(Boolean)
@@ -242,6 +266,7 @@ export function ShiftForm({
               setNote('')
               setBreakMinutes(0)
               setError(null)
+              loggingAnother.current = true
               setSaved(null)
             }}
           >
@@ -268,7 +293,12 @@ export function ShiftForm({
       )}
     >
       {saved ? (
-        <div role="status" className="space-y-1">
+        <div
+          ref={savedRef}
+          tabIndex={-1}
+          role="status"
+          className="space-y-1 focus:outline-none"
+        >
           <p className="font-medium text-ink">Sent for approval</p>
           <p className="text-body-sm text-ink-muted">{saved}</p>
         </div>
@@ -295,6 +325,7 @@ export function ShiftForm({
             <div className="grid grid-cols-2 gap-3">
               <Field label={entry ? 'Clock in' : 'Start'} required>
                 <Input
+                  ref={startRef}
                   type="time"
                   value={start}
                   onChange={(event) => setStart(event.target.value)}
@@ -303,7 +334,7 @@ export function ShiftForm({
               <Field
                 label={entry ? 'Clock out' : 'End'}
                 required
-                help={end < start ? 'Ends the next day' : undefined}
+                help={start && end && end < start ? 'Ends the next day' : undefined}
               >
                 <Input
                   type="time"

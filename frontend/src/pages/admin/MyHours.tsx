@@ -318,13 +318,11 @@ export default function MyHours() {
             void currentLoad.current?.()
           }}
           onSaved={() => {
-            toast.show({
-              message:
-                form === 'new'
-                  ? 'Your time was added and sent for approval.'
-                  : 'Your fix was sent for approval.',
-            })
-            if (form !== 'new') setForm(null)
+            // New time shows its own confirmation in the sheet.
+            if (form !== 'new') {
+              toast.show({ message: 'Your fix was sent for approval.' })
+              setForm(null)
+            }
             void currentLoad.current?.()
           }}
         />

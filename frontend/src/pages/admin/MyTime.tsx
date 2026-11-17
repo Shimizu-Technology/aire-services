@@ -690,6 +690,7 @@ export default function MyTime() {
       {logOpen && (
         <ShiftForm
           categories={categories}
+          defaultCategory={choice}
           categoriesError={
             categoryState === 'error' ? "Couldn't load your work types." : null
           }

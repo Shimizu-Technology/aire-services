@@ -495,7 +495,7 @@ it('shows the overlap refusal in the form, keeping what was typed', async () => 
   ).toBeEnabled()
 })
 
-it('puts Add time right under the summary and confirms a save with a toast', async () => {
+it('puts Log time right under the summary and confirms a save in the sheet', async () => {
   vi.spyOn(api, 'createTimeEntry').mockResolvedValue({
     data: { time_entry: shift({ entry_method: 'manual' }) },
     status: 201,
@@ -513,9 +513,10 @@ it('puts Add time right under the summary and confirms a save with a toast', asy
   fireEvent.click(add)
   fillAddedTime()
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
-  expect(
-    await screen.findByText('Your time was added and sent for approval.'),
-  ).toBeVisible()
+  const saved = within(await screen.findByRole('dialog')).getByRole('status')
+  expect(saved).toHaveTextContent('Sent for approval')
+  await waitFor(() => expect(saved).toHaveFocus())
+  expect(screen.queryByText('Your time was added and sent for approval.')).toBeNull()
 })
 
 it('labels a shift with a pending fix request', async () => {
@@ -602,6 +603,8 @@ it('logs another on the same day and work, clearing times, break and note', asyn
     'Sent for approvalGround School · Fri, Nov 13 · 8:00 AM–5:00 PM · 8.5h',
   )
   fireEvent.click(screen.getByRole('button', { name: 'Log another' }))
+  await waitFor(() => expect(screen.getByLabelText(/^Start/)).toHaveFocus())
+  expect(screen.queryByText('Ends the next day')).toBeNull()
   expect(screen.getByLabelText(/Which day/)).toHaveValue('2026-11-13')
   expect(screen.getByLabelText(/^Work/)).toHaveValue(String(categories[1].id))
   expect(screen.getByLabelText(/^Start/)).toHaveValue('')
