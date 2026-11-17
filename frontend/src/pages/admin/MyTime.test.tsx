@@ -869,10 +869,15 @@ it('logs time from Clock with the chosen work and confirms what was sent', async
   expect(within(sheet).getByLabelText(/^Work/)).toHaveValue(String(categories[1].id))
   fireEvent.change(within(sheet).getByLabelText(/^Start/), { target: { value: '22:00' } })
   fireEvent.change(within(sheet).getByLabelText(/^End/), { target: { value: '01:30' } })
-  const reads = vi.mocked(myTimeApi.entries).mock.calls.length
+  expect(within(sheet).queryByText('Ends the next day')).toBeNull()
   fireEvent.click(within(sheet).getByRole('button', { name: 'Add 3.5h for approval' }))
+  expect(within(sheet).getByRole('alert')).toHaveTextContent('log the part after midnight as another entry')
+  expect(myTimeApi.addTime).not.toHaveBeenCalled()
+  fireEvent.change(within(sheet).getByLabelText(/^End/), { target: { value: '23:30' } })
+  const reads = vi.mocked(myTimeApi.entries).mock.calls.length
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Add 1.5h for approval' }))
   const saved = await within(sheet).findByRole('status')
-  expect(saved).toHaveTextContent('Ground School · Fri, Nov 13 · 10:00 PM–1:30 AM next day · 3.5h')
+  expect(saved).toHaveTextContent('Ground School · Fri, Nov 13 · 10:00 PM–11:30 PM · 1.5h')
   await waitFor(() => expect(saved).toHaveFocus())
   expect(myTimeApi.addTime).toHaveBeenCalledWith(
     expect.objectContaining({ work_date: '2026-11-13', time_category_id: categories[1].id }),

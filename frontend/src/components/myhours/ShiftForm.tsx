@@ -114,6 +114,10 @@ export function ShiftForm({
     end === entry.end_time &&
     totalBreakMinutes === (entry.break_minutes ?? 0)
   const timesChosen = !!start && !!end
+  // Only clocked shifts can run past midnight; the API refuses added time
+  // that does, so say so before sending.
+  const sameDayOnly = !entry || entry.entry_method === 'manual'
+  const crossesMidnight = timesChosen && end <= start
   const hours = unchangedTime
     ? entry.hours
     : timesChosen
@@ -140,6 +144,12 @@ export function ShiftForm({
     if (date > todayInGuam()) { setError("You can't add time for a day that hasn't happened yet."); return }
     if (!entry && (!date || !timesChosen)) {
       setError('Pick the day, then the times you worked.')
+      return
+    }
+    if (sameDayOnly && crossesMidnight) {
+      setError(
+        'End must be after start. For time past midnight, log the part after midnight as another entry on the next day.',
+      )
       return
     }
     if (
@@ -238,7 +248,7 @@ export function ShiftForm({
         [
           work,
           employeeDate(date, { weekday: 'short' }),
-          `${clockLabel(start)}–${clockLabel(end)}${end < start ? ' next day' : ''}`,
+          `${clockLabel(start)}–${clockLabel(end)}`,
           `${hours.toFixed(1)}h`,
         ]
           .filter(Boolean)
@@ -334,7 +344,9 @@ export function ShiftForm({
               <Field
                 label={entry ? 'Clock out' : 'End'}
                 required
-                help={start && end && end < start ? 'Ends the next day' : undefined}
+                help={
+                  !sameDayOnly && crossesMidnight ? 'Ends the next day' : undefined
+                }
               >
                 <Input
                   type="time"
