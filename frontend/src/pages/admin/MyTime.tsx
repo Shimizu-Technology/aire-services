@@ -683,7 +683,7 @@ export default function MyTime() {
       <section className="space-y-3 rounded-card border border-line bg-surface p-5">
         <h2 className="text-title font-semibold">Log time</h2>
         <p>Log a flight, lesson or other work after it's done.</p>
-        <Button fullWidth onClick={() => setLogOpen(true)}>
+        <Button fullWidth variant="secondary" onClick={() => setLogOpen(true)}>
           Log time
         </Button>
       </section>

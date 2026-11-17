@@ -5,12 +5,19 @@ import { outcomeUnknown } from '../../lib/api/timecards'
 import { guamClock } from '../../lib/timecards'
 import { todayInGuam } from '../../lib/payPeriods'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
+import { employeeDate } from '../../lib/employeePresentation'
 import { Button, Field, Input, Select, Sheet, Textarea } from '../ui'
 
 function minutesBetween(start: string, end: string) {
   const minutes = (time: string) =>
     Number(time.slice(0, 2)) * 60 + Number(time.slice(3))
   return (minutes(end) - minutes(start) + 1440) % 1440
+}
+
+// "13:05" -> "1:05 PM"
+function clockLabel(time: string) {
+  const hour = Number(time.slice(0, 2))
+  return `${hour % 12 || 12}:${time.slice(3, 5)} ${hour < 12 ? 'AM' : 'PM'}`
 }
 
 function editableBreaks(entry?: TimeEntry) {
@@ -40,7 +47,8 @@ export function ShiftForm({
   onClose: () => void
   onSaved: () => void
 }) {
-  const [saved, setSaved] = useState(false)
+  // What was just logged, so a run of flights can be checked one by one.
+  const [saved, setSaved] = useState<string | null>(null)
   const online = useOnlineStatus()
   const [entry, setEntry] = useState(initialEntry)
   // Added time starts blank: a prefilled day and 8–5 got saved on top of
@@ -200,7 +208,19 @@ export function ShiftForm({
       )
       return
     }
-    if (!entry) setSaved(true)
+    if (!entry) {
+      const work = categories.find((row) => row.id === category)?.name
+      setSaved(
+        [
+          work,
+          employeeDate(date, { weekday: 'short' }),
+          `${clockLabel(start)}–${clockLabel(end)}`,
+          `${hours.toFixed(1)}h`,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      )
+    }
     onSaved()
   }
 
@@ -214,7 +234,6 @@ export function ShiftForm({
       description="Your manager approves the change."
       footer={saved ? (
         <div className="space-y-2">
-          <p role="status">Your time was sent for approval.</p>
           <Button
             fullWidth
             onClick={() => {
@@ -223,7 +242,7 @@ export function ShiftForm({
               setNote('')
               setBreakMinutes(0)
               setError(null)
-              setSaved(false)
+              setSaved(null)
             }}
           >
             Log another
@@ -248,7 +267,12 @@ export function ShiftForm({
         </Button>
       )}
     >
-      {!saved && <form
+      {saved ? (
+        <div role="status" className="space-y-1">
+          <p className="font-medium text-ink">Sent for approval</p>
+          <p className="text-body-sm text-ink-muted">{saved}</p>
+        </div>
+      ) : <form
         id="my-shift-form"
         noValidate
         onSubmit={submit}

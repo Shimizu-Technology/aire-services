@@ -597,7 +597,11 @@ it('logs another on the same day and work, clearing times, break and note', asyn
   fireEvent.change(screen.getByLabelText(/Break minutes/), { target: { value: '30' } })
   fireEvent.change(screen.getByPlaceholderText('Student, aircraft or lesson'), { target: { value: 'Student A' } })
   fireEvent.click(screen.getByRole('button', { name: 'Add 8.5h for approval' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Log another' }))
+  await screen.findByRole('button', { name: 'Log another' })
+  expect(within(screen.getByRole('dialog')).getByRole('status')).toHaveTextContent(
+    'Sent for approvalGround School · Fri, Nov 13 · 8:00 AM–5:00 PM · 8.5h',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Log another' }))
   expect(screen.getByLabelText(/Which day/)).toHaveValue('2026-11-13')
   expect(screen.getByLabelText(/^Work/)).toHaveValue(String(categories[1].id))
   expect(screen.getByLabelText(/^Start/)).toHaveValue('')
