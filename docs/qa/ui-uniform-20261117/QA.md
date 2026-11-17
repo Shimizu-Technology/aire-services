@@ -92,4 +92,4 @@ No deployment or production verification was requested or performed. The PR must
 
 Shared-guidance setup check failed because this host lacks `~/.config/shimizu-technology/agent-context.json`. Relevant canonical guidance was read directly from `~/Shared-Guidance`. Lifecycle ownership was recorded in session `manual-20261117-182345-83241-2a51`.
 
-Resource cleanup status is recorded in the final completion note.
+Cleanup verified: the task-owned Vite process and its earlier restarted instances are stopped; the created preview tab is closed and released. Lifecycle status reports “Active owned resources: none”. No database was created. No runtime was handed off. The unmerged PR, branch and worktree remain available for the lead.
