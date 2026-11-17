@@ -124,12 +124,12 @@ export default function PayrollAccountLink() {
               <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cornerstone account</p>
-                  <p className="mt-2 [overflow-wrap:anywhere] text-sm font-semibold text-slate-950">{session.external_actor_email || 'Your signed-in payroll account'}</p>
+                  <p className="mt-2 break-words text-sm font-semibold text-slate-950">{session.external_actor_email || 'Your signed-in payroll account'}</p>
                 </div>
                 <div className="rounded-2xl border border-[#1e3a5f]/20 bg-[#1e3a5f]/5 px-4 py-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#1e3a5f]">AIRE account</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">{session.aire_user.name}</p>
-                  {session.aire_user.email && <p className="mt-1 [overflow-wrap:anywhere] text-xs text-slate-600">{session.aire_user.email}</p>}
+                  {session.aire_user.email && <p className="mt-1 break-words text-xs text-slate-600">{session.aire_user.email}</p>}
                 </div>
               </div>
 

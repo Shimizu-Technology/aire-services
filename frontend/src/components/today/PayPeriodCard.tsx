@@ -35,7 +35,7 @@ function RetryLine({ children, onRetry }: { children: string; onRetry: () => voi
   return (
     <p className="text-body-sm text-ink-muted">
       {children}{' '}
-      <button type="button" onClick={onRetry} className="font-semibold text-primary underline">
+      <button type="button" onClick={onRetry} className="relative font-semibold text-primary underline pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']">
         Try again
       </button>
     </p>

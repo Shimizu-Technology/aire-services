@@ -40,7 +40,7 @@ describe('Button', () => {
     const button = screen.getByRole('button', { name: /Reject change, keep original time/ })
     expect(button).toHaveTextContent('7:00 AM–1:20 PM')
     expect(button).toHaveClass('flex-col', 'max-w-full', 'whitespace-normal')
-    expect(button).not.toHaveClass('h-11', 'h-12', 'whitespace-nowrap')
+    for (const forbidden of ['h-11', 'h-12', 'whitespace-nowrap']) expect(button).not.toHaveClass(forbidden)
   })
 
   it('activates from the keyboard', async () => {

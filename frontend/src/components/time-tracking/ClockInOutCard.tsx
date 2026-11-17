@@ -518,7 +518,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
       {/* ─── Desktop layout ─── */}
       <div className="hidden md:block p-5">
         {/* Top row: status + buttons */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <div className={`w-3 h-3 rounded-full shrink-0 ${dotColor}`} />
             <div>

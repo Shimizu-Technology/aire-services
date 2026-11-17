@@ -108,7 +108,7 @@ export function SelectionBar({
         >
           <p className="min-w-0 flex-1 basis-36 text-body-sm text-ink-muted">
             <span className="text-body font-semibold text-ink">{countText}</span>
-            {summary && <span className="block whitespace-normal [overflow-wrap:anywhere] sm:inline sm:before:mx-1.5 sm:before:content-['·']">{summary}</span>}
+            {summary && <span className="block whitespace-normal break-words sm:inline sm:before:mx-1.5 sm:before:content-['·']">{summary}</span>}
           </p>
           <Button variant="ghost" onClick={onClear} className="shrink-0">{clearLabel}</Button>
           <div className="flex max-w-full flex-wrap items-stretch gap-2">{actions}</div>

@@ -183,7 +183,7 @@ function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] 
           <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
           <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)}</p>
         </div>
-        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className} max-w-full whitespace-normal leading-tight [overflow-wrap:anywhere]`}>{status.label}</span>
+        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className} max-w-full whitespace-normal leading-tight break-words`}>{status.label}</span>
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
         <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
@@ -587,7 +587,7 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
         {snapshot && (
           <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">Snapshot to be recorded</p>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ['Hours', formatHours(snapshot.summary.total_hours)],
                 ['Employees', snapshot.summary.employee_count],
@@ -984,7 +984,7 @@ export default function PayrollRecords() {
                   <p className="font-semibold text-slate-950">{formatDate(batch.start_date)}–{formatDate(batch.end_date)}</p>
                   <p className="mt-1 text-xs text-slate-500">{batch.id}</p>
                 </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'} max-w-full whitespace-normal leading-tight [overflow-wrap:anywhere]`}>{processingLabel(batch)}</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'} max-w-full whitespace-normal leading-tight break-words`}>{processingLabel(batch)}</span>
               </div>
               <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
                 <span>{formatHours(batch.summary.total_hours)}</span>

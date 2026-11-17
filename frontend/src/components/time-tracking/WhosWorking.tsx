@@ -256,7 +256,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
                           (worker.status === 'clocked_in' || worker.status === 'on_break') ? 'animate-pulse' : ''
                         }`} />
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-primary-dark [overflow-wrap:anywhere]">
+                          <div className="text-sm font-medium text-primary-dark break-words">
                             {worker.user.full_name || worker.user.display_name}
                           </div>
                           {worker.schedule && !canExpand && (

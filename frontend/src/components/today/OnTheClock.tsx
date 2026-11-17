@@ -61,7 +61,7 @@ export function OnTheClock({ workers, now, loadedAt }: OnTheClockProps) {
                   aria-hidden="true"
                   className={cx('size-2 shrink-0 rounded-full', earlier ? 'bg-red-600' : worker.status === 'on_break' ? 'bg-amber-500' : 'bg-emerald-600')}
                 />
-                <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                <div className="min-w-0 flex-1 break-words">
                   <p className="text-body-sm font-semibold text-ink [overflow-wrap:anywhere] pointer-coarse:text-body">{worker.user.full_name}</p>
                   <p className="text-body-sm text-ink-muted">
                     {[

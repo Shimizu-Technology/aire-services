@@ -322,7 +322,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
   const accounting = lifecycle.accounting_only && lifecycle.status === 'committed'
   const details = accounting ? ACCOUNTING_CORRECTION_NOTE : [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
     lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
-  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]} max-w-full whitespace-normal leading-tight [overflow-wrap:anywhere]`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycleLabel(lifecycle)}</span>
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]} max-w-full whitespace-normal leading-tight break-words`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycleLabel(lifecycle)}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
@@ -340,7 +340,7 @@ function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecy
 
 function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
   if (employee.ready && employee.approval_complete) {
-    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 max-w-full whitespace-normal [overflow-wrap:anywhere]">Complete</span>
+    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 max-w-full whitespace-normal break-words">Complete</span>
   }
 
   return <span title={employee.issues.uncategorized_count > 0 ? 'Missing category' : undefined} className="inline-flex rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Draft - needs review</span>
@@ -355,7 +355,7 @@ function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) 
         ? 'border-amber-200 bg-amber-50 text-amber-700'
         : 'border-emerald-200 bg-emerald-50 text-emerald-700'
   const label = employee.status === 'terminated' ? 'Terminated' : employee.status.charAt(0).toUpperCase() + employee.status.slice(1)
-  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles} max-w-full whitespace-normal [overflow-wrap:anywhere]`}>{label}</span>
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles} max-w-full whitespace-normal break-words`}>{label}</span>
 }
 
 const QUALITY_FLAG_LABELS: Record<NonNullable<TimeEntryItem['quality_flags']>[number], string> = {
@@ -371,7 +371,7 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
   return (
     <span className="mt-1 flex flex-wrap gap-1">
       {flags.map((flag) => (
-        <span key={flag} className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 max-w-full whitespace-normal [overflow-wrap:anywhere]">
+        <span key={flag} className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 max-w-full whitespace-normal break-words">
           {QUALITY_FLAG_LABELS[flag]}
         </span>
       ))}
@@ -1627,7 +1627,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       {(viewMode === 'period' || (!canManageTeamTime && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3 max-w-full whitespace-normal [overflow-wrap:anywhere]">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3 max-w-full whitespace-normal break-words">
                           <ClockIcon />
                           {entry.hours}h
                         </span>
@@ -2204,7 +2204,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     These checks do not change payroll totals or lock readiness. They highlight entries that may need a note or a quick accuracy check.
                   </p>
                 </div>
-                <span className="inline-flex w-fit rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 max-w-full whitespace-normal [overflow-wrap:anywhere]">Quality review</span>
+                <span className="inline-flex w-fit rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 max-w-full whitespace-normal break-words">Quality review</span>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <ReportMetric label="Missing categories" value={String(hoursReport.quality.missing_category_count)} tone={hoursReport.quality.missing_category_count > 0 ? 'warning' : 'normal'} />
@@ -2684,7 +2684,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         )}
                         {entry.breaks.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
-                            {entry.breaks.map((brk, index) => <span key={`${entry.id}-${index}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 max-w-full whitespace-normal [overflow-wrap:anywhere]">Break {brk.start_time}–{brk.end_time} ({brk.duration_minutes}m)</span>)}
+                            {entry.breaks.map((brk, index) => <span key={`${entry.id}-${index}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 max-w-full whitespace-normal break-words">Break {brk.start_time}–{brk.end_time} ({brk.duration_minutes}m)</span>)}
                           </div>
                         )}
                       </div>
@@ -2788,7 +2788,7 @@ function DetailedEntriesTable({
                 <div className="min-w-0"><dt className="text-xs text-text-muted">Categories</dt><dd className="break-words">{categories.join(', ')}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-text-muted">Sources</dt><dd className="break-words uppercase">{sources.join(', ')}</dd></div>
               </dl>
-              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.auto_approved ? 'auto' : entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700 max-w-full whitespace-normal [overflow-wrap:anywhere]">{status === 'standard' ? 'Standard approval' : status === 'auto' ? 'Auto-approved' : `${status} approval`}</span>)}</div>
+              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.auto_approved ? 'auto' : entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700 max-w-full whitespace-normal break-words">{status === 'standard' ? 'Standard approval' : status === 'auto' ? 'Auto-approved' : `${status} approval`}</span>)}</div>
               <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
               <div id={detailId} hidden={multiple && !expanded} className="space-y-3">
                 {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
@@ -3004,7 +3004,7 @@ function PersonDayModalContent({
       {Object.keys(catSummary).length > 1 && (
         <div className="flex flex-wrap gap-2 mb-5">
           {Object.entries(catSummary).map(([cat, hrs]) => (
-            <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full max-w-full whitespace-normal [overflow-wrap:anywhere]">
+            <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full max-w-full whitespace-normal break-words">
               {cat}
               <span className="text-primary/60">{hrs.toFixed(2)}h</span>
             </span>
@@ -3039,21 +3039,21 @@ function PersonDayModalContent({
                         {entry.formatted_start_time || '—'} – {entry.formatted_end_time || 'Active'}
                       </span>
                       {entry.status === 'clocked_in' && (
-                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded-full max-w-full whitespace-normal [overflow-wrap:anywhere]">Active</span>
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded-full max-w-full whitespace-normal break-words">Active</span>
                       )}
                       {entry.status === 'on_break' && (
-                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded-full max-w-full whitespace-normal [overflow-wrap:anywhere]">On Break</span>
+                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded-full max-w-full whitespace-normal break-words">On Break</span>
                       )}
                     </div>
 
                     {/* Category */}
                     <div className="flex items-center gap-2 mb-1">
                       {entry.time_category ? (
-                        <span className="inline-flex items-center px-2 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded-full max-w-full whitespace-normal [overflow-wrap:anywhere]">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded-full max-w-full whitespace-normal break-words">
                           {entry.time_category.name}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 bg-neutral-warm text-text-muted text-xs rounded-full max-w-full whitespace-normal [overflow-wrap:anywhere]">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-neutral-warm text-text-muted text-xs rounded-full max-w-full whitespace-normal break-words">
                           No category
                         </span>
                       )}
@@ -3077,19 +3077,19 @@ function PersonDayModalContent({
                     <div className="flex items-center gap-2 mt-1">
                       {entry.approval_status === 'pending' && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 max-w-full whitespace-normal [overflow-wrap:anywhere]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 max-w-full whitespace-normal break-words" />
                           Pending approval
                         </span>
                       )}
                       {entry.approval_status === 'approved' && (entry.approved_by || entry.auto_approved) && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 max-w-full whitespace-normal [overflow-wrap:anywhere]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 max-w-full whitespace-normal break-words" />
                           {entry.auto_approved ? 'Auto-approved' : `Approved by ${entry.approved_by?.full_name}`}
                         </span>
                       )}
                       {entry.approval_status === 'denied' && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-red-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 max-w-full whitespace-normal [overflow-wrap:anywhere]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 max-w-full whitespace-normal break-words" />
                           Denied
                         </span>
                       )}

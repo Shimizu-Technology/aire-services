@@ -838,7 +838,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                     {entryDisplayName(entry)}
                   </span>
                   {reasons.map((reason) => (
-                    <span key={reason.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${reasonTone(reason.key)} max-w-full whitespace-normal [overflow-wrap:anywhere]`}>
+                    <span key={reason.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${reasonTone(reason.key)} max-w-full whitespace-normal break-words`}>
                       {reason.label}
                     </span>
                   ))}
@@ -1015,7 +1015,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
         {collapsed ? (
           <div className="flex flex-wrap gap-2 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs text-amber-900">
-            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold max-w-full whitespace-normal [overflow-wrap:anywhere]">{option.label}: {option.count}</span>)}
+            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold max-w-full whitespace-normal break-words">{option.label}: {option.count}</span>)}
           </div>
         ) : <>
         {!queueUnavailable && <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

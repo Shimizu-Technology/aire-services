@@ -40,7 +40,7 @@ export function StatusPill({ tone, children, icon, className }: StatusPillProps)
       {icon
         ? <span aria-hidden="true" className="inline-flex shrink-0 [&>svg]:size-3.5">{icon}</span>
         : <span aria-hidden="true" className={cx('size-2 shrink-0 rounded-full', style.dot)} />}
-      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{children}</span>
+      <span className="min-w-0 whitespace-normal break-words">{children}</span>
     </span>
   )
 }

@@ -62,7 +62,7 @@ export function UnsavedChangesBar({
         >
           <p className="col-span-2 min-w-0 flex-1 text-body-sm">
             <span className="block font-semibold text-ink">{summary ? 'Unsaved change' : message}</span>
-            {summary && <span className="block whitespace-normal [overflow-wrap:anywhere] text-ink-muted">{summary}</span>}
+            {summary && <span className="block whitespace-normal break-words text-ink-muted">{summary}</span>}
           </p>
           <Button variant="ghost" onClick={onDiscard} disabled={saving} className="w-full shrink-0 sm:w-auto">{discardLabel}</Button>
           <Button

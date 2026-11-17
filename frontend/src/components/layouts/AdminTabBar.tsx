@@ -83,9 +83,9 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
           className={cx('relative', tabClass(active))}
         >
           <TabIcon icon={navItem.icon} />
-          <span className="max-w-full whitespace-normal [overflow-wrap:anywhere] text-center leading-tight">{navItem.shortName ?? navItem.name}</span>
+          <span className="max-w-full truncate whitespace-nowrap text-caption">{navItem.shortName ?? navItem.name}</span>
           {badge && (
-            <span aria-hidden="true" className="absolute right-0 top-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-slate-950 ring-2 ring-surface">
+            <span aria-hidden="true" className="absolute left-[calc(50%+4px)] top-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-slate-950 ring-2 ring-surface">
               {' '}{badge}
             </span>
           )}
@@ -110,7 +110,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
                 className={tabClass(moreActive)}
               >
                 <TabIcon icon={Ellipsis} />
-                <span className="max-w-full whitespace-normal [overflow-wrap:anywhere] text-center leading-tight">More</span>
+                <span className="max-w-full truncate whitespace-nowrap text-caption">More</span>
               </button>
             </li>
           )}

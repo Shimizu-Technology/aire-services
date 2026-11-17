@@ -5,7 +5,7 @@ export type ButtonLayout = 'label' | 'detail'
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const base =
-  'inline-flex flex-wrap max-w-full shrink-0 items-center justify-center rounded-control text-center font-semibold whitespace-normal text-balance leading-tight [overflow-wrap:anywhere] ' +
+  'inline-flex flex-wrap max-w-full shrink-0 items-center justify-center rounded-control text-center font-semibold whitespace-normal text-balance leading-tight break-words ' +
   'transition duration-(--dur-press) ease-out-strong active:scale-[0.97] motion-reduce:active:scale-100 ' +
   'disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 aria-busy:cursor-progress'
 

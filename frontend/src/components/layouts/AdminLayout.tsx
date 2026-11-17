@@ -165,7 +165,7 @@ function AdminShell() {
         </div>
 
         {/* Room for the phone tab bar and the home indicator below the last row. */}
-        <main id="admin-content" tabIndex={-1} className="min-w-0 flex-1 [overflow-wrap:anywhere] px-4 pb-[max(calc(6rem+env(safe-area-inset-bottom,0px)),calc(var(--selection-bar-height,0px)+1rem))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
+        <main id="admin-content" tabIndex={-1} className="min-w-0 flex-1 break-words px-4 pb-[max(calc(6rem+env(safe-area-inset-bottom,0px)),calc(var(--selection-bar-height,0px)+1rem))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
           <Outlet />
         </main>
       </div>

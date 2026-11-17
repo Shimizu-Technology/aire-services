@@ -594,11 +594,11 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
 
   if (!canViewKiosk) {
     return (
-      <main className="min-h-screen [overflow-wrap:anywhere] bg-slate-950 px-4 py-8 text-slate-100 md:px-6 [-webkit-tap-highlight-color:transparent]">
+      <main className="min-h-screen break-words bg-slate-950 px-4 py-8 text-slate-100 md:px-6 [-webkit-tap-highlight-color:transparent]">
         <div className="mx-auto max-w-3xl">
 
           {error && <p role="alert" className="rounded-xl border border-amber-300 p-4">{error}</p>}
-          <section className="mt-12 min-w-0 [overflow-wrap:anywhere] rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
+          <section className="mt-12 min-w-0 break-words rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-4xl">
               Manager or admin launch required
@@ -633,7 +633,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   }
 
   if (signOutProblem && isSignedIn) {
-    return <main className="min-h-screen [overflow-wrap:anywhere] bg-slate-950 p-6 text-white">
+    return <main className="min-h-screen break-words bg-slate-950 p-6 text-white">
       <h1 className="text-xl font-semibold">Sign out before using this shared tablet</h1>
       <p role="alert" className="mt-4">{error}</p>
       <button className="mt-4 min-h-11 rounded border px-4" onClick={() => {
@@ -643,7 +643,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
   }
 
   return (
-    <main className="min-h-screen [overflow-wrap:anywhere] bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
+    <main className="min-h-screen break-words bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
         <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice, onSessionRefused: (device) => { if (!inFlight.current) { if (device) lockDevice(); else endEmployeeSession() } } }} />
       </div>}
