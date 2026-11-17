@@ -1,6 +1,7 @@
 # Instructor Log time verification
 
-November 17, 2026 (Guam). Base: `origin/main` at `afb49c0`. Tested implementation:
+November 17, 2026 (Guam). Base: `origin/main` at `afb49c0`. Latest browser-tested implementation:
+`e77fee42f9ed85246f4d90217b56395163a88aa7`. Original full-gate implementation:
 `7af0cd66a1fbba3bbc01047691db8829385e6301`. The evidence commit changes only this
 record and screenshots. Worktree: `~/work/aire-cfi-log-time`; branch: `fix/cfi-log-time`.
 
@@ -16,7 +17,41 @@ The change is frontend only. Clock has a visible Log time card; Hours has one
 primary Log time button. New entries use Start/End and the student/aircraft/lesson
 note prompt. Existing-entry Ask for a fix keeps its labels and behavior.
 
-## Browser acceptance
+## Browser recheck after the lead’s polish
+
+Tested `e77fee42f9ed85246f4d90217b56395163a88aa7` on November 17, 2026 (Guam).
+Agent reran the local Playwright/Chromium harness at 390×900 and 1280×900 with
+fresh pure-CFI and clock-only fixtures. The CFI logged Flight Hours; the
+clock-only employee logged its assigned Admin Duties. No application code changed
+in this evidence update.
+
+| Required recheck | Pure CFI, 390 / 1280 | Clock-only, 390 / 1280 |
+| --- | --- | --- |
+| Clock in and secondary Log time visible; buttons do not overlap | Passed / Passed | Passed / Passed |
+| First save shows Sent for approval, work, day, start–end and hours | Passed / Passed | Passed / Passed |
+| Log another keeps day/work, clears times/note, and saves a second entry | Passed / Passed | Passed / Passed |
+| Both manual entries show Waiting for approval in Hours | Passed / Passed | Passed / Passed |
+
+All four fixture/viewport runs passed: eight real manual entries saved with
+pending approval. Both first and second save summaries were asserted against the
+selected work, date, time range and 1.0h duration. The saved screenshots show the
+second entry. No horizontal overflow or application defects were observed.
+Clock-in/out mutations and the full automated gates were not repeated in this
+focused recheck; their earlier results below remain historical coverage.
+
+Replaced the Clock, saved-sheet and Hours screenshots for `cfi` and `clock` at
+both widths. The mixed-fixture screenshots still document the original run.
+The two 390-pixel Hours captures are byte-identical to their prior versions.
+Local Rails/Vite used ports 3466/5466 and a fresh `aire_cfi_log_time_qa` database.
+The temporary Vite auth adapter and Clerk stub supplied local test identities;
+no external auth, production data, deployment or email was used. All browser
+contexts/processes and servers were closed, the temporary Vite config removed,
+and the QA database dropped. Lifecycle session
+`manual-20261117-174401-80562-25f6` reports no active owned resources. Shared
+PostgreSQL remains available. Physical-phone and mobile Safari coverage remain
+not run on this headless mini.
+
+## Original browser acceptance at 7af0cd6
 
 Agent executed, local Chromium 143.0.7499.4, Playwright 1.57.0, at 390×900 and
 1280×900. Rails ran in test mode on 3466 with a branch-specific local PostgreSQL
@@ -52,7 +87,7 @@ keyboard or mobile Safari acceptance. WebKit cannot start on this headless mini.
 Screenshots: `{cfi,mixed,clock}-clock-{390,1280}.png` show both actions;
 `*-saved-*.png` show Log another/Done; `*-hours-*.png` show persisted pending time.
 
-## Automated gates
+## Original automated gates at 7af0cd6
 
 | Check | Result |
 | --- | --- |
