@@ -1,16 +1,23 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { TimeEntry } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
 import { guamClock } from '../../lib/timecards'
 import { todayInGuam } from '../../lib/payPeriods'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
+import { employeeDate } from '../../lib/employeePresentation'
 import { Button, Field, Input, Select, Sheet, Textarea } from '../ui'
 
 function minutesBetween(start: string, end: string) {
   const minutes = (time: string) =>
     Number(time.slice(0, 2)) * 60 + Number(time.slice(3))
   return (minutes(end) - minutes(start) + 1440) % 1440
+}
+
+// "13:05" -> "1:05 PM"
+function clockLabel(time: string) {
+  const hour = Number(time.slice(0, 2))
+  return `${hour % 12 || 12}:${time.slice(3, 5)} ${hour < 12 ? 'AM' : 'PM'}`
 }
 
 function editableBreaks(entry?: TimeEntry) {
@@ -26,6 +33,7 @@ function editableBreaks(entry?: TimeEntry) {
 export function ShiftForm({
   entry: initialEntry,
   categories,
+  defaultCategory,
   categoriesError,
   categoriesLoading = false,
   onRetryCategories,
@@ -34,12 +42,16 @@ export function ShiftForm({
 }: {
   entry?: TimeEntry
   categories: Array<{ id: number; name: string }>
+  /** Work to preselect for new time, e.g. the Clock page's current choice. */
+  defaultCategory?: number | null
   categoriesError?: string | null
   categoriesLoading?: boolean
   onRetryCategories?: () => void
   onClose: () => void
   onSaved: () => void
 }) {
+  // What was just logged, so a run of flights can be checked one by one.
+  const [saved, setSaved] = useState<string | null>(null)
   const online = useOnlineStatus()
   const [entry, setEntry] = useState(initialEntry)
   // Added time starts blank: a prefilled day and 8–5 got saved on top of
@@ -68,9 +80,30 @@ export function ShiftForm({
         0,
       )
     : breakMinutes
+  const startingCategory = () =>
+    categories.find((row) => row.id === defaultCategory)?.id ??
+    categories[0]?.id ??
+    0
   const [category, setCategory] = useState(
-    entry?.time_category?.id ?? categories[0]?.id ?? 0,
+    entry?.time_category?.id ?? startingCategory(),
   )
+  // The sheet can open before work types load; pick one once they arrive.
+  useEffect(() => {
+    if (!entry && !category && categories.length) setCategory(startingCategory())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories])
+  const savedRef = useRef<HTMLDivElement>(null)
+  const startRef = useRef<HTMLInputElement>(null)
+  const loggingAnother = useRef(false)
+  // The focused button unmounts when the sheet switches between the form and
+  // the saved summary, so move focus to what replaced it.
+  useEffect(() => {
+    if (saved) savedRef.current?.focus()
+    else if (loggingAnother.current) {
+      loggingAnother.current = false
+      startRef.current?.focus()
+    }
+  }, [saved])
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [uncertain, setUncertain] = useState(false)
@@ -81,6 +114,10 @@ export function ShiftForm({
     end === entry.end_time &&
     totalBreakMinutes === (entry.break_minutes ?? 0)
   const timesChosen = !!start && !!end
+  // Only clocked shifts can run past midnight; the API refuses added time
+  // that does, so say so before sending.
+  const sameDayOnly = !entry || entry.entry_method === 'manual'
+  const crossesMidnight = timesChosen && end <= start
   const hours = unchangedTime
     ? entry.hours
     : timesChosen
@@ -103,10 +140,16 @@ export function ShiftForm({
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!online || saving || uncertain) return
+    if (!online || saving || uncertain || saved) return
     if (date > todayInGuam()) { setError("You can't add time for a day that hasn't happened yet."); return }
     if (!entry && (!date || !timesChosen)) {
       setError('Pick the day, then the times you worked.')
+      return
+    }
+    if (sameDayOnly && crossesMidnight) {
+      setError(
+        'End must be after start. For time past midnight, log the part after midnight as another entry on the next day.',
+      )
       return
     }
     if (
@@ -199,6 +242,19 @@ export function ShiftForm({
       )
       return
     }
+    if (!entry) {
+      const work = categories.find((row) => row.id === category)?.name
+      setSaved(
+        [
+          work,
+          employeeDate(date, { weekday: 'short' }),
+          `${clockLabel(start)}–${clockLabel(end)}`,
+          `${hours.toFixed(1)}h`,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      )
+    }
     onSaved()
   }
 
@@ -208,9 +264,29 @@ export function ShiftForm({
       onClose={() => {
         if (!saving) onClose()
       }}
-      title={entry ? 'Ask for a fix' : 'Add time I forgot to clock'}
+      title={entry ? 'Ask for a fix' : 'Log time'}
       description="Your manager approves the change."
-      footer={
+      footer={saved ? (
+        <div className="space-y-2">
+          <Button
+            fullWidth
+            onClick={() => {
+              setStart('')
+              setEnd('')
+              setNote('')
+              setBreakMinutes(0)
+              setError(null)
+              loggingAnother.current = true
+              setSaved(null)
+            }}
+          >
+            Log another
+          </Button>
+          <Button fullWidth variant="secondary" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      ) : (
         <Button
           fullWidth
           form="my-shift-form"
@@ -224,9 +300,19 @@ export function ShiftForm({
               ? `Add ${hours.toFixed(1)}h for approval`
               : 'Add time for approval'}
         </Button>
-      }
+      )}
     >
-      <form
+      {saved ? (
+        <div
+          ref={savedRef}
+          tabIndex={-1}
+          role="status"
+          className="space-y-1 focus:outline-none"
+        >
+          <p className="font-medium text-ink">Sent for approval</p>
+          <p className="text-body-sm text-ink-muted">{saved}</p>
+        </div>
+      ) : <form
         id="my-shift-form"
         noValidate
         onSubmit={submit}
@@ -247,17 +333,20 @@ export function ShiftForm({
         {date && (
           <>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Clock in" required>
+              <Field label={entry ? 'Clock in' : 'Start'} required>
                 <Input
+                  ref={startRef}
                   type="time"
                   value={start}
                   onChange={(event) => setStart(event.target.value)}
                 />
               </Field>
               <Field
-                label="Clock out"
+                label={entry ? 'Clock out' : 'End'}
                 required
-                help={end < start ? 'Ends the next day' : undefined}
+                help={
+                  !sameDayOnly && crossesMidnight ? 'Ends the next day' : undefined
+                }
               >
                 <Input
                   type="time"
@@ -347,6 +436,7 @@ export function ShiftForm({
             </Field>
             <Field label={entry ? 'What happened?' : 'Note'} required={!!entry}>
               <Textarea
+                placeholder={entry ? undefined : 'Student, aircraft or lesson'}
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
               />
@@ -371,7 +461,7 @@ export function ShiftForm({
             {error}
           </p>
         )}
-      </form>
+      </form>}
     </Sheet>
   )
 }

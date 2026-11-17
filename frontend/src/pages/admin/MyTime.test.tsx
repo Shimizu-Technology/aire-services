@@ -38,6 +38,7 @@ vi.mock('../../lib/api/myTime', () => ({
     startBreak: vi.fn(),
     endBreak: vi.fn(),
     switchWork: vi.fn(),
+    addTime: vi.fn(),
   },
 }))
 beforeEach(() => {
@@ -829,4 +830,60 @@ it('never offers an employee the override', async () => {
     await screen.findByText('Your shift starts soon. Try again in 20 minutes.'),
   ).toBeVisible()
   expect(screen.queryByRole('button', { name: 'Clock in anyway' })).toBeNull()
+})
+
+it('offers Log time alongside Clock in with all assigned work types', async () => {
+  await open()
+  expect(screen.getByRole('button', { name: 'Clock in' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Log time' }))
+  const sheet = screen.getByRole('dialog', { name: 'Log time' })
+  fireEvent.change(within(sheet).getByLabelText(/Which day/), { target: { value: '2026-11-13' } })
+  expect(within(sheet).getByLabelText(/^Start/)).toBeInTheDocument()
+  expect(within(sheet).getByLabelText(/^End/)).toBeInTheDocument()
+  for (const category of categories) {
+    expect(within(sheet).getByRole('option', { name: category.name })).toBeInTheDocument()
+  }
+})
+
+it('uses a supervisor’s own assigned work for Log time too', async () => {
+  viewer.role = 'manager'
+  vi.mocked(myTimeApi.ownCategories).mockResolvedValue({ data: { time_categories: [categories[0]] } })
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: 'Log time' }))
+  const sheet = screen.getByRole('dialog', { name: 'Log time' })
+  fireEvent.change(within(sheet).getByLabelText(/Which day/), { target: { value: '2026-11-13' } })
+  expect(within(sheet).getByRole('option', { name: categories[0].name })).toBeInTheDocument()
+  expect(within(sheet).queryByRole('option', { name: categories[1].name })).not.toBeInTheDocument()
+})
+
+it('logs time from Clock with the chosen work and confirms what was sent', async () => {
+  vi.mocked(myTimeApi.addTime).mockResolvedValue({
+    data: { time_entry: shift({ entry_method: 'manual' }) },
+    status: 201,
+  })
+  await open()
+  fireEvent.click(screen.getByRole('radio', { name: 'Ground School' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Log time' }))
+  const sheet = screen.getByRole('dialog', { name: 'Log time' })
+  fireEvent.change(within(sheet).getByLabelText(/Which day/), { target: { value: '2026-11-13' } })
+  expect(within(sheet).getByLabelText(/^Work/)).toHaveValue(String(categories[1].id))
+  fireEvent.change(within(sheet).getByLabelText(/^Start/), { target: { value: '22:00' } })
+  fireEvent.change(within(sheet).getByLabelText(/^End/), { target: { value: '01:30' } })
+  expect(within(sheet).queryByText('Ends the next day')).toBeNull()
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Add 3.5h for approval' }))
+  expect(within(sheet).getByRole('alert')).toHaveTextContent('log the part after midnight as another entry')
+  expect(myTimeApi.addTime).not.toHaveBeenCalled()
+  fireEvent.change(within(sheet).getByLabelText(/^End/), { target: { value: '23:30' } })
+  const reads = vi.mocked(myTimeApi.entries).mock.calls.length
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Add 1.5h for approval' }))
+  const saved = await within(sheet).findByRole('status')
+  expect(saved).toHaveTextContent('Ground School · Fri, Nov 13 · 10:00 PM–11:30 PM · 1.5h')
+  await waitFor(() => expect(saved).toHaveFocus())
+  expect(myTimeApi.addTime).toHaveBeenCalledWith(
+    expect.objectContaining({ work_date: '2026-11-13', time_category_id: categories[1].id }),
+  )
+  await waitFor(() => expect(vi.mocked(myTimeApi.entries).mock.calls.length).toBeGreaterThan(reads))
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Clock in' })).toBeEnabled()
 })

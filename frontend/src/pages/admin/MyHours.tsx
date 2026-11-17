@@ -222,8 +222,8 @@ export default function MyHours() {
             period={period}
             approverNames={approverNames}
           />
-          <Button fullWidth variant="secondary" onClick={() => setForm('new')}>
-            Add time I forgot to clock
+          <Button fullWidth onClick={() => setForm('new')}>
+            Log time
           </Button>
           {days.size === 0 ? (
             <EmptyState title="No time recorded this pay period." />
@@ -318,13 +318,11 @@ export default function MyHours() {
             void currentLoad.current?.()
           }}
           onSaved={() => {
-            toast.show({
-              message:
-                form === 'new'
-                  ? 'Your time was added and sent for approval.'
-                  : 'Your fix was sent for approval.',
-            })
-            setForm(null)
+            // New time shows its own confirmation in the sheet.
+            if (form !== 'new') {
+              toast.show({ message: 'Your fix was sent for approval.' })
+              setForm(null)
+            }
             void currentLoad.current?.()
           }}
         />
