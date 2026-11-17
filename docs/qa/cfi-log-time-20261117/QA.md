@@ -1,7 +1,7 @@
 # Instructor Log time verification
 
 November 17, 2026 (Guam). Base: `origin/main` at `afb49c0`. Latest browser-tested implementation:
-`4307c436f1d4799f356827ef7c836567c886b4e9`. Original full-gate implementation:
+`761d043c7f26be1e780e561e1997ac97f6b7b7e3`. Original full-gate implementation:
 `7af0cd66a1fbba3bbc01047691db8829385e6301`. The evidence commit changes only this
 record and screenshots. Worktree: `~/work/aire-cfi-log-time`; branch: `fix/cfi-log-time`.
 
@@ -17,7 +17,43 @@ The change is frontend only. Clock has a visible Log time card; Hours has one
 primary Log time button. New entries use Start/End and the student/aircraft/lesson
 note prompt. Existing-entry Ask for a fix keeps its labels and behavior.
 
-## Final browser pass at 4307c436: overnight acceptance failed
+## Targeted browser pass at 761d043c: overnight resolved by refusal
+
+Tested `761d043c7f26be1e780e561e1997ac97f6b7b7e3` on November 17, 2026 (Guam),
+using the pure-CFI fixture at 390×900 and 1280×900. Chromium 143.0.7499.4 /
+Playwright 1.57.0; fresh local fixtures. No application code changed.
+
+| Required check | 390 px | 1280 px | Observable and saved outcome |
+| --- | --- | --- | --- |
+| 22:00–01:30 refused inline | Passed | Passed | Exact split-at-midnight message displayed; zero create requests, zero entries for that employee/day in the local database. No Ends the next day hint. |
+| Correct End to 23:30, then save | Passed | Passed | Summary shows Solo, day, 10:00 PM–11:30 PM and 1.5h; actual keyboard focus is on the summary. No next-day suffix. |
+| Log another, daytime save, Done | Passed | Passed | Day/Solo retained, times cleared, focus on Start; 10:00–11:00 saved successfully. |
+| Hours lists both entries pending | Passed | Passed | Both saved entries show Waiting for approval; no stray added-time toast. Exactly two successful create requests per viewport. |
+| Clock-only Clock in/out sanity | Passed | Not run (one width requested) | Admin Duties clock session completed and Clock in again appeared. |
+
+The earlier overnight blocker is **resolved by refusal**, not by supporting an
+overnight manual entry. The exact inline message was:
+“End must be after start. For time past midnight, log the part after midnight as
+another entry on the next day.” Network observation confirmed no POST was sent
+for either refused attempt; direct local database counts confirmed nothing saved.
+Four manual entries and one clock session succeeded. The clock-only fixture was
+moved back two minutes after starting to meet the existing minimum duration.
+
+Refreshed the CFI overnight-form/refusal, saved-summary, Log another and Hours
+captures where pixels changed. `cfi-saved-*` now shows the corrected 1.5h evening
+entry. `cfi-overnight-refused-*` now shows the inline refusal, replacing the former
+server-422 capture. Historical failed-run details below remain for traceability.
+This targeted pass does not claim new manual-fix or overnight clock-fix coverage;
+full automated gates were not repeated for an evidence-only update.
+
+Rails/Vite ran locally in test mode on 3466/5466 using the dedicated
+`aire_cfi_log_time_qa` database and temporary test-auth adapter. All browser
+contexts/processes and both servers closed, temporary config removed, QA database
+dropped. Lifecycle `manual-20261117-180159-81953-02da` reports no active owned
+resources. No production, deployment or email actions. Physical-phone and mobile
+Safari testing remain not run on this headless mini.
+
+## Earlier pass at 4307c436: historical overnight blocker, resolved at 761d043c
 
 Agent executed on November 17, 2026 (Guam), Chromium 143.0.7499.4 / Playwright
 1.57.0 at 390×900 and 1280×900, with fresh pure-CFI and clock-only fixtures.
@@ -26,14 +62,14 @@ No application code changed. The non-default Clock chip was Solo.
 | Requested check | 390 px | 1280 px | Result |
 | --- | --- | --- | --- |
 | Chosen Clock chip preselects Work | Passed | Passed | Solo stayed selected in Log time. A separate delayed real-category response also filled Work after the sheet opened. |
-| Save 22:00–01:30 overnight time | Failed | Failed | Form displayed 3.5h and Ends the next day; API refused with HTTP 422, End time must be after start time. Nothing saved. |
+| Save 22:00–01:30 overnight time | Failed then; resolved by refusal at 761d043c | Failed then; resolved by refusal at 761d043c | Form displayed 3.5h and Ends the next day; API refused with HTTP 422, End time must be after start time. Nothing saved. |
 | Saved overnight summary says next day | Blocked | Blocked | Cannot reach a saved overnight summary through the real API. |
 | Summary receives keyboard focus after a successful daytime save | Passed | Passed | Actual active element was the Sent for approval status, with Solo, day, range and 1.0h. |
 | Log another focuses Start and clears times without a premature next-day hint | Passed | Passed | Start was the active element; date/Solo retained; both times blank. Hint also absent after entering Start alone. |
 | Second daytime flight then Done; Hours pending with no stray toast | Passed | Passed | Both Solo entries pending. Also added a third entry directly from Hours to exercise its own callback; no duplicate added-time toast appeared after Done. |
 | Clock-only Clock in/out sanity | Passed | Passed | Admin Duties clock-in and clock-out succeeded at both widths. |
 
-The overnight refusal is a real application acceptance blocker. Reproduction:
+At this earlier SHA, the unexpected server-side overnight refusal was an acceptance blocker. Reproduction:
 Clock → Solo → Log time → Nov 13 (390) or Nov 14 (1280) → 22:00–01:30 →
 Add 3.5h for approval. `POST /api/v1/time_entries` returns
 `{"error":"End time must be after start time"}`. Read-only source inspection
@@ -65,8 +101,8 @@ All browser contexts/processes and servers closed; temporary config removed;
 QA database dropped. Lifecycle `manual-20261117-175042-81123-035a` reports no
 active owned resources. No production, deployment or email actions. Physical
 phone and mobile Safari were not run. The full automated gates were not repeated
-for this evidence-only update. The lead must resolve or explicitly disposition
-the overnight blocker before treating the requested final acceptance as passed.
+for this evidence-only update. The subsequent 761d043c pass above resolves this blocker by explicit client-side
+refusal and instructions to split time at midnight.
 
 ## Earlier browser recheck after the lead’s polish
 
