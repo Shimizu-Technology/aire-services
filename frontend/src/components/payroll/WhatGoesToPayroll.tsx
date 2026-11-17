@@ -176,7 +176,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
                           aria-expanded={expanded}
                           aria-label={`${expanded ? 'Hide' : 'Show'} ${row.name}'s days`}
                           onClick={() => toggle(row.id)}
-                          className="inline-grid size-11 place-items-center rounded-control text-ink-muted hover:bg-surface-muted pointer-fine:size-9 whitespace-nowrap min-h-11 min-w-11"
+                          className="inline-grid size-11 place-items-center rounded-control text-ink-muted hover:bg-surface-muted pointer-fine:size-9 whitespace-nowrap"
                         >
                           {expanded ? <ChevronDown aria-hidden="true" className="size-4" /> : <ChevronRight aria-hidden="true" className="size-4" />}
                         </button>

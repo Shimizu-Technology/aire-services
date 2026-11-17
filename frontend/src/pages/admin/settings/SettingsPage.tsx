@@ -346,7 +346,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
           className="rounded-card border border-red-300 bg-red-50 p-4 text-red-800"
         >
           <p>{error}</p>
-          <button type="button" onClick={load} className="min-h-11 underline whitespace-nowrap min-w-11">
+          <button type="button" onClick={load} className="min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">
             Reload settings
           </button>
         </div>
@@ -368,7 +368,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                   type="button"
                   disabled={saving}
                   onClick={() => void turnOffRequire()}
-                  className="min-h-11 underline whitespace-nowrap min-w-11"
+                  className="min-h-11 underline whitespace-normal text-balance max-w-full min-w-11"
                 >
                   Turn off Require
                 </button>
@@ -414,7 +414,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                   (key === 'schedule_required_for_clock_in' && draft.schedules_enabled !== 'true') ||
                   (key === 'pay_stub_request_notification_emails' && !emailsEditable)
                 const heading = (
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {isSwitch ? (
                       <span className="font-semibold">{label}</span>
                     ) : (
@@ -428,7 +428,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                 return (
                   <div key={key} className="space-y-2 p-4">
                     {isSwitch ? (
-                      <div className="flex items-center justify-between gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
                         {heading}
                         <Switch
                           hideLabel

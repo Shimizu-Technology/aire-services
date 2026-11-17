@@ -37,7 +37,7 @@ export function MyPayErrorState({ error, onRetry, retrying }: { error: MyPayErro
               type="button"
               onClick={onRetry}
               disabled={retrying}
-              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-control border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60 whitespace-nowrap min-w-11"
+              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-control border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60 whitespace-normal text-balance max-w-full min-w-11"
             >
               <RotateCw className={`h-4 w-4 ${retrying ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
               {retrying ? 'Trying again…' : 'Try again'}

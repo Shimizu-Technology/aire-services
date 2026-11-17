@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useRef, type ReactNode } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { cx } from '../../lib/cx'
 import { useSelectionBarRegistration } from '../layouts/shellChrome'
@@ -43,12 +43,14 @@ export function UnsavedChangesBar({
   className,
 }: UnsavedChangesBarProps) {
   const ids = useId()
-  useSelectionBarRegistration(dirty)
+  const barRef = useRef<HTMLDivElement>(null)
+  useSelectionBarRegistration(dirty, barRef)
   return (
     <>
       <p aria-live="polite" className="sr-only">{dirty ? message : ''}</p>
       {dirty && (
         <div
+          ref={barRef}
           role="region"
           aria-label="Unsaved changes"
           className={cx(
@@ -60,7 +62,7 @@ export function UnsavedChangesBar({
         >
           <p className="col-span-2 min-w-0 flex-1 text-body-sm">
             <span className="block font-semibold text-ink">{summary ? 'Unsaved change' : message}</span>
-            {summary && <span className="block truncate text-ink-muted">{summary}</span>}
+            {summary && <span className="block whitespace-normal [overflow-wrap:anywhere] text-ink-muted">{summary}</span>}
           </p>
           <Button variant="ghost" onClick={onDiscard} disabled={saving} className="w-full shrink-0 sm:w-auto">{discardLabel}</Button>
           <Button

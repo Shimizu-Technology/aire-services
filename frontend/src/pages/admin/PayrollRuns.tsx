@@ -213,8 +213,8 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
           connectionPill={connectionPill}
           now={now}
         >
-          {/* The overflow sits beside the stepper so it never wraps onto a row of its own on a phone. */}
-          <div className="mt-3 flex items-center gap-2">
+          {/* Keep the overflow beside the stepper when there is room; enlarged text can move it below. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <PeriodStepper className="w-full max-w-xs" period={range} onChange={goToPeriod} max={currentStart ?? undefined} now={now} />
             <Menu label="More payroll actions" title="More" items={menuItems} triggerVariant="secondary" className="shrink-0" />
           </div>

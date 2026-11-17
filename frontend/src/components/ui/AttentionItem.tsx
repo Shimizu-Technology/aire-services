@@ -31,7 +31,7 @@ export function AttentionItem({ tone, icon, children, meta, action, className }:
   return (
     <li data-tone={tone} className={cx('grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 px-3.5 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center', className)}>
       <span aria-hidden="true" className={cx('inline-grid size-8 shrink-0 place-items-center rounded-control [&>svg]:size-[1.125rem]', TILES[tone])}>{icon}</span>
-      <div className="min-w-0 flex-1 text-body-sm leading-snug text-ink pointer-coarse:text-body">
+      <div className="min-w-0 flex-1 [overflow-wrap:anywhere] text-body-sm leading-snug text-ink pointer-coarse:text-body">
         <p className="[overflow-wrap:anywhere]">{children}</p>
         {meta && <p className="mt-0.5 text-body-sm text-ink-muted">{meta}</p>}
       </div>

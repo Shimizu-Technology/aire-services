@@ -49,7 +49,7 @@ export function SelectionBar({
   // Silent until something has been selected, then "Selection cleared" at 0.
   const [everActive, setEverActive] = useState(active)
   if (active && !everActive) setEverActive(true)
-  useSelectionBarRegistration(active)
+  useSelectionBarRegistration(active, barRef)
 
   // Remember where focus was before it entered the bar (the row checkbox, say),
   // so clearing from the bar returns there instead of dropping it on <body>.
@@ -106,12 +106,12 @@ export function SelectionBar({
             className,
           )}
         >
-          <p className="min-w-0 flex-1 text-body-sm text-ink-muted">
+          <p className="min-w-0 flex-1 basis-36 text-body-sm text-ink-muted">
             <span className="text-body font-semibold text-ink">{countText}</span>
-            {summary && <span className="block truncate sm:inline sm:before:mx-1.5 sm:before:content-['·']">{summary}</span>}
+            {summary && <span className="block whitespace-normal [overflow-wrap:anywhere] sm:inline sm:before:mx-1.5 sm:before:content-['·']">{summary}</span>}
           </p>
           <Button variant="ghost" onClick={onClear} className="shrink-0">{clearLabel}</Button>
-          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:shrink-0 sm:items-center">{actions}</div>
+          <div className="flex max-w-full flex-wrap items-stretch gap-2">{actions}</div>
         </div>
       )}
     </>

@@ -83,7 +83,7 @@ export default function PayrollLockControl({ variant = 'full', refreshKey }: Pro
   if (!capabilities.manage_payroll || control === undefined && !loadError) return null
   if (loadError && !control) {
     return variant === 'full'
-      ? <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">The next lock time could not be loaded. <button type="button" onClick={() => void load()} className="min-h-11 font-semibold underline whitespace-nowrap min-w-11">Try again</button></p>
+      ? <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">The next lock time could not be loaded. <button type="button" onClick={() => void load()} className="font-semibold underline">Try again</button></p>
       : null
   }
   if (!control) {

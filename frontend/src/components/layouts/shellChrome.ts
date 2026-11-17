@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, type RefObject } from 'react'
 
 export interface ShellChrome {
   /** A SelectionBar is showing. On phones it takes the tab bar's place. */
@@ -24,7 +24,29 @@ export function useShellChrome() {
 }
 
 /** Tell the shell a selection bar is showing while `active` is true. */
-export function useSelectionBarRegistration(active: boolean) {
+const barHeights = new Map<symbol, number>()
+
+export function useSelectionBarRegistration(active: boolean, ref?: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const element = ref?.current
+    if (!active || !element) return
+    const key = Symbol()
+    const update = () => {
+      barHeights.set(key, element.getBoundingClientRect().height)
+      document.documentElement.style.setProperty('--selection-bar-height', `${Math.max(...barHeights.values())}px`)
+    }
+    update()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(element)
+    window.addEventListener('resize', update)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', update)
+      barHeights.delete(key)
+      if (barHeights.size) document.documentElement.style.setProperty('--selection-bar-height', `${Math.max(...barHeights.values())}px`)
+      else document.documentElement.style.removeProperty('--selection-bar-height')
+    }
+  }, [active, ref])
   const { registerSelectionBar } = useShellChrome()
   useEffect(() => (active ? registerSelectionBar() : undefined), [active, registerSelectionBar])
 }

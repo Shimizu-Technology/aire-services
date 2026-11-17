@@ -816,9 +816,9 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     return (
       <div
         key={entry.id}
-        className={`border rounded-xl p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
+        className={`border rounded-xl p-2 sm:p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
       >
-        <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <label className={`mt-1 inline-flex min-h-[44px] min-w-[44px] items-start justify-center rounded-xl border border-slate-200 bg-white pt-3 ${selectable ? 'cursor-pointer hover:border-primary/50' : 'cursor-not-allowed opacity-50'}`} title={needsAnotherApprover ? 'Needs another approver' : missingCategory ? 'Add a work category before approval' : 'Select for bulk approval'}>
             <input
               type="checkbox"
@@ -831,14 +831,14 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
           </label>
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-primary-dark text-sm">
                     {entryDisplayName(entry)}
                   </span>
                   {reasons.map((reason) => (
-                    <span key={reason.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${reasonTone(reason.key)} whitespace-nowrap shrink-0`}>
+                    <span key={reason.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${reasonTone(reason.key)} max-w-full whitespace-normal [overflow-wrap:anywhere]`}>
                       {reason.label}
                     </span>
                   ))}
@@ -870,7 +870,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                             return next
                           })
                         }}
-                        className="text-primary text-[11px] font-medium hover:underline mt-0.5 whitespace-nowrap min-h-11 min-w-11"
+                        className="text-primary text-[11px] font-medium hover:underline mt-0.5 whitespace-normal text-balance max-w-full min-h-11"
                       >
                         {expandedDescriptions.has(entry.id) ? 'Show less' : 'Show more'}
                       </button>
@@ -882,7 +882,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 )}
               </div>
 
-              <div className="text-right shrink-0">
+              <div className="max-w-full shrink-0 text-right">
                 <div className="text-lg font-bold text-primary-dark">{entry.hours}h</div>
                 <div className="text-[10px] text-text-muted uppercase">Total entry hours</div>
                 {isPendingOvertime && !isPendingApproval && <p className="mt-1 max-w-28 text-[10px] text-text-muted">Only the overtime portion needs review.</p>}
@@ -916,7 +916,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 <span className="font-semibold text-primary-dark">Needs another approver.</span> An owner, admin or another manager reviews your own time.
               </p>
             ) : (
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:items-center">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-stretch">
               <button
                 onClick={() => handleApprove(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
                 disabled={missingCategory || actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
@@ -927,7 +927,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               {entry.entry_method === 'clock' && entry.original_employee_change && entry.original_employee_change.restorable !== false && <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined, true)}
                 disabled={actionLoading === entry.id || queueUnavailable}
-                className={buttonClasses({ variant: 'secondary', className: 'order-3 col-span-2 sm:flex-1' })}>
+                className={buttonClasses({ variant: 'secondary', layout: 'detail', className: 'order-3 col-span-full sm:order-none sm:flex-1' })}>
                 Reject change, keep original time
                 <span className="block font-normal">{entry.original_employee_change.formatted_range}</span>
               </button>}
@@ -977,7 +977,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     <>
     <div className="bg-white rounded-2xl shadow-sm border border-amber-200/70 overflow-hidden hover:shadow-md transition-shadow duration-300">
       <div className="h-1 bg-amber-400" />
-      <div className="p-5">
+      <div className="min-w-0 p-3 sm:p-5">
         <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <button type="button" onClick={toggleCollapsed} className="flex min-h-[44px] items-center gap-2.5 text-left">
             <div className="w-8 h-8 bg-amber-50 border border-amber-200 rounded-full flex items-center justify-center">
@@ -1015,7 +1015,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
         {collapsed ? (
           <div className="flex flex-wrap gap-2 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs text-amber-900">
-            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold whitespace-nowrap shrink-0">{option.label}: {option.count}</span>)}
+            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold max-w-full whitespace-normal [overflow-wrap:anywhere]">{option.label}: {option.count}</span>)}
           </div>
         ) : <>
         {!queueUnavailable && <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1150,11 +1150,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => applyQuickDateFilter('through_today')} className={buttonClasses({ variant: 'secondary' })}>Through today</button>
-              <button onClick={() => applyQuickDateFilter('today')} className={buttonClasses({ variant: 'secondary' })}>Today</button>
-              <button onClick={() => applyQuickDateFilter('yesterday')} className={buttonClasses({ variant: 'secondary' })}>Yesterday</button>
-              <button onClick={() => applyQuickDateFilter('this_week')} className={buttonClasses({ variant: 'secondary' })}>This week</button>
-              <button onClick={() => applyQuickDateFilter('last_week')} className={buttonClasses({ variant: 'secondary' })}>Last week</button>
+              <button onClick={() => applyQuickDateFilter('through_today')} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>Through today</button>
+              <button onClick={() => applyQuickDateFilter('today')} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>Today</button>
+              <button onClick={() => applyQuickDateFilter('yesterday')} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>Yesterday</button>
+              <button onClick={() => applyQuickDateFilter('this_week')} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>This week</button>
+              <button onClick={() => applyQuickDateFilter('last_week')} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>Last week</button>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
@@ -1162,7 +1162,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 Group by date
               </label>
               {activeReviewFilters && (
-                <button onClick={clearReviewFilters} className="text-xs font-semibold text-primary hover:text-primary-dark whitespace-nowrap min-h-11 min-w-11">Clear filters</button>
+                <button onClick={clearReviewFilters} className="text-xs font-semibold text-primary hover:text-primary-dark whitespace-normal text-balance max-w-full min-h-11">Clear filters</button>
               )}
             </div>
           </div>
@@ -1197,7 +1197,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
         {actionError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3 flex items-center justify-between gap-2">
             <p className="text-xs text-red-700">{actionError}</p>
-            <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 shrink-0 whitespace-nowrap min-h-11 min-w-11">
+            <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 shrink-0 whitespace-normal text-balance max-w-full min-h-11">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
@@ -1224,7 +1224,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 const groupApprovableEntries = group.entries.filter(isReviewable)
                 const groupSelected = groupApprovableEntries.length > 0 && groupApprovableEntries.every((entry) => selectedIds.has(entry.id))
                 return (
-                  <section key={group.date} className="rounded-2xl border border-slate-200 bg-white/70 p-3">
+                  <section key={group.date} className="min-w-0 rounded-2xl border border-slate-200 bg-white/70 p-2 sm:p-3">
                     <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <button type="button" onClick={() => toggleGroupSelection(group.entries)} disabled={groupApprovableEntries.length === 0} className="flex items-center gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50">
                         <span className={`flex h-5 w-5 items-center justify-center rounded border ${groupSelected ? 'border-primary bg-primary text-white' : 'border-slate-300 bg-white'}`}>

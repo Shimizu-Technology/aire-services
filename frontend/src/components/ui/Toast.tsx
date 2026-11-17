@@ -93,8 +93,8 @@ function Toaster({ toast, reducedMotion, onDismiss }: { toast: ToastRecord | nul
       aria-keyshortcuts={TOAST_HOTKEY_LABEL}
       className={cx(
         'pointer-events-none fixed inset-x-3 z-(--z-toast) flex justify-center',
-        'bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] lg:inset-x-auto lg:right-8',
-        selectionBarActive ? 'lg:bottom-24' : 'lg:bottom-8',
+        'lg:inset-x-auto lg:right-8',
+        selectionBarActive ? 'bottom-[calc(var(--selection-bar-height,5rem)+0.75rem)] lg:bottom-[calc(var(--selection-bar-height,5rem)+0.75rem)]' : 'bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] lg:bottom-8',
       )}
     >
       <div role="status" aria-live="polite" aria-atomic="true" className="flex w-full justify-center">
@@ -182,7 +182,7 @@ function ToastView({ toast, reducedMotion, paused: modalOpen, onDismiss }: { toa
           type="button"
           data-toast-action
           onClick={() => { close(); if (action.expiresAt === undefined || Date.now() < action.expiresAt) action.onAction() }}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-control px-3 font-semibold text-sky-300 transition-colors duration-150 hover:bg-white/10 focus-visible:outline-white whitespace-nowrap min-w-11"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-control px-3 font-semibold text-sky-300 transition-colors duration-150 hover:bg-white/10 focus-visible:outline-white whitespace-normal text-balance max-w-full min-w-11"
         >
           {action.label}
         </button>

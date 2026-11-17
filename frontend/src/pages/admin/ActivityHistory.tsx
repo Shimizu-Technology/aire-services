@@ -155,7 +155,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <h2 className="mt-1 text-lg font-semibold text-slate-950">{event.summary}</h2>
           <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)} Guam time</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded-control p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 whitespace-nowrap min-h-11 min-w-11" aria-label="Close event details">
+        <button type="button" onClick={onClose} className="rounded-control p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 whitespace-normal text-balance max-w-full min-h-11 min-w-11" aria-label="Close event details">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -404,7 +404,7 @@ export default function ActivityHistory() {
       {searchParams.get('saved') === '1' && <p role="status">Shift saved.</p>}
       {returnTo && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>{backLabel}</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
-      {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline whitespace-nowrap min-h-11 min-w-11" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
+      {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline whitespace-normal text-balance max-w-full min-h-11 min-w-11" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Accountability</p>
@@ -421,7 +421,7 @@ export default function ActivityHistory() {
         {routeSubjectType && routeSubjectId && (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary-dark">
             <span>Showing history for {formatLabel(routeSubjectType)} #{routeSubjectId}</span>
-            {globalHistory && <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark whitespace-nowrap min-h-11 min-w-11">Show all</button>}
+            {globalHistory && <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark whitespace-normal text-balance max-w-full min-h-11 min-w-11">Show all</button>}
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -443,7 +443,7 @@ export default function ActivityHistory() {
           <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">From</span><input aria-label="From date" type="date" value={filters.from || ''} onChange={(event) => updateFilter('from', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
           <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">To</span><input aria-label="To date" type="date" value={filters.to || ''} onChange={(event) => updateFilter('to', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
         </div>
-        {activeFilterCount > 0 && <button type="button" onClick={clearFilters} className="mt-3 text-sm font-semibold text-primary transition hover:text-primary-dark whitespace-nowrap min-h-11 min-w-11">Clear {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}</button>}
+        {activeFilterCount > 0 && <button type="button" onClick={clearFilters} className="mt-3 text-sm font-semibold text-primary transition hover:text-primary-dark whitespace-normal text-balance max-w-full min-h-11 min-w-11">Clear {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}</button>}
       </section>
 
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}

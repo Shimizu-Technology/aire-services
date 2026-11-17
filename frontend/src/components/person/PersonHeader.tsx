@@ -31,7 +31,7 @@ export function PersonHeader({ user, myPayOn, backTo, backLabel, onSendStub, men
         {backLabel}
       </Link>
       <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-        <div className="flex min-w-0 flex-1 basis-64 items-start gap-3.5">
+        <div className="flex min-w-0 flex-1 basis-[min(16rem,100%)] items-start gap-3.5">
           <Avatar name={name} size="lg" />
           <div className="min-w-0 flex-1">
             <h1 className="text-heading font-semibold text-ink [overflow-wrap:anywhere]">{name}</h1>

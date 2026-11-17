@@ -234,7 +234,7 @@ export default function SendPayStubDialog({ request, workerId, lockWorker = fals
             {period?.worker && !sent && <p className="mt-0.5 break-words text-sm text-slate-600">{period.worker.name}</p>}
             {request && !sent && <p className="mt-0.5 text-sm text-slate-600">{request.worker.name} asked for: {describeRequest(request)}</p>}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-600 whitespace-nowrap min-h-11 min-w-11">
+          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-600 whitespace-normal text-balance max-w-full min-h-11 min-w-11">
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>

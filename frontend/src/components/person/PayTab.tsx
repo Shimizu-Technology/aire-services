@@ -182,7 +182,7 @@ export function PayTab({ user, today, myPayForEveryone, myPayError, onRetryMyPay
         <Section
           title="Paychecks"
           action={(
-            <div className="flex items-center gap-1">
+            <div className="flex max-w-full flex-wrap items-stretch gap-1">
               {previewHref && <Link to={previewHref} className="inline-flex min-h-11 items-center px-2 text-body-sm font-semibold text-primary hover:underline">Preview their My Pay</Link>}
               <Button variant="secondary" size="sm" icon={<Send className="size-4" />} onClick={onSendStub}>Send stub</Button>
             </div>
@@ -291,7 +291,7 @@ function PayPeriodRow({ userId, period, today, identity, expanded, onToggle, foc
           {lookup.status === 'error' && (
             <p role="alert" className="text-body-sm text-danger">
               Couldn't load this period's payroll status.{' '}
-              <button type="button" className="font-semibold underline whitespace-nowrap min-h-11 min-w-11" onClick={() => setRetry(value => value + 1)}>Try again</button>
+              <button type="button" className="font-semibold underline" onClick={() => setRetry(value => value + 1)}>Try again</button>
             </p>
           )}
         </div>

@@ -117,7 +117,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     return (
       <div className={`${cardClass} animate-pulse`}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-        <div className="p-5 flex-1">
+        <div className="p-2 sm:p-5 flex-1">
           <div className="h-5 bg-neutral-warm rounded w-32 mb-4" />
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
@@ -133,11 +133,11 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     return (
       <div className={cardClass}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-        <div className="p-5 flex-1">
+        <div className="p-2 sm:p-5 flex-1">
           <h3 className="font-semibold text-primary-dark text-base mb-3">Today's Team</h3>
           <div className="text-center py-4">
             <p className="text-sm text-red-600 mb-2">Unable to load team status</p>
-            <button onClick={fetchWorkers} className="text-xs text-primary-dark hover:underline font-medium whitespace-nowrap min-h-11 min-w-11">
+            <button onClick={fetchWorkers} className="text-xs text-primary-dark hover:underline font-medium whitespace-normal text-balance max-w-full min-h-11 min-w-11">
               Retry
             </button>
           </div>
@@ -157,8 +157,8 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     return (
       <div className={cardClass}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-        <div className="p-5 flex-1 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
+        <div className="p-2 sm:p-5 flex-1 flex flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
             <div className="flex items-center gap-1.5 bg-secondary rounded-full px-2.5 py-1">
               <div className="w-2 h-2 rounded-full bg-neutral-warm" />
@@ -199,10 +199,10 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
   return (
     <div className={cardClass}>
       {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-      <div className="p-5 flex-1">
-        {fetchError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Team status could not refresh. Showing the last successful snapshot. <button type="button" onClick={fetchWorkers} className="min-h-11 underline whitespace-nowrap min-w-11">Retry team status</button></div>}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+      <div className="p-2 sm:p-5 flex-1">
+        {fetchError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Team status could not refresh. Showing the last successful snapshot. <button type="button" onClick={fetchWorkers} className="min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">Retry team status</button></div>}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
             {cableConnected && !fetchError && (
               <span className="flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700 whitespace-nowrap shrink-0">
@@ -211,10 +211,10 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={fetchWorkers}
-              className="text-xs text-text-muted hover:text-primary-dark font-medium transition-colors whitespace-nowrap min-h-11 min-w-11"
+              className="text-xs text-text-muted hover:text-primary-dark font-medium transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               title="Refresh snapshot"
             >
               Refresh snapshot
@@ -243,20 +243,20 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
                   transition={{ duration: 0.2 }}
                 >
                   <div
-                    className={`py-2.5 px-3 rounded-xl transition-colors ${
+                    className={`py-2.5 px-2 sm:px-3 rounded-xl transition-colors ${
                       canExpand
                         ? 'bg-secondary/50 cursor-pointer hover:bg-secondary/70'
                         : 'hover:bg-secondary/30'
                     }`}
                     onClick={() => canExpand && setExpandedId(isExpanded ? null : worker.user.id)}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-2 h-2 rounded-full shrink-0 ${config.dot} ${
                           (worker.status === 'clocked_in' || worker.status === 'on_break') ? 'animate-pulse' : ''
                         }`} />
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-primary-dark truncate">
+                          <div className="text-sm font-medium text-primary-dark [overflow-wrap:anywhere]">
                             {worker.user.full_name || worker.user.display_name}
                           </div>
                           {worker.schedule && !canExpand && (
@@ -344,7 +344,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         {!showAll && hiddenCount > 0 && (
           <button
             onClick={() => setShowAll(true)}
-            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-control hover:bg-secondary/40 transition-colors whitespace-nowrap min-h-11 min-w-11"
+            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-control hover:bg-secondary/40 transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
           >
             {`Show ${hiddenCount} more (off duty)`}
           </button>
@@ -352,7 +352,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         {showAll && workers.some(w => !w.schedule && w.status !== 'clocked_in' && w.status !== 'on_break' && w.status !== 'clocked_out') && (
           <button
             onClick={() => setShowAll(false)}
-            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-control hover:bg-secondary/40 transition-colors whitespace-nowrap min-h-11 min-w-11"
+            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-control hover:bg-secondary/40 transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
           >
             Hide off-duty staff
           </button>
@@ -419,7 +419,7 @@ function ExpandedDetails({
       )}
 
       {(isActive || isDone) && (
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 text-center">
           <div className="bg-white rounded-lg py-1.5 px-2 border border-neutral-warm/50">
             <div className="text-xs font-semibold text-primary-dark">{worker.completed_hours}h</div>
             <div className="text-[9px] text-text-muted uppercase tracking-wider mt-0.5">Worked</div>
@@ -438,7 +438,7 @@ function ExpandedDetails({
       )}
 
       {(isActive || isDone) && (
-        <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+        <div className="mt-2 grid grid-cols-1 gap-2 text-center sm:grid-cols-2">
           <div className="bg-white rounded-lg py-1.5 px-2 border border-neutral-warm/50">
             <div className="text-xs font-semibold text-primary-dark">{worker.time_category?.name || '—'}</div>
             <div className="text-[9px] text-text-muted uppercase tracking-wider mt-0.5">{dayEntries.length > 1 ? 'Current Category' : 'Category'}</div>
@@ -639,7 +639,7 @@ function AdminActions({
             </button>
           </div>
           {categories.length > 1 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <select
                 value={switchCatId}
                 onChange={e => setSwitchCatId(e.target.value)}

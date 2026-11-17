@@ -30,9 +30,17 @@ describe('Button', () => {
       const classes = buttonClasses({ size }).split(' ')
       expect(classes.some(name => name === 'min-h-11' || name === 'min-h-12')).toBe(true)
     }
-    // Pointer type must not change the shared control height.
-    expect(buttonClasses({ size: 'sm' })).not.toContain('pointer-fine:min-h-9')
+    // Compact desktop controls retain 44px minimums for touch.
+    expect(buttonClasses({ size: 'sm' })).toContain('pointer-fine:min-h-9')
     expect(buttonClasses({ iconOnly: true })).toContain('size-11')
+  })
+
+  it('allows a detailed action to grow without a fixed height or nowrap label', () => {
+    render(<Button layout="detail">Reject change, keep original time<span>7:00 AM–1:20 PM</span></Button>)
+    const button = screen.getByRole('button', { name: /Reject change, keep original time/ })
+    expect(button).toHaveTextContent('7:00 AM–1:20 PM')
+    expect(button).toHaveClass('flex-col', 'max-w-full', 'whitespace-normal')
+    expect(button).not.toHaveClass('h-11', 'h-12', 'whitespace-nowrap')
   })
 
   it('activates from the keyboard', async () => {

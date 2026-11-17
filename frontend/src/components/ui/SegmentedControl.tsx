@@ -54,7 +54,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cx(
-              'inline-flex min-h-11 h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-control px-3 text-body-sm font-semibold transition-colors duration-150',
+              'inline-flex min-h-11 max-w-full shrink-0 pointer-fine:min-h-8 items-center justify-center whitespace-normal text-balance text-center leading-tight py-1.5 rounded-control px-3 text-body-sm font-semibold transition-colors duration-150',
               'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
               selected ? 'bg-surface text-ink shadow-[0_1px_2px_rgb(15_23_42/0.12)]' : 'text-ink-muted hover:text-ink',
             )}

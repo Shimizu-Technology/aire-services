@@ -613,7 +613,7 @@ export default function EditTimeEntryModal({
                               setFormData({ ...formData, break_minutes: preset.minutes })
                             }
                           }}
-                          className={`whitespace-nowrap min-h-11 min-w-11 min-h-11 min-w-11 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          className={`whitespace-normal min-h-11 min-w-11 pointer-fine:min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                             (preset.minutes === null && formData.break_minutes === null) ||
                             (preset.minutes === formData.break_minutes) ||
                             (preset.minutes === -1 &&
@@ -763,7 +763,7 @@ export default function EditTimeEntryModal({
                   <div role="alert" ref={errorRef} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
                     {needsReload && (
-                      <button type="button" className="mt-2 block min-h-11 underline disabled:opacity-50 whitespace-nowrap min-w-11" disabled={saving} onClick={async () => {
+                      <button type="button" className="mt-2 block min-h-11 underline disabled:opacity-50 whitespace-normal text-balance max-w-full min-w-11" disabled={saving} onClick={async () => {
                         if (reloadBusy.current) return
                         reloadBusy.current = true
                         const generation = ++editGeneration.current
@@ -804,7 +804,7 @@ export default function EditTimeEntryModal({
                       type="button"
                       onClick={handleDelete}
                       disabled={!canDelete || deleting || saving || needsReload}
-                      className={`whitespace-nowrap min-h-11 min-w-11 pointer-coarse:min-h-11 rounded-lg px-4 py-2 transition-colors ${
+                      className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 pointer-coarse:min-h-11 rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
                       title={canDelete ? 'Delete this time entry' : 'You cannot delete this time entry'}

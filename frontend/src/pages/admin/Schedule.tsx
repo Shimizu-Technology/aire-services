@@ -386,11 +386,11 @@ export default function Schedule() {
   return (
     <div className="space-y-6">
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
-      {selectedUser && <div className="flex flex-wrap items-center gap-3 text-sm"><span>Showing one employee’s schedule</span><button type="button" className="min-h-11 underline whitespace-nowrap min-w-11" onClick={() => { const next = new URLSearchParams(query); next.delete('user_id'); setQuery(next) }}>Show all employees</button></div>}
+      {selectedUser && <div className="flex flex-wrap items-center gap-3 text-sm"><span>Showing one employee’s schedule</span><button type="button" className="min-h-11 underline whitespace-normal text-balance max-w-full min-w-11" onClick={() => { const next = new URLSearchParams(query); next.delete('user_id'); setQuery(next) }}>Show all employees</button></div>}
       {loadError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
           <p>{loadError}</p>
-          <button type="button" onClick={loadSchedules} className="mt-2 min-h-11 underline whitespace-nowrap min-w-11">Retry loading schedules</button>
+          <button type="button" onClick={loadSchedules} className="mt-2 min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">Retry loading schedules</button>
         </div>
       )}
       {/* Header */}
@@ -414,7 +414,7 @@ export default function Schedule() {
         <div className="flex items-center gap-1 bg-neutral-warm rounded-lg p-1">
           <button
             onClick={() => setViewMode('list')}
-            className={`whitespace-nowrap min-h-11 min-w-11 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors min-h-[44px]  ${
+            className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors ${
               effectiveViewMode === 'list'
                 ? 'bg-white text-primary shadow-sm'
                 : 'text-text-muted hover:text-primary-dark'
@@ -475,7 +475,7 @@ export default function Schedule() {
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={goToPrevWeek}
-            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-control transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center whitespace-nowrap"
+            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-control transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center whitespace-normal text-balance max-w-full"
             aria-label="Previous week"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -490,7 +490,7 @@ export default function Schedule() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-4">
               <button
                 onClick={goToCurrentWeek}
-                className="text-sm text-primary hover:text-primary-dark py-1 whitespace-nowrap min-h-11 min-w-11"
+                className="text-sm text-primary hover:text-primary-dark py-1 whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               >
                 Go to current week
               </button>
@@ -504,7 +504,7 @@ export default function Schedule() {
 
           <button
             onClick={goToNextWeek}
-            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-control transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center whitespace-nowrap"
+            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-control transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center whitespace-normal text-balance max-w-full"
             aria-label="Next week"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -603,7 +603,7 @@ export default function Schedule() {
                               {canManage && <button
                                 aria-label="Edit shift"
                                 onClick={() => openEditModal(schedule)}
-                                className="inline-flex items-center justify-center p-2.5 sm:p-2 text-text-muted hover:text-primary-dark hover:bg-neutral-warm rounded-control transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 whitespace-nowrap"
+                                className="inline-flex items-center justify-center p-2.5 sm:p-2 text-text-muted hover:text-primary-dark hover:bg-neutral-warm rounded-control transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 whitespace-normal text-balance max-w-full"
                                 title="Edit shift"
                               >
                                 <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -691,7 +691,7 @@ export default function Schedule() {
                               ))}
                               {canManage && <button
                                 onClick={() => openAddModal(user.id, dateStr)}
-                                className={`whitespace-nowrap min-h-11 min-w-11 w-full px-2 py-1.5 border-2 border-dashed border-neutral-warm hover:border-primary hover:bg-primary/5 text-text-muted hover:text-primary text-xs rounded transition-colors ${
+                                className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 w-full px-2 py-1.5 border-2 border-dashed border-neutral-warm hover:border-primary hover:bg-primary/5 text-text-muted hover:text-primary text-xs rounded transition-colors ${
                                   cellSchedules.length > 0 ? 'opacity-60 hover:opacity-100' : ''
                                 }`}
                               >
@@ -784,7 +784,7 @@ export default function Schedule() {
                   {leaveLoading && <p role="status" className="text-sm text-text-muted">Checking approved leave…</p>}
                   {leaveError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                     <p>{leaveError}</p>
-                    <button type="button" onClick={() => setLeaveRetry(value => value + 1)} className="mt-2 min-h-11 font-semibold underline whitespace-nowrap min-w-11">Retry leave check</button>
+                    <button type="button" onClick={() => setLeaveRetry(value => value + 1)} className="mt-2 min-h-11 font-semibold underline whitespace-normal text-balance max-w-full min-w-11">Retry leave check</button>
                   </div>}
                   {!leaveLoading && !leaveError && shiftLeave.length > 0 && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                     <p className="font-semibold">Approved leave overlaps this shift</p>
@@ -808,7 +808,7 @@ export default function Schedule() {
                         key={preset.label}
                         type="button"
                         onClick={() => applyPreset(preset)}
-                        className={`whitespace-nowrap min-h-11 min-w-11 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                        className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                           formData.start_time === preset.start_time && formData.end_time === preset.end_time
                             ? 'bg-primary text-white'
                             : 'bg-neutral-warm text-primary-dark hover:bg-primary/20'
@@ -862,7 +862,7 @@ export default function Schedule() {
               </div>
 
               {/* Actions */}
-              <div className="flex justify-between mt-6 pt-4 border-t border-neutral-warm">
+              <div className="flex flex-wrap justify-between gap-3 mt-6 pt-4 border-t border-neutral-warm">
                 <div>
                   {editingSchedule && (
                     <button
@@ -874,7 +874,7 @@ export default function Schedule() {
                     </button>
                   )}
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap items-stretch gap-3">
                   <button
                     type="button"
                     onClick={closeDialog}

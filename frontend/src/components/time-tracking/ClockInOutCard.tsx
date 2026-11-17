@@ -336,7 +336,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
   // Shared button styles
   const btnPrimary = buttonClasses({ variant: 'primary', size: 'lg' })
   const btnSecondary = buttonClasses({ variant: 'secondary', size: 'lg' })
-  const btnBreak = buttonClasses({ variant: 'secondary', size: 'lg' })
+  const btnBreak = 'inline-flex min-h-12 max-w-full shrink-0 items-center justify-center gap-2 rounded-control bg-amber-500 px-5 py-2.5 text-center text-body-sm font-semibold leading-tight text-white hover:bg-amber-600 active:bg-amber-700 disabled:opacity-50'
 
   return (
     <div className={`rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
@@ -492,22 +492,22 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
             <button
               onClick={() => handleAction('clock_in', isAdminOverridable)}
               disabled={actionLoading || !canClockIn}
-              className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnPrimary}`}
+              className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 w-full ${btnPrimary}`}
             >
               {actionLoading ? <Spinner /> : <><ClockIcon /> {isAdminOverridable ? 'Clock In (Override)' : 'Clock In'}</>}
             </button>
           ) : (
             <>
               {isOnBreak ? (
-                <button onClick={() => handleAction('end_break')} disabled={actionLoading} className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnBreak}`}>
+                <button onClick={() => handleAction('end_break')} disabled={actionLoading} className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 w-full ${btnBreak}`}>
                   {actionLoading ? <Spinner /> : <><PlayIcon /> End Break</>}
                 </button>
               ) : (
-                <button onClick={() => handleAction('start_break')} disabled={actionLoading} className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnSecondary}`}>
+                <button onClick={() => handleAction('start_break')} disabled={actionLoading} className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 w-full ${btnSecondary}`}>
                   {actionLoading ? <Spinner className="border-primary-dark/30 border-t-primary-dark" /> : <><PauseIcon /> Start Break</>}
                 </button>
               )}
-              <button onClick={handleClockOut} disabled={actionLoading} className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnPrimary}`}>
+              <button onClick={handleClockOut} disabled={actionLoading} className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 w-full ${btnPrimary}`}>
                 {actionLoading ? <Spinner /> : <><StopIcon /> Clock Out</>}
               </button>
             </>
@@ -756,7 +756,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
                   <div className="flex items-center gap-2 mt-2">
                     <button
                       onClick={() => setCorrectionTime('')}
-                      className="text-xs text-amber-700 hover:text-amber-900 font-medium hover:underline whitespace-nowrap min-h-11 min-w-11"
+                      className="text-xs text-amber-700 hover:text-amber-900 font-medium hover:underline whitespace-normal text-balance max-w-full min-h-11 min-w-11"
                     >
                       I worked until now instead
                     </button>
@@ -769,7 +769,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
               <button
                 onClick={handleClockOutSubmit}
                 disabled={correctionTime !== '' && (!correctionTime || correctionBeforeClockIn)}
-                className="flex-1 min-h-[44px] bg-primary text-white font-semibold rounded-control text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-2 whitespace-nowrap min-w-11"
+                className="flex-1 min-h-[44px] bg-primary text-white font-semibold rounded-control text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-2 whitespace-normal text-balance max-w-full min-w-11"
               >
                 <StopIcon />
                 {correctionTime ? `Clock Out at ${fmt12(correctionTime)}` : 'Clock Out'}

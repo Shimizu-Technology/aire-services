@@ -219,9 +219,9 @@ function LinkCard({ link, onRevoked }: { link: PayStubLink; onRevoked: (link: Pa
       </p>
       {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
       {link.state === 'active' && (confirming ? (
-        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-between">
           <p className="text-sm text-red-900">Turn this link off now? Nobody will be able to download from it.</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-stretch gap-2">
             <button type="button" className={secondary} onClick={() => setConfirming(false)} disabled={busy}>Keep</button>
             <button type="button" className={buttonClasses({ variant: 'danger' })} onClick={revoke} disabled={busy}>
               {busy ? 'Revoking…' : 'Revoke link'}
@@ -229,7 +229,7 @@ function LinkCard({ link, onRevoked }: { link: PayStubLink; onRevoked: (link: Pa
           </div>
         </div>
       ) : (
-        <button type="button" className={`whitespace-nowrap min-h-11 min-w-11 ${secondary} mt-3`} onClick={() => setConfirming(true)}>Revoke</button>
+        <button type="button" className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 ${secondary} mt-3`} onClick={() => setConfirming(true)}>Revoke</button>
       ))}
     </li>
   )
@@ -302,7 +302,7 @@ export default function PayStubs() {
             Email people a secure link to their pay stubs. You pick pay dates only; amounts never appear here or in the email.
           </p>
         </div>
-        <button type="button" className={`whitespace-nowrap min-h-11 min-w-11 ${primary} shrink-0`} onClick={() => setDialog({})}>
+        <button type="button" className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 ${primary} shrink-0`} onClick={() => setDialog({})}>
           <Send className="h-4 w-4" aria-hidden="true" />
           Send a pay stub
         </button>
@@ -316,7 +316,7 @@ export default function PayStubs() {
             role="tab"
             aria-selected={tab === item.key}
             onClick={() => setTab(item.key)}
-            className={`h-11 min-h-11 shrink-0 flex-1 whitespace-nowrap rounded-control px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-cyan-600 ${tab === item.key ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            className={`min-h-11 min-h-11 shrink-0 flex-1 whitespace-normal text-balance max-w-full rounded-control px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-cyan-600 ${tab === item.key ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
           >
             {item.label}
           </button>

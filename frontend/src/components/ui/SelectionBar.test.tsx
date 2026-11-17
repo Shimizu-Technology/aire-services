@@ -33,6 +33,15 @@ function Harness({ initial = 0 }: { initial?: number }) {
 }
 
 describe('SelectionBar', () => {
+  it('publishes and clears its measured height for shell padding and toasts', () => {
+    const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 144 } as DOMRect)
+    const { unmount } = render(<Harness initial={2} />)
+    expect(document.documentElement.style.getPropertyValue('--selection-bar-height')).toBe('144px')
+    unmount()
+    expect(document.documentElement.style.getPropertyValue('--selection-bar-height')).toBe('')
+    geometry.mockRestore()
+  })
+
   it('stays out of the way until something is selected', () => {
     render(<Harness />)
     expect(screen.queryByRole('region', { name: 'Selected shifts' })).not.toBeInTheDocument()

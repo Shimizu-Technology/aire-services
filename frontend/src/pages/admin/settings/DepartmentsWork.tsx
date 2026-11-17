@@ -278,7 +278,7 @@ export default function DepartmentsWork() {
               <button
                 type="button"
                 onClick={() => setGroups((previous) => previous.filter((_, at) => at !== index))}
-                className="min-h-11 whitespace-nowrap min-w-11"
+                className="min-h-11 whitespace-normal text-balance max-w-full min-w-11"
               >
                 Remove
               </button>
@@ -287,7 +287,7 @@ export default function DepartmentsWork() {
           <button
             type="button"
             onClick={() => setGroups((previous) => [...previous, { key: '', label: '' }])}
-            className="min-h-11 text-primary whitespace-nowrap min-w-11"
+            className="min-h-11 text-primary whitespace-normal text-balance max-w-full min-w-11"
           >
             Add department
           </button>
@@ -341,7 +341,7 @@ export default function DepartmentsWork() {
               {(!item.id || savedWork.find((row) => row.id === item.id)?.deletable) && (
                 <button
                   type="button"
-                  className="min-h-11 text-red-700 whitespace-nowrap min-w-11"
+                  className="min-h-11 text-red-700 whitespace-normal text-balance max-w-full min-w-11"
                   onClick={() => setWork((previous) => previous.filter((_, at) => at !== index))}
                 >
                   Delete work category
@@ -354,7 +354,7 @@ export default function DepartmentsWork() {
             onClick={() =>
               setWork((previous) => [...previous, { name: '', description: '', is_active: true }])
             }
-            className="min-h-11 text-primary whitespace-nowrap min-w-11"
+            className="min-h-11 text-primary whitespace-normal text-balance max-w-full min-w-11"
           >
             Add kind of work
           </button>

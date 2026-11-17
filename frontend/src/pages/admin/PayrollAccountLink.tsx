@@ -82,9 +82,9 @@ export default function PayrollAccountLink() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_-44px_rgba(15,23,42,0.7)]">
-        <div className="relative overflow-hidden bg-[linear-gradient(135deg,#0f172a,#1e3a5f)] px-6 py-8 text-white sm:px-9">
+        <div className="relative overflow-hidden bg-[linear-gradient(135deg,#0f172a,#1e3a5f)] px-3 py-8 text-white sm:px-9">
           <div className="absolute -right-12 -top-20 h-52 w-52 rounded-full bg-cyan-400/15 blur-3xl" aria-hidden="true" />
-          <div className="relative flex items-start gap-4">
+          <div className="relative flex flex-wrap items-start gap-4 [&>div]:min-w-0 [&>div]:max-w-full">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10">
               <Link2 className="h-6 w-6 text-white" aria-hidden="true" />
             </div>
@@ -98,7 +98,7 @@ export default function PayrollAccountLink() {
           </div>
         </div>
 
-        <div className="p-6 sm:p-9">
+        <div className="min-w-0 p-3 sm:p-9">
           {loading && (
             <div className="flex min-h-52 items-center justify-center gap-3 text-sm text-slate-600" role="status">
               <Loader2 className="h-5 w-5 animate-spin text-[#1e3a5f]" aria-hidden="true" />
@@ -121,15 +121,15 @@ export default function PayrollAccountLink() {
 
           {!loading && session && (
             <div className="space-y-7">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cornerstone account</p>
-                  <p className="mt-2 break-words text-sm font-semibold text-slate-950">{session.external_actor_email || 'Your signed-in payroll account'}</p>
+                  <p className="mt-2 [overflow-wrap:anywhere] text-sm font-semibold text-slate-950">{session.external_actor_email || 'Your signed-in payroll account'}</p>
                 </div>
                 <div className="rounded-2xl border border-[#1e3a5f]/20 bg-[#1e3a5f]/5 px-4 py-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#1e3a5f]">AIRE account</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">{session.aire_user.name}</p>
-                  {session.aire_user.email && <p className="mt-1 break-words text-xs text-slate-600">{session.aire_user.email}</p>}
+                  {session.aire_user.email && <p className="mt-1 [overflow-wrap:anywhere] text-xs text-slate-600">{session.aire_user.email}</p>}
                 </div>
               </div>
 
@@ -138,7 +138,7 @@ export default function PayrollAccountLink() {
                   <ShieldCheck className="h-5 w-5 text-[#1e3a5f]" aria-hidden="true" />
                   <h2 className="font-semibold text-slate-950">Cornerstone will be able to</h2>
                 </div>
-                <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+                <ul className="mt-4 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   {permissions.map((permission) => (
                     <li key={permission} className="flex items-start gap-2 text-sm leading-5 text-slate-700">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -154,7 +154,7 @@ export default function PayrollAccountLink() {
 
               {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">{error}</div>}
 
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-end">
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-end">
                 {cancelUrl && (
                   <a href={cancelUrl} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2">
                     <Unplug className="h-4 w-4" aria-hidden="true" />
@@ -165,7 +165,7 @@ export default function PayrollAccountLink() {
                   type="button"
                   onClick={() => void connect()}
                   disabled={connecting}
-                  className={buttonClasses({ variant: 'ghost' })}
+                  className={buttonClasses({ variant: 'primary' })}
                 >
                   {connecting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Link2 className="h-4 w-4" aria-hidden="true" />}
                   {connecting ? 'Connecting…' : 'Connect and return to Cornerstone'}
