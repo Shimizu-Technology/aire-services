@@ -291,7 +291,7 @@ function PayPeriodRow({ userId, period, today, identity, expanded, onToggle, foc
           {lookup.status === 'error' && (
             <p role="alert" className="text-body-sm text-danger">
               Couldn't load this period's payroll status.{' '}
-              <button type="button" className="font-semibold underline" onClick={() => setRetry(value => value + 1)}>Try again</button>
+              <button type="button" className="font-semibold underline whitespace-nowrap min-h-11 min-w-11" onClick={() => setRetry(value => value + 1)}>Try again</button>
             </p>
           )}
         </div>

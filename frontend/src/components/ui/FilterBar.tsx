@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from 'react'
 import { Search, SlidersHorizontal } from 'lucide-react'
 import { cx } from '../../lib/cx'
+import { chipClasses } from './chipStyles'
 import { Button } from './Button'
 import { Sheet } from './Sheet'
 
@@ -58,7 +59,7 @@ export function FilterBar({ search, children, moreFilters, activeFilterCount = 0
           >
             Filters
             {activeFilterCount > 0 && (
-              <span aria-hidden="true" className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-caption font-semibold text-white">
+              <span aria-hidden="true" className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-caption font-semibold text-white whitespace-nowrap shrink-0">
                 {activeFilterCount}
               </span>
             )}
@@ -103,13 +104,10 @@ export function FilterChip({ selected, onClick, children, count }: FilterChipPro
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={cx(
-        'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-body-sm font-medium transition-colors duration-150 pointer-fine:min-h-9 pointer-coarse:min-h-11',
-        selected ? 'border-primary bg-primary text-white' : 'border-line-strong bg-surface text-ink hover:bg-surface-muted',
-      )}
+      className={chipClasses(selected)}
     >
       {children}
-      {count !== undefined && <span className={cx('tabular-nums', selected ? 'text-white/85' : 'text-ink-subtle')}>{count}</span>}
+      {count !== undefined && <span className={cx('shrink-0 tabular-nums', selected ? 'text-white/85' : 'text-ink-subtle')}>{count}</span>}
     </button>
   )
 }

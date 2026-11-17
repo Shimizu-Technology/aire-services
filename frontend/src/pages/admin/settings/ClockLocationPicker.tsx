@@ -106,7 +106,7 @@ export default function ClockLocationPicker({
         type="button"
         disabled={busy}
         onClick={currentLocation}
-        className="min-h-11 text-primary"
+        className="min-h-11 text-primary whitespace-nowrap min-w-11"
       >
         Use my current location
       </button>

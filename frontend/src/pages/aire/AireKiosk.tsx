@@ -572,12 +572,12 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
                     : 'A manager or admin unlocks this kiosk before staff can enter a PIN.'}
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {canUnlockKiosk ? (
                 <button
                   onClick={handleUnlock}
                   disabled={unlocking || (isClerkEnabled && !isSignedIn)}
-                  className={`min-h-11 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  className={`min-h-11 whitespace-nowrap rounded-control px-4 py-2 text-sm font-semibold transition ${
                     unlocking || (isClerkEnabled && !isSignedIn)
                       ? 'cursor-not-allowed bg-slate-800 text-slate-500'
                       : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
@@ -612,13 +612,13 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
                 <button className="min-h-11 px-4 py-2" onClick={() => void signOut({ redirectUrl: '/kiosk' })}>Sign out</button>
               ) : !isSignedIn ? (
                 <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
-                  <button className="min-h-11 rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+                  <button className="min-h-11 whitespace-nowrap rounded-control bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
                     Manager or admin sign in
                   </button>
                 </SignInButton>
               ) : (
                 <>
-                  <div className="min-h-11 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                  <div className="min-h-11 whitespace-nowrap rounded-control border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
                     You are signed in, but only managers and admins can open this kiosk. Ask one to unlock it, or sign out and use a manager or admin account.
                   </div>
                   <button className="min-h-11 px-4 py-2" onClick={() => void signOut({ redirectUrl: '/kiosk' })}>Sign out</button>
@@ -651,7 +651,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       {/* Staff share this device while it's unlocked; keep them on the kiosk. */}
 
       <div className={`mx-auto grid w-full gap-8 px-4 pb-8 pt-4 md:px-6 ${employee ? 'max-w-2xl' : 'max-w-6xl md:grid-cols-[1.15fr_1fr]'}`}>
-        <section className={`order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 md:p-8 ${employee && !requestingStub ? 'pb-52 lg:pb-8' : ''}`}>
+        <section className={`min-w-0 order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 md:p-8 ${employee && !requestingStub ? 'pb-52 lg:pb-8' : ''}`}>
           {employee ? (
             <header className="flex items-center justify-between gap-3 text-sm">
               <h1 className="font-semibold text-cyan-300">AIRE kiosk</h1>
@@ -693,7 +693,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
               {employee && (
                 <button
                   onClick={clearSession}
-                  className="min-h-11 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10"
+                  className="min-h-11 whitespace-nowrap rounded-control border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10"
                 >
                   Not you? Reset
                 </button>
@@ -742,13 +742,13 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
 
           {employee && !requestingStub && <div className="mt-8"><ClockActions kiosk>
             <button onClick={() => runAction(primaryAction)} disabled={!primaryEnabled || !!actionLoading || loading || actionsCooling}
-              className="min-h-14 w-full rounded-2xl bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
+              className="min-h-14 w-full whitespace-nowrap rounded-control bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
               {actionLoading === primaryAction ? `${formatActionLabel(primaryAction)}...` : formatActionLabel(primaryAction)}
             </button>
             {!status?.clocked_in && status?.can_clock_in !== false && categories.length > 0 && !selectedCategoryId && <p className="text-sm text-slate-200">Pick what you're working on</p>}
-            <div className="flex flex-wrap gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {secondaryActions.map(action => <button key={action} onClick={() => runAction(action)} disabled={!!actionLoading || loading || actionsCooling}
-                className="min-h-12 flex-1 rounded-xl border border-slate-600 px-4 py-3 font-semibold text-slate-100 disabled:opacity-50">
+                className="min-h-12 w-full whitespace-nowrap rounded-control border border-slate-600 px-4 py-3 font-semibold text-slate-100 disabled:opacity-50">
                 {actionLoading === action ? `${formatActionLabel(action)}...` : formatActionLabel(action)}
               </button>)}
             </div>
@@ -769,7 +769,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
               type="button"
               onClick={() => { bumpIdleTimer(); setError(null); setSuccess(null); setRequestingStub(true) }}
               disabled={!!actionLoading || loading || actionsCooling}
-              className="mt-3 w-full rounded-2xl border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 min-h-12 w-full whitespace-nowrap rounded-control border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Request my pay stub
             </button>
@@ -780,16 +780,16 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
           </p>
         </section>
 
-        {!employee && <section aria-label="Staff PIN" className="order-1 md:order-2 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
+        {!employee && <section aria-label="Staff PIN" className="min-w-0 order-1 md:order-2 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
           <p className="text-sm font-semibold uppercase tracking-[0.13em] text-cyan-300">Enter PIN</p>
-          <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-4 whitespace-nowrap text-center text-3xl tracking-[0.2em] text-cyan-200">
+          <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-4 whitespace-nowrap text-center text-[clamp(1rem,5vw,1.875rem)] tracking-[0.2em] text-cyan-200">
             {employee ? 'READY' : maskedPin}
           </div>
 
           <button
             onClick={handleVerify}
             disabled={loading || !kioskUnlocked || !!employee || pin.length < 4}
-            className={`mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+            className={`mt-4 min-h-12 w-full whitespace-nowrap rounded-control px-4 py-3 text-sm font-semibold transition ${
               loading || !kioskUnlocked || employee || pin.length < 4
                 ? 'cursor-not-allowed bg-slate-800 text-slate-500'
                 : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
@@ -807,7 +807,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
                 aria-label={key === '⌫' ? 'Delete last digit' : key === 'CLR' ? 'Clear' : key}
                 onClick={() => press(key)}
                 disabled={loading || !!employee}
-                className={`min-h-11 rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-lg font-semibold text-slate-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 ${
+                className={`min-h-11 whitespace-nowrap rounded-control border border-slate-700 bg-slate-950 px-4 py-4 text-lg font-semibold text-slate-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 ${
                   loading || employee ? 'cursor-not-allowed opacity-50' : ''
                 }`}
               >
@@ -845,7 +845,7 @@ function Kiosk({ signOut }: { signOut: (options: { redirectUrl: string }) => Pro
       </div>
       {idleWarning !== null && <div className="fixed inset-x-3 top-3 z-[calc(var(--z-dialog)+1)] rounded-2xl border border-amber-300 bg-slate-900 p-4 text-center text-lg text-white">
         <p role="status">Still there{employee ? `, ${employee.display_name}` : ''}? Tap I'm still here to keep going<span aria-hidden="true"> ({idleWarning})</span></p>
-        <button type="button" onClick={bumpIdleTimer} className="mt-3 min-h-11 rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950">I'm still here</button>
+        <button type="button" onClick={bumpIdleTimer} className="mt-3 min-h-11 whitespace-nowrap rounded-control bg-cyan-400 px-5 py-3 font-semibold text-slate-950">I'm still here</button>
       </div>}
     </main>
   )

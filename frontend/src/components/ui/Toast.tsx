@@ -182,7 +182,7 @@ function ToastView({ toast, reducedMotion, paused: modalOpen, onDismiss }: { toa
           type="button"
           data-toast-action
           onClick={() => { close(); if (action.expiresAt === undefined || Date.now() < action.expiresAt) action.onAction() }}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-control px-3 font-semibold text-sky-300 transition-colors duration-150 hover:bg-white/10 focus-visible:outline-white"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-control px-3 font-semibold text-sky-300 transition-colors duration-150 hover:bg-white/10 focus-visible:outline-white whitespace-nowrap min-w-11"
         >
           {action.label}
         </button>

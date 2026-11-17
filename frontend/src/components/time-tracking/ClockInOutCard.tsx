@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
@@ -12,7 +13,7 @@ interface ClockInOutCardProps {
 const ENABLE_CLOCK_OUT_DESCRIPTION = false
 
 function Spinner({ className = 'border-white/30 border-t-white' }: { className?: string }) {
-  return <span className={`w-5 h-5 border-2 rounded-full animate-spin ${className}`} />
+  return <span className={`w-5 h-5 border-2 rounded-full animate-spin ${className} whitespace-nowrap shrink-0`} />
 }
 
 function requestCurrentLocation(): Promise<ClockLocationPayload> {
@@ -333,9 +334,9 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId) || null
 
   // Shared button styles
-  const btnPrimary = 'min-h-[48px] py-3 px-5 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:bg-neutral-warm disabled:text-text-muted text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm'
-  const btnSecondary = 'min-h-[48px] py-3 px-5 bg-secondary-dark hover:bg-neutral-warm active:bg-neutral-warm text-primary-dark font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm border border-neutral-warm'
-  const btnBreak = 'min-h-[48px] py-3 px-5 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm'
+  const btnPrimary = buttonClasses({ variant: 'primary', size: 'lg' })
+  const btnSecondary = buttonClasses({ variant: 'secondary', size: 'lg' })
+  const btnBreak = buttonClasses({ variant: 'secondary', size: 'lg' })
 
   return (
     <div className={`rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
@@ -354,7 +355,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
             <h3 className="font-semibold text-primary-dark text-base">{statusLabel}</h3>
           </div>
           {status?.schedule && !isClockedIn && (
-            <span className="text-xs text-text-muted bg-secondary rounded-full px-2.5 py-1">
+            <span className="text-xs text-text-muted bg-secondary rounded-full px-2.5 py-1 whitespace-nowrap shrink-0">
               {status.schedule.start_time} – {status.schedule.end_time}
             </span>
           )}
@@ -491,22 +492,22 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
             <button
               onClick={() => handleAction('clock_in', isAdminOverridable)}
               disabled={actionLoading || !canClockIn}
-              className={`w-full ${btnPrimary}`}
+              className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnPrimary}`}
             >
               {actionLoading ? <Spinner /> : <><ClockIcon /> {isAdminOverridable ? 'Clock In (Override)' : 'Clock In'}</>}
             </button>
           ) : (
             <>
               {isOnBreak ? (
-                <button onClick={() => handleAction('end_break')} disabled={actionLoading} className={`w-full ${btnBreak}`}>
+                <button onClick={() => handleAction('end_break')} disabled={actionLoading} className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnBreak}`}>
                   {actionLoading ? <Spinner /> : <><PlayIcon /> End Break</>}
                 </button>
               ) : (
-                <button onClick={() => handleAction('start_break')} disabled={actionLoading} className={`w-full ${btnSecondary}`}>
+                <button onClick={() => handleAction('start_break')} disabled={actionLoading} className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnSecondary}`}>
                   {actionLoading ? <Spinner className="border-primary-dark/30 border-t-primary-dark" /> : <><PauseIcon /> Start Break</>}
                 </button>
               )}
-              <button onClick={handleClockOut} disabled={actionLoading} className={`w-full ${btnPrimary}`}>
+              <button onClick={handleClockOut} disabled={actionLoading} className={`whitespace-nowrap min-h-11 min-w-11 w-full ${btnPrimary}`}>
                 {actionLoading ? <Spinner /> : <><StopIcon /> Clock Out</>}
               </button>
             </>
@@ -755,7 +756,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
                   <div className="flex items-center gap-2 mt-2">
                     <button
                       onClick={() => setCorrectionTime('')}
-                      className="text-xs text-amber-700 hover:text-amber-900 font-medium hover:underline"
+                      className="text-xs text-amber-700 hover:text-amber-900 font-medium hover:underline whitespace-nowrap min-h-11 min-w-11"
                     >
                       I worked until now instead
                     </button>
@@ -768,14 +769,14 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
               <button
                 onClick={handleClockOutSubmit}
                 disabled={correctionTime !== '' && (!correctionTime || correctionBeforeClockIn)}
-                className="flex-1 min-h-[44px] bg-primary text-white font-semibold rounded-xl text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                className="flex-1 min-h-[44px] bg-primary text-white font-semibold rounded-control text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-2 whitespace-nowrap min-w-11"
               >
                 <StopIcon />
                 {correctionTime ? `Clock Out at ${fmt12(correctionTime)}` : 'Clock Out'}
               </button>
               <button
                 onClick={() => setShowClockOutModal(false)}
-                className="min-h-[44px] px-5 border border-gray-300 text-gray-700 font-semibold rounded-xl text-sm hover:bg-gray-50 transition-colors"
+                className={buttonClasses({ variant: 'secondary' })}
               >
                 Cancel
               </button>
@@ -805,13 +806,13 @@ function TimelineSection({ clockInAt, breaks, fmtTime, compact }: {
     <div className={compact ? 'mt-3 pt-3 border-t border-neutral-warm/50' : 'mb-4'}>
       <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted ${compact ? '' : 'bg-secondary/40 rounded-lg px-3 py-2'}`}>
         <span>
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 align-middle" />
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 align-middle whitespace-nowrap shrink-0" />
           In <span className="font-medium text-primary-dark">{fmtTime(clockInAt)}</span>
         </span>
         {breaks.map((b, i) => (
           <span key={i} className="flex items-center gap-1">
             <span className="text-neutral-warm">→</span>
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-0.5 align-middle" />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-0.5 align-middle whitespace-nowrap shrink-0" />
             Break {fmtTime(b.start_time)}
             {b.end_time ? (
               <>
@@ -841,7 +842,7 @@ function SessionSegments({ segments, fmtTime, compact }: {
           {segments.map((seg, i) => (
             <span key={i} className="flex items-center gap-1">
               {i > 0 && <span className="text-neutral-warm">→</span>}
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${seg.active ? 'bg-emerald-500 animate-pulse' : 'bg-cyan-400'} mr-0.5 align-middle`} />
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${seg.active ? 'bg-emerald-500 animate-pulse' : 'bg-cyan-400'} mr-0.5 align-middle whitespace-nowrap shrink-0`} />
               <span className="font-medium text-primary-dark">{seg.category_name}</span>
               <span>{fmtTime(seg.clock_in_at)}</span>
               {seg.clock_out_at && (
@@ -991,7 +992,7 @@ function SwitchCategoryInline({
       <button
         disabled={disabled || !switchTo}
         onClick={() => { onSwitch(Number(switchTo)); setSwitchTo('') }}
-        className="text-xs font-semibold bg-cyan-50 text-cyan-700 border border-cyan-300 rounded-xl px-3 py-2 hover:bg-cyan-100 disabled:opacity-50 transition-colors whitespace-nowrap"
+        className={buttonClasses({ variant: 'secondary' })}
       >
         Switch
       </button>

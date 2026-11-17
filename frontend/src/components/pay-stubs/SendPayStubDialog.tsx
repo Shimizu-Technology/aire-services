@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, X } from 'lucide-react'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
@@ -113,7 +114,7 @@ export default function SendPayStubDialog({ request, workerId, lockWorker = fals
     && (typedRequest !== null || (effectiveDestination === 'on_file' ? Boolean(onFile) : email.trim().includes('@') && email.trim().toLowerCase() === confirmation.trim().toLowerCase()))
 
   const notOnFileBadge = (
-    <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not the email on file</span>
+    <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 whitespace-nowrap shrink-0">Not the email on file</span>
   )
 
   let recipientSection: React.ReactNode = null
@@ -233,7 +234,7 @@ export default function SendPayStubDialog({ request, workerId, lockWorker = fals
             {period?.worker && !sent && <p className="mt-0.5 break-words text-sm text-slate-600">{period.worker.name}</p>}
             {request && !sent && <p className="mt-0.5 text-sm text-slate-600">{request.worker.name} asked for: {describeRequest(request)}</p>}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-600">
+          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-600 whitespace-nowrap min-h-11 min-w-11">
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
@@ -287,7 +288,7 @@ export default function SendPayStubDialog({ request, workerId, lockWorker = fals
                         <div className="flex items-center justify-between gap-3">
                           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{year}</p>
                           {sendable.length > 1 && (
-                            <button type="button" onClick={() => toggleYear(rows)} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-cyan-700 hover:text-cyan-900 focus-visible:outline-2 focus-visible:outline-cyan-600">
+                            <button type="button" onClick={() => toggleYear(rows)} className={buttonClasses({ variant: 'ghost' })}>
                               {all ? `Clear ${year}` : `Select all ${year}`}
                             </button>
                           )}

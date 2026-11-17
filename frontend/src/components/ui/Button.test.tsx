@@ -30,8 +30,8 @@ describe('Button', () => {
       const classes = buttonClasses({ size }).split(' ')
       expect(classes.some(name => name === 'min-h-11' || name === 'min-h-12')).toBe(true)
     }
-    // Only a fine pointer may shrink the small size.
-    expect(buttonClasses({ size: 'sm' })).toContain('pointer-fine:min-h-9')
+    // Pointer type must not change the shared control height.
+    expect(buttonClasses({ size: 'sm' })).not.toContain('pointer-fine:min-h-9')
     expect(buttonClasses({ iconOnly: true })).toContain('size-11')
   })
 

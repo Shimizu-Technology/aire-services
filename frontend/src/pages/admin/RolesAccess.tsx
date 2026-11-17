@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, CalendarPlus, Check, Clock3, LifeBuoy, Minus, Timer, Wallet } from 'lucide-react'
@@ -271,7 +272,7 @@ function AccessGuide() {
         {error ? (
           <div role="alert" className="rounded-card border border-red-200 bg-red-50 p-4 text-body-sm text-red-800">
             <p>{error}</p>
-            <button type="button" onClick={() => setAttempt((n) => n + 1)} className="mt-3 min-h-11 rounded-control border border-red-300 bg-surface px-4 font-semibold">Try again</button>
+            <button type="button" onClick={() => setAttempt((n) => n + 1)} className={buttonClasses({ variant: 'danger-outline', className: 'mt-3' })}>Try again</button>
           </div>
         ) : (
           <p role="status" className="rounded-card border border-line bg-surface px-5 py-10 text-center text-body-sm text-ink-muted">Loading roles…</p>

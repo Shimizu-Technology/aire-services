@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, ChevronRight, Eye, Search, Users } from 'lucide-react'
@@ -159,7 +160,7 @@ function WorkerPicker() {
                 <Users className="mx-auto h-7 w-7 text-slate-400" aria-hidden="true" />
                 <p className="mt-2 font-semibold text-slate-900">{workers.length ? 'No one matches that name' : 'No active team members'}</p>
                 {workers.length > 0 && (
-                  <button type="button" onClick={() => updateQuery('')} className="mt-2 inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold text-cyan-700 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-cyan-600">
+                  <button type="button" onClick={() => updateQuery('')} className={buttonClasses({ variant: 'ghost', className: 'mt-2' })}>
                     Clear search
                   </button>
                 )}

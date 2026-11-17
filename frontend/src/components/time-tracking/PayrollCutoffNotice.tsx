@@ -197,7 +197,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     </section>
     {open && createPortal(<div className="cutoff-overlay">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cutoff-dialog-title" aria-describedby="cutoff-dialog-description" tabIndex={-1} className="cutoff-dialog">
-        <button type="button" onClick={dismiss} className="cutoff-close" aria-label="Close payroll cutoff notice">Close</button>
+        <button type="button" onClick={dismiss} className="cutoff-close whitespace-nowrap min-h-11 min-w-11" aria-label="Close payroll cutoff notice">Close</button>
         <p className="text-sm font-semibold text-cyan-800">Payroll reminder</p>
         <h2 id="cutoff-dialog-title" className="mt-2 text-xl font-semibold text-slate-900">{reviewsTeam ? modal.title.replace(/^Your /, '') : modal.title}</h2>
         <div id="cutoff-dialog-description" className="mt-4 space-y-3 text-slate-700">
@@ -208,7 +208,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
           <p>You can keep clocking in and out. “Got it” changes no hours.</p>
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
-          <button type="button" onClick={dismiss} data-cutoff-ack className="cutoff-primary">Got it</button>
+          <button type="button" onClick={dismiss} data-cutoff-ack className="cutoff-primary whitespace-nowrap min-h-11 min-w-11">Got it</button>
           {!kiosk && <Link onClick={dismiss} to={withPayrollPeriod(timeSectionPath('entries', { supervises: reviewsTeam }), { start: modalPeriod.start_date, end: modalPeriod.end_date }, { view: 'period' })} className="cutoff-secondary">{reviewsTeam ? 'Review period hours' : 'Review my hours'}</Link>}
           {reviewsTeam && <Link onClick={dismiss} to={withPayrollPeriod(ADMIN_PATHS.approvals, { start: modalPeriod.start_date, end: modalPeriod.end_date })} className="cutoff-secondary">Review pending approvals</Link>}
         </div>

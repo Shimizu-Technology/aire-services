@@ -77,10 +77,10 @@ function HeadsUpRecipients() {
         {' '}The heads-up names the person and what they asked for, never pay details.
       </p>
       {emails === null && loadFailed && (
-        <button type="button" className={`${secondary} mt-3`} onClick={() => { setFeedback(null); setLoadFailed(false); setLoadAttempt((n) => n + 1) }}>Try again</button>
+        <button type="button" className={`whitespace-nowrap min-h-11 min-w-11 ${secondary} mt-3`} onClick={() => { setFeedback(null); setLoadFailed(false); setLoadAttempt((n) => n + 1) }}>Try again</button>
       )}
       {emails !== null && (draft === null ? (
-        <button type="button" className={`${secondary} mt-3`} onClick={() => { setFeedback(null); setDraft(emails.join(', ')) }}>Change recipients</button>
+        <button type="button" className={`whitespace-nowrap min-h-11 min-w-11 ${secondary} mt-3`} onClick={() => { setFeedback(null); setDraft(emails.join(', ')) }}>Change recipients</button>
       ) : (
         <div className="mt-3 space-y-2">
           <label htmlFor={`${ids}-emails`} className="block text-sm font-medium text-slate-800">Email addresses, separated by commas</label>

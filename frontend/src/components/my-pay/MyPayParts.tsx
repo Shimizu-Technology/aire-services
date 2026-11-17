@@ -10,7 +10,7 @@ const toneClasses: Record<StatusTone, string> = {
 
 export function StatusBadge({ label, tone }: { label: string; tone: StatusTone }) {
   return (
-    <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${toneClasses[tone]}`}>
+    <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${toneClasses[tone]} whitespace-nowrap shrink-0`}>
       {label}
     </span>
   )
@@ -37,7 +37,7 @@ export function MyPayErrorState({ error, onRetry, retrying }: { error: MyPayErro
               type="button"
               onClick={onRetry}
               disabled={retrying}
-              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60"
+              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-control border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60 whitespace-nowrap min-w-11"
             >
               <RotateCw className={`h-4 w-4 ${retrying ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
               {retrying ? 'Trying again…' : 'Try again'}

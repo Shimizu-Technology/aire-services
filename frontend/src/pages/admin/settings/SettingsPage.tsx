@@ -346,7 +346,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
           className="rounded-card border border-red-300 bg-red-50 p-4 text-red-800"
         >
           <p>{error}</p>
-          <button type="button" onClick={load} className="min-h-11 underline">
+          <button type="button" onClick={load} className="min-h-11 underline whitespace-nowrap min-w-11">
             Reload settings
           </button>
         </div>
@@ -368,7 +368,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                   type="button"
                   disabled={saving}
                   onClick={() => void turnOffRequire()}
-                  className="min-h-11 underline"
+                  className="min-h-11 underline whitespace-nowrap min-w-11"
                 >
                   Turn off Require
                 </button>
@@ -380,7 +380,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                 href="/kiosk"
                 target="_blank"
                 rel="noopener noreferrer"
-                className={buttonClasses({ variant: 'primary', size: 'lg' })}
+                className={buttonClasses({ variant: 'primary' })}
               >
                 Open and unlock kiosk
                 <ExternalLink className="size-4" aria-hidden="true" />

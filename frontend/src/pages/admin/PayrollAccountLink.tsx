@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { stagingNavigationUrl } from '../../lib/staging'
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Check, Link2, Loader2, ShieldCheck, Unplug } from 'lucide-react'
@@ -164,7 +165,7 @@ export default function PayrollAccountLink() {
                   type="button"
                   onClick={() => void connect()}
                   disabled={connecting}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#1e3a5f] px-6 py-2.5 text-sm font-semibold text-white shadow-[0_12px_28px_-16px_rgba(30,58,95,0.8)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#162d4b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e3a5f] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                  className={buttonClasses({ variant: 'ghost' })}
                 >
                   {connecting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Link2 className="h-4 w-4" aria-hidden="true" />}
                   {connecting ? 'Connecting…' : 'Connect and return to Cornerstone'}

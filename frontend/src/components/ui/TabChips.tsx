@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { chipClasses } from './chipStyles'
 import { cx } from '../../lib/cx'
 
 export interface TabChip<T extends string> {
@@ -71,7 +72,7 @@ export function TabChips<T extends string>({ label, items, value, onChange, cont
       role="tablist"
       aria-label={label}
       // p-1 fits the 2px focus ring and its 2px offset, which overflow-x-auto would clip.
-      className={cx('flex gap-2 overflow-x-auto overscroll-x-contain p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', fade, className)}
+      className={cx('flex min-w-0 max-w-full snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', fade, className)}
     >
       {items.map((item, index) => {
         const selected = item.value === value
@@ -86,13 +87,10 @@ export function TabChips<T extends string>({ label, items, value, onChange, cont
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
-            className={cx(
-              'inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-body-sm font-semibold transition-colors duration-150 pointer-fine:min-h-9 pointer-coarse:min-h-11',
-              selected ? 'border-primary bg-primary text-white' : 'border-line-strong bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink',
-            )}
+            className={cx(chipClasses(selected), 'snap-start')}
           >
             {item.label}
-            {item.count !== undefined && <span className={cx('tabular-nums', selected ? 'text-white/85' : 'text-ink-subtle')}>{item.count}</span>}
+            {item.count !== undefined && <span className={cx('shrink-0 tabular-nums', selected ? 'text-white/85' : 'text-ink-subtle')}>{item.count}</span>}
           </button>
         )
       })}

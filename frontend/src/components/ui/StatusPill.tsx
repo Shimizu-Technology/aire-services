@@ -35,12 +35,12 @@ export function StatusPill({ tone, children, icon, className }: StatusPillProps)
   return (
     <span
       data-tone={tone}
-      className={cx('inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-body-sm font-medium', style.pill, className)}
+      className={cx('inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-body-sm font-medium', style.pill, className)}
     >
       {icon
         ? <span aria-hidden="true" className="inline-flex shrink-0 [&>svg]:size-3.5">{icon}</span>
         : <span aria-hidden="true" className={cx('size-2 shrink-0 rounded-full', style.dot)} />}
-      <span className="truncate">{children}</span>
+      <span>{children}</span>
     </span>
   )
 }

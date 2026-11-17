@@ -201,7 +201,7 @@ export default function WeekGrid<T extends WeekGridEntry>({
                 <button
                   onClick={() => openNewEntry(date)}
                   disabled={addDisabled}
-                className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary sm:p-2"
+                className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary sm:p-2 whitespace-nowrap min-h-11 min-w-11"
               >
                 + Add
                 </button>

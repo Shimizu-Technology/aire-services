@@ -113,7 +113,7 @@ export default function LeaveRequestsList({
           Couldn't check overlaps.{' '}
           <button
             type="button"
-            className="min-h-11 font-semibold text-primary underline"
+            className="min-h-11 font-semibold text-primary underline whitespace-nowrap min-w-11"
             onClick={() => setOverlapAttempt((value) => value + 1)}
           >
             Try again

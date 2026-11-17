@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { isStaging } from '../../lib/staging'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
@@ -1083,7 +1084,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                                 type="button"
                                 onClick={handleUseCurrentLocation}
                                 disabled={currentLocationLoading}
-                                className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 disabled:opacity-50"
+                                className={buttonClasses({ variant: 'ghost' })}
                               >
                                 {currentLocationLoading ? 'Locating…' : 'Use current location'}
                               </button>
@@ -1216,7 +1217,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <button
                     type="submit"
                     disabled={savingThresholds || !clockSettings}
-                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'primary' })}
                   >
                     {savingThresholds ? 'Saving…' : 'Save time clock rules'}
                   </button>
@@ -1323,7 +1324,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                           type="button"
                           onClick={() => removeApprovalGroupDraft(index)}
                           disabled={approvalGroupDrafts.length === 1 && !group.label.trim() && !group.key.trim()}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className={buttonClasses({ variant: 'secondary', className: 'w-full' })}
                         >
                           Remove
                         </button>
@@ -1340,7 +1341,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <button
                     type="button"
                     onClick={addApprovalGroupDraft}
-                    className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                    className={buttonClasses({ variant: 'secondary' })}
                   >
                     Add department
                   </button>
@@ -1352,7 +1353,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <button
                     type="submit"
                     disabled={savingApprovalGroups}
-                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'primary' })}
                   >
                     {savingApprovalGroups ? 'Saving…' : 'Save departments'}
                   </button>
@@ -1484,7 +1485,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       <button
                         type="button"
                         onClick={addPublicPhoneContactDraft}
-                        className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50"
+                        className={buttonClasses({ variant: 'secondary' })}
                       >
                         Add phone contact
                       </button>
@@ -1552,7 +1553,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                               type="button"
                               onClick={() => removePublicPhoneContactDraft(index)}
                               disabled={publicContactDraft.phone_contacts.length === 1 && !contact.label.trim() && !contact.phone_display.trim() && !contact.phone_e164.trim()}
-                              className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                              className={buttonClasses({ variant: 'secondary', className: 'w-full' })}
                             >
                               Remove
                             </button>
@@ -1578,7 +1579,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                     <button
                       type="button"
                       onClick={addSocialLinkDraft}
-                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                      className={buttonClasses({ variant: 'secondary' })}
                     >
                       Add social link
                     </button>
@@ -1612,7 +1613,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                             type="button"
                             onClick={() => removeSocialLinkDraft(index)}
                             disabled={socialLinksDraft.length === 1 && !link.label.trim() && !link.url.trim()}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            className={buttonClasses({ variant: 'secondary', className: 'w-full' })}
                           >
                             Remove
                           </button>
@@ -1649,7 +1650,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       <button
                         type="button"
                         onClick={addInquiryTopicDraft}
-                        className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                        className={buttonClasses({ variant: 'secondary' })}
                       >
                         Add topic
                       </button>
@@ -1670,7 +1671,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                             onClick={() => removeInquiryTopicDraft(index)}
                             disabled={inquiryTopicsDraft.length === 1 && !topic.trim()}
                             aria-label={`Remove inquiry topic ${index + 1}`}
-                            className="rounded-lg border border-slate-200 px-3 py-3 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            className={buttonClasses({ variant: 'secondary' })}
                           >
                             Remove
                           </button>
@@ -1691,7 +1692,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <button
                     type="submit"
                     disabled={savingContactSettings}
-                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'primary' })}
                   >
                     {savingContactSettings ? 'Saving…' : 'Save contact settings'}
                   </button>
@@ -1725,7 +1726,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <button
                     type="button"
                     onClick={openNewCategory}
-                    className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    className={buttonClasses({ variant: 'primary' })}
                   >
                     Add category
                   </button>
@@ -1763,33 +1764,33 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                           </td>
                           <td className="px-5 py-4">
                             {cat.is_active ? (
-                              <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                              <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 whitespace-nowrap shrink-0">
                                 Active
                               </span>
                             ) : (
-                              <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                              <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 whitespace-nowrap shrink-0">
                                 Inactive
                               </span>
                             )}
                           </td>
                           <td className="px-5 py-4">
                             <div className="flex justify-end gap-3 text-sm font-medium">
-                              <button type="button" onClick={() => openEditCategory(cat)} className="text-cyan-700 hover:text-cyan-900">
+                              <button type="button" onClick={() => openEditCategory(cat)} className="text-cyan-700 hover:text-cyan-900 whitespace-nowrap min-h-11 min-w-11">
                                 Edit
                               </button>
                               {cat.is_active ? (
                                 <>
-                                  <button type="button" onClick={() => handleDeactivateCategory(cat)} className="text-slate-600 hover:text-slate-900">
+                                  <button type="button" onClick={() => handleDeactivateCategory(cat)} className="text-slate-600 hover:text-slate-900 whitespace-nowrap min-h-11 min-w-11">
                                     Deactivate
                                   </button>
                                   {cat.deletable && (
-                                    <button type="button" onClick={() => handleDeleteCategory(cat)} className="text-rose-700 hover:text-rose-900">
+                                    <button type="button" onClick={() => handleDeleteCategory(cat)} className="text-rose-700 hover:text-rose-900 whitespace-nowrap min-h-11 min-w-11">
                                       Delete
                                     </button>
                                   )}
                                 </>
                               ) : (
-                                <button type="button" onClick={() => handleReactivateCategory(cat)} className="text-cyan-700 hover:text-cyan-900">
+                                <button type="button" onClick={() => handleReactivateCategory(cat)} className="text-cyan-700 hover:text-cyan-900 whitespace-nowrap min-h-11 min-w-11">
                                   Reactivate
                                 </button>
                               )}
@@ -1818,7 +1819,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                 <h2 className="text-xl font-semibold text-slate-900">{editingCategory ? 'Edit category' : 'New time category'}</h2>
                 <p className="mt-1 text-sm text-slate-500">Define a type of work your team can track time against.</p>
               </div>
-              <button type="button" onClick={closeCategoryModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+              <button type="button" onClick={closeCategoryModal} className={buttonClasses({ variant: 'ghost' })}>
                 ✕
               </button>
             </div>
@@ -1863,13 +1864,13 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                 </label>
               )}
               <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeCategoryModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <button type="button" onClick={closeCategoryModal} className={buttonClasses({ variant: 'secondary' })}>
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingCategory}
-                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  className={buttonClasses({ variant: 'primary' })}
                 >
                   {savingCategory ? 'Saving…' : editingCategory ? 'Save changes' : 'Create category'}
                 </button>

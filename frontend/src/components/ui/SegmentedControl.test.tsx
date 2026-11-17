@@ -54,7 +54,7 @@ describe('SegmentedControl', () => {
 
   it('keeps 44px targets on touch', () => {
     render(<Segmented />)
-    for (const tab of screen.getAllByRole('tab')) expect(tab).toHaveClass('min-h-11', 'pointer-fine:min-h-8')
+    for (const tab of screen.getAllByRole('tab')) expect(tab).toHaveClass('min-h-11', 'h-11', 'whitespace-nowrap')
   })
 })
 
@@ -79,6 +79,6 @@ describe('TabChips', () => {
     render(<Chips />)
     // p-1 = the 2px focus ring plus its 2px offset, so the scroller doesn't clip it.
     expect(screen.getByRole('tablist')).toHaveClass('overflow-x-auto', '[scrollbar-width:none]', 'p-1')
-    for (const tab of screen.getAllByRole('tab')) expect(tab).toHaveClass('min-h-11', 'pointer-fine:min-h-9')
+    for (const tab of screen.getAllByRole('tab')) expect(tab).toHaveClass('min-h-11', 'h-11', 'whitespace-nowrap')
   })
 })

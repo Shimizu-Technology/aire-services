@@ -1,3 +1,5 @@
+import { chipClasses } from '../ui/chipStyles'
+import { buttonClasses } from '../ui/buttonStyles'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../../lib/api'
 import type {
@@ -836,7 +838,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                     {entryDisplayName(entry)}
                   </span>
                   {reasons.map((reason) => (
-                    <span key={reason.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${reasonTone(reason.key)}`}>
+                    <span key={reason.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${reasonTone(reason.key)} whitespace-nowrap shrink-0`}>
                       {reason.label}
                     </span>
                   ))}
@@ -868,7 +870,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                             return next
                           })
                         }}
-                        className="text-primary text-[11px] font-medium hover:underline mt-0.5"
+                        className="text-primary text-[11px] font-medium hover:underline mt-0.5 whitespace-nowrap min-h-11 min-w-11"
                       >
                         {expandedDescriptions.has(entry.id) ? 'Show less' : 'Show more'}
                       </button>
@@ -914,25 +916,25 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 <span className="font-semibold text-primary-dark">Needs another approver.</span> An owner, admin or another manager reviews your own time.
               </p>
             ) : (
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:items-center">
               <button
                 onClick={() => handleApprove(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
                 disabled={missingCategory || actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
-                className="min-w-0 flex-1 break-words min-h-[44px] py-2 px-3 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
+                className={buttonClasses({ variant: 'primary', className: 'flex-1' })}
               >
                 {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : approveLabel(entry)}
               </button>
               {entry.entry_method === 'clock' && entry.original_employee_change && entry.original_employee_change.restorable !== false && <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined, true)}
                 disabled={actionLoading === entry.id || queueUnavailable}
-                className="order-3 col-span-2 min-h-11 min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold sm:order-none sm:flex-1">
+                className={buttonClasses({ variant: 'secondary', className: 'order-3 col-span-2 sm:flex-1' })}>
                 Reject change, keep original time
                 <span className="block font-normal">{entry.original_employee_change.formatted_range}</span>
               </button>}
               <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
                 disabled={actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
-                className="min-w-0 flex-1 break-words min-h-[44px] py-2 px-3 bg-white hover:bg-secondary active:bg-secondary-dark disabled:opacity-50 text-red-600 text-sm font-medium rounded-xl transition-colors border border-red-200"
+                className={buttonClasses({ variant: 'danger-outline', className: 'flex-1' })}
               >
                 {entry.approval_status !== 'pending' && entry.overtime_status === 'pending' ? 'Deny overtime' : 'Deny whole shift'}
               </button>
@@ -940,14 +942,14 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 <button
                   onClick={() => handleDenyOvertime(entry)}
                   disabled={actionLoading === entry.id}
-                  className="min-h-[44px] py-2 px-3 bg-white hover:bg-secondary disabled:opacity-50 border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors"
+                  className={buttonClasses({ variant: 'secondary' })}
                 >
                   Deny OT
                 </button>
               )}
               <button
                 onClick={() => setEditingEntry(entry)}
-                className="min-h-[44px] min-w-[44px] py-2 px-3 bg-white hover:bg-secondary border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors flex items-center justify-center"
+                className={buttonClasses({ variant: 'secondary' })}
                 title="Edit entry"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -956,7 +958,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               </button>
               <button
                 onClick={() => setNoteInput(noteInput?.id === entry.id ? null : { id: entry.id, note: '' })}
-                className="min-h-[44px] min-w-[44px] py-2 px-3 bg-white hover:bg-secondary border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors flex items-center justify-center"
+                className={buttonClasses({ variant: 'secondary' })}
                 title="Add note"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -995,7 +997,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 type="button"
                 onClick={toggleSelectAllVisible}
                 disabled={queueUnavailable || approvableEntries.length === 0}
-                className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                className={buttonClasses({ variant: 'secondary' })}
               >
                 {queueUnavailable ? 'Select approvable' : allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
               </button>
@@ -1003,7 +1005,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 type="button"
                 onClick={handleBulkApproveSelected}
                 disabled={queueUnavailable || bulkActionLoading || selectedEntries.length === 0 || selectedEntries.length > 100}
-                className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className={buttonClasses({ variant: 'secondary' })}
               >
                 {bulkActionLoading ? 'Approving…' : queueUnavailable ? 'Approve Selected' : `Approve Selected (${selectedEntries.length})`}
               </button>
@@ -1013,7 +1015,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
         {collapsed ? (
           <div className="flex flex-wrap gap-2 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs text-amber-900">
-            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold">{option.label}: {option.count}</span>)}
+            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold whitespace-nowrap shrink-0">{option.label}: {option.count}</span>)}
           </div>
         ) : <>
         {!queueUnavailable && <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1148,11 +1150,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => applyQuickDateFilter('through_today')} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-primary/40 hover:text-primary">Through today</button>
-              <button onClick={() => applyQuickDateFilter('today')} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-primary/40 hover:text-primary">Today</button>
-              <button onClick={() => applyQuickDateFilter('yesterday')} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-primary/40 hover:text-primary">Yesterday</button>
-              <button onClick={() => applyQuickDateFilter('this_week')} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-primary/40 hover:text-primary">This week</button>
-              <button onClick={() => applyQuickDateFilter('last_week')} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-primary/40 hover:text-primary">Last week</button>
+              <button onClick={() => applyQuickDateFilter('through_today')} className={buttonClasses({ variant: 'secondary' })}>Through today</button>
+              <button onClick={() => applyQuickDateFilter('today')} className={buttonClasses({ variant: 'secondary' })}>Today</button>
+              <button onClick={() => applyQuickDateFilter('yesterday')} className={buttonClasses({ variant: 'secondary' })}>Yesterday</button>
+              <button onClick={() => applyQuickDateFilter('this_week')} className={buttonClasses({ variant: 'secondary' })}>This week</button>
+              <button onClick={() => applyQuickDateFilter('last_week')} className={buttonClasses({ variant: 'secondary' })}>Last week</button>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
@@ -1160,7 +1162,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 Group by date
               </label>
               {activeReviewFilters && (
-                <button onClick={clearReviewFilters} className="text-xs font-semibold text-primary hover:text-primary-dark">Clear filters</button>
+                <button onClick={clearReviewFilters} className="text-xs font-semibold text-primary hover:text-primary-dark whitespace-nowrap min-h-11 min-w-11">Clear filters</button>
               )}
             </div>
           </div>
@@ -1170,7 +1172,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
           <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             <p className="font-semibold">{rangeError || fetchError}</p>
             <p className="mt-1">Your filters are retained. Change the dates or filters to continue.</p>
-            {!rangeError && <button type="button" disabled={refreshingFilter} onClick={() => { setRefreshingFilter(true); void fetchPending(approvalGroupFilter); }} className="mt-2 min-h-11 rounded-lg border border-red-200 px-4 py-2 disabled:opacity-50">Retry</button>}
+            {!rangeError && <button type="button" disabled={refreshingFilter} onClick={() => { setRefreshingFilter(true); void fetchPending(approvalGroupFilter); }} className={buttonClasses({ variant: 'danger-outline', className: 'mt-2' })}>Retry</button>}
           </div>
         )}
 
@@ -1181,11 +1183,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               key={option.value}
               type="button"
               onClick={() => applyFilter(option.value)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                approvalGroupFilter === option.value
-                  ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-                  : 'border-neutral-warm bg-white text-text-muted hover:border-slate-300 hover:text-primary-dark'
-              }`}
+              className={chipClasses(approvalGroupFilter === option.value)}
             >
               {queueUnavailable ? option.label : `${option.label} (${option.count})`}
             </button>
@@ -1199,7 +1197,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
         {actionError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3 flex items-center justify-between gap-2">
             <p className="text-xs text-red-700">{actionError}</p>
-            <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 shrink-0">
+            <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 shrink-0 whitespace-nowrap min-h-11 min-w-11">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>

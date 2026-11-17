@@ -123,8 +123,8 @@ export function ListRow({
         )}
         {leading}
         <div className="min-w-[min(9rem,100%)] flex-1">
-          <p id={`${id}-title`} className="whitespace-normal break-normal text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
-          {meta && <p id={`${id}-meta`} className="mt-0.5 whitespace-normal break-normal text-body-sm text-ink-muted">{meta}</p>}
+          <p id={`${id}-title`} className="whitespace-normal [overflow-wrap:anywhere] text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
+          {meta && <p id={`${id}-meta`} className="mt-0.5 whitespace-normal [overflow-wrap:anywhere] text-body-sm text-ink-muted">{meta}</p>}
         </div>
         {trailing && <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
         {action && (
@@ -137,7 +137,7 @@ export function ListRow({
             disabled={action.disabled}
             aria-label={action.ariaLabel}
             title={action.title}
-            className="shrink-0"
+            className="order-last w-full shrink-0 sm:order-none sm:w-auto"
           >
             {action.label}
           </Button>
@@ -150,7 +150,7 @@ export function ListRow({
             aria-controls={`${id}-rows`}
             aria-label={expandLabel}
             onClick={toggleExpanded}
-            className="-mr-2 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-ink-subtle hover:bg-surface-muted hover:text-ink pointer-fine:size-9"
+            className="-mr-2 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-ink-subtle hover:bg-surface-muted hover:text-ink whitespace-nowrap min-h-11 min-w-11"
           >
             <ChevronDown aria-hidden="true" className={cx('size-5', !expanded && '-rotate-90')} />
           </button>

@@ -125,7 +125,7 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
           <button
             type="submit"
             disabled={saving}
-            className="w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+            className="w-full rounded-control bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap min-h-11 min-w-11"
           >
             {saving ? 'Saving…' : 'Save kiosk PIN'}
           </button>

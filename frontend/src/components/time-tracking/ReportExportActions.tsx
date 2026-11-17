@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import type { HoursReportDownloadType } from '../../lib/api'
 
 interface ReportExportActionsProps {
@@ -38,11 +39,11 @@ export default function ReportExportActions({
         onClick={() => onExport('pdf')}
         disabled={disabled}
         aria-busy={exporting === 'pdf'}
-        className="group inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-primary-dark hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 sm:w-auto"
+        className={buttonClasses({ variant: 'primary', className: 'w-full sm:w-auto' })}
       >
         <PdfIcon />
         <span>{exporting === 'pdf' ? 'Preparing PDF...' : pdfLabel}</span>
-        <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Recommended</span>
+        <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0">Recommended</span>
       </button>
 
       <div className="flex flex-col gap-2 sm:items-end">
@@ -52,7 +53,7 @@ export default function ReportExportActions({
             type="button"
             onClick={() => onExport('detailed_csv')}
             disabled={disabled}
-            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-primary/25 bg-white px-3 py-2 text-xs font-semibold text-primary transition hover:border-primary/45 hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            className={buttonClasses({ variant: 'secondary' })}
           >
             <SpreadsheetIcon />
             {exporting === 'detailed_csv' ? 'Preparing...' : 'Detailed CSV'}
@@ -61,7 +62,7 @@ export default function ReportExportActions({
             type="button"
             onClick={() => onExport('summary_csv')}
             disabled={disabled}
-            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-neutral-warm bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition hover:bg-neutral-warm/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            className={buttonClasses({ variant: 'secondary' })}
           >
             <SpreadsheetIcon />
             {exporting === 'summary_csv' ? 'Preparing...' : 'Payroll CSV'}

@@ -71,7 +71,7 @@ export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterCha
           className="block min-h-11 w-full rounded-control border border-line-strong bg-surface pl-9 pr-3 text-body text-ink placeholder:text-ink-subtle focus:border-primary pointer-fine:text-body-sm"
         />
       </div>
-      <div role="group" aria-label="Show" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+      <div role="group" aria-label="Show" className="-mx-1 flex min-w-0 snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain p-1 [&>button]:snap-start">
         <FilterChip selected={active === 'needs'} onClick={() => toggle('needs')} count={people && !summaryError ? needsLook.length : undefined}>People to check</FilterChip>
         {groups.map(group => <FilterChip key={group} selected={active === group} onClick={() => toggle(group)}>{group}</FilterChip>)}
       </div>

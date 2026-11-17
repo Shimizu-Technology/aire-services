@@ -39,7 +39,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
   }
 
   return (
-    <div role="tablist" aria-label={label} className={cx('inline-flex max-w-full gap-0.5 rounded-[0.625rem] bg-slate-100 p-[3px]', className)}>
+    <div role="tablist" aria-label={label} className={cx('inline-flex min-w-0 max-w-full overflow-x-auto gap-0.5 rounded-[0.625rem] bg-slate-100 p-[3px]', className)}>
       {options.map((option, index) => {
         const selected = option.value === value
         return (
@@ -54,7 +54,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cx(
-              'inline-flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap rounded-control px-3 text-body-sm font-semibold transition-colors duration-150 pointer-fine:min-h-8',
+              'inline-flex min-h-11 h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-control px-3 text-body-sm font-semibold transition-colors duration-150',
               'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
               selected ? 'bg-surface text-ink shadow-[0_1px_2px_rgb(15_23_42/0.12)]' : 'text-ink-muted hover:text-ink',
             )}

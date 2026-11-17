@@ -67,7 +67,7 @@ export function EndEmploymentFlow({ user, onClose, onEnded }: { user: AdminUser;
   if (!phone) return <ConfirmDialog open title={`End ${name}'s employment`} tone="danger" details={details} requireText={name}
     confirmLabel="End employment" confirmDisabled={blocked} busy={saving} onConfirm={() => void end()} onCancel={onClose} />
   return <Sheet open onClose={() => { if (!saving) onClose() }} title={`End ${name}'s employment`}
-    footer={<div className="flex gap-2"><Button variant="secondary" className="flex-1" disabled={saving} onClick={onClose}>Cancel</Button>
+    footer={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Button variant="secondary" className="flex-1" disabled={saving} onClick={onClose}>Cancel</Button>
       <Button variant="danger" className="flex-1" loading={saving} disabled={blocked || typed !== name} onClick={() => void end()}>End employment</Button></div>}>
     {details}
     <Field className="mt-4" label={`Type ${name} to confirm`}><Input value={typed} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={saving} onChange={e => setTyped(e.target.value)} /></Field>

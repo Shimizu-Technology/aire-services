@@ -100,7 +100,7 @@ export function EmploymentTab({ user: incomingUser, onSaved }: { user: AdminUser
         {user.termination_reason && <p className="text-body-sm text-ink-muted [overflow-wrap:anywhere]">{user.termination_reason}</p>}
         {user.can_change_access !== false && <Button variant="secondary" disabled={edit.conflict || edit.saving} onClick={() => setReactivating(true)}>Reactivate…</Button>}</>
         : <><p className="text-body-sm text-ink-muted">Turns off sign-in, the kiosk and My Pay, and revokes open pay stub links. Their hours and paychecks stay.</p>
-          {user.can_change_access !== false && <Button variant="danger-outline" className="max-w-full whitespace-normal! text-left [overflow-wrap:anywhere]" disabled={dirty || edit.saving} onClick={() => setEnding(true)}>End {personName(user)}'s employment…</Button>}
+          {user.can_change_access !== false && <Button variant="danger-outline" className="w-full max-w-full sm:w-auto" disabled={dirty || edit.saving} onClick={() => setEnding(true)}><span className="truncate">End {personName(user)}'s employment…</span></Button>}
           {dirty && <p className="text-body-sm text-ink-muted">Save or discard changes before ending employment.</p>}</>}
       {user.can_change_access === false && <p className="text-body-sm text-ink-muted">Only an owner can end or restore employment for an owner or admin.</p>}
     </section>

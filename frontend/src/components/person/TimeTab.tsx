@@ -141,7 +141,7 @@ export function TimeTab({ user, today }: TimeTabProps) {
       {(shiftReturn.state.status === 'gone' || (shiftReturn.state.status === 'ready' && !returning)) && (
         <p role="status" className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface-muted px-4 py-3 text-body-sm text-ink">
           {SHIFT_GONE_MESSAGE}
-          <button type="button" onClick={shiftReturn.finish} className="font-semibold text-primary underline">Dismiss</button>
+          <button type="button" onClick={shiftReturn.finish} className="font-semibold text-primary underline whitespace-nowrap min-h-11 min-w-11">Dismiss</button>
         </p>
       )}
       {linkCheck?.note && <p role="status" className="rounded-card border border-line bg-surface-muted px-4 py-3 text-body-sm text-ink">{linkCheck.note}</p>}
@@ -151,7 +151,7 @@ export function TimeTab({ user, today }: TimeTabProps) {
           <button
             type="button"
             onClick={() => setSearchParams((current) => { const params = new URLSearchParams(current); params.set('period', elsewhere.start); return params })}
-            className="font-semibold text-primary underline"
+            className="font-semibold text-primary underline whitespace-nowrap min-h-11 min-w-11"
           >
             Show {formatPayPeriod(elsewhere)}
           </button>

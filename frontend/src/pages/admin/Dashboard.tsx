@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import PayrollLockControl from '../../components/payroll/PayrollLockControl'
 import { useState, useEffect, useCallback } from 'react'
@@ -207,7 +208,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
 
       {snapshotError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
         <p>{snapshotError}. {snapshotAt ? `Showing the last successful snapshot from ${snapshotAt.toLocaleTimeString()}. Refresh before making payroll decisions.` : 'Counts and payroll readiness are unavailable.'}</p>
-        <button type="button" disabled={statsLoading} onClick={loadStats} className="mt-2 min-h-11 underline disabled:opacity-50">Retry dashboard snapshot</button>
+        <button type="button" disabled={statsLoading} onClick={loadStats} className="mt-2 min-h-11 underline disabled:opacity-50 whitespace-nowrap min-w-11">Retry dashboard snapshot</button>
       </div>}
       {!snapshotAt && !snapshotError && <p role="status">Loading dashboard snapshot…</p>}
       {snapshotAt && <>
@@ -265,7 +266,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
           <button
             onClick={loadStats}
             disabled={statsLoading}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            className={buttonClasses({ variant: 'secondary' })}
           >
             Refresh snapshot
           </button>

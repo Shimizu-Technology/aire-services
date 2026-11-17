@@ -100,7 +100,7 @@ export function Tabs<T extends string>({ label, items, param = 'tab', defaultVal
               onClick={() => select(item.value)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={cx(
-                '-mb-px inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-semibold transition-colors duration-150',
+                '-mb-px inline-flex min-h-11 shrink-0 whitespace-nowrap items-center border-b-2 px-3 text-body-sm font-semibold transition-colors duration-150',
                 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
                 isSelected ? 'border-primary text-primary' : 'border-transparent text-ink-muted hover:text-ink',
               )}
