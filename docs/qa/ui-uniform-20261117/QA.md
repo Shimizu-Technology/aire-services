@@ -1,3 +1,127 @@
+# Lead-commit validation: 5151561b — November 17, 2026
+
+**Tested SHA: `5151561b762d4f37fea9d93f3ec9247a38b85296`. No application code changed in this QA pass. Acceptance FAILED: 60 checks passed, 54 failed out of 114.** This section supersedes the earlier acceptance below. The reported failures are left for the lead as requested.
+
+Same temporary local synthetic API/auth fixtures and T3 Chromium environment as the prior round. All 19 routes loaded at each of six dimensions. Root font-size was reset on every navigation. No production, database, real email or external writes. No automated gate rerun requested or performed for this documentation-only pass; earlier gates below belong to 0626487, not this SHA.
+
+## Matrix
+
+P = all required assertions passed. Fail includes disallowed truncation at text sizes below 150%, actual container text overflow, or any word split. At 150% and above, intentional bottom-tab ellipsis is allowed and excluded from the failure decision.
+
+| Route | 320/100 | 390/100 | 1280/100 | 390/125 | 390/150 | 320/200 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `/admin` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/timecards` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/approvals?classic=1` | Fail | Pass | Pass | Fail | Fail | Fail |
+| `/admin/approvals` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/payroll?qaState=locked` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/users/7?tab=pay` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/reports` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/kiosk?qaState=nonmanager&qaRole=employee` | Pass | Pass | Pass | Pass | Pass | Fail |
+| `/kiosk` | Pass | Pass | Pass | Pass | Pass | Fail |
+| `/admin/payroll-link?token=fixture` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/pay-stubs?tab=links` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/settings/time-clock` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/settings/departments` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/users` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/payroll/records` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/users/7?tab=time` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/schedule` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin?qaState=team` | Fail | Pass | Pass | Fail | Pass | Fail |
+| `/admin/website/contact?qaState=categories` | Fail | Pass | Pass | Fail | Pass | Fail |
+
+[Complete raw measurements, CSS classes, word rects and executable check expressions](lead-5151561-layout-results.json).
+
+## Bottom tabs
+
+All labels occupy exactly one line in all 10 targeted cases. **320/100 fails** because Approvals and Timecards ellipsize. Subpixel Range measurements: Approvals needs 57.84px in 57.60px; Timecards needs 61.08px in 57.60px. Integer scrollWidth alone misses the slight Approvals truncation; the crop confirms it. 360/100, 375/100, 390/100 and 430/100 show full labels. At 150%, ellipses are allowed: Approvals and Timecards truncate at every width; Payroll also truncates at 320. No mid-word wrapping in the tab labels. Main matrix additionally detects Timecards truncation at 390/125, below the allowed 150% threshold.
+
+| Width | Text | Lines | Ellipsized labels (box/text width) |
+| --- | --- | --- | --- |
+| 320 | 100% | All one line | Approvals (57.60/57.84px), Timecards (57.60/61.08px) |
+| 320 | 150% | All one line | Approvals (54.41/86.75px), Timecards (54.40/91.61px), Payroll (54.40/57.90px) |
+| 360 | 100% | All one line | None |
+| 360 | 150% | All one line | Approvals (62.41/86.75px), Timecards (62.40/91.61px) |
+| 375 | 100% | All one line | None |
+| 375 | 150% | All one line | Approvals (65.41/86.75px), Timecards (65.40/91.61px) |
+| 390 | 100% | All one line | None |
+| 390 | 150% | All one line | Approvals (68.41/86.75px), Timecards (68.40/91.61px) |
+| 430 | 100% | All one line | None |
+| 430 | 150% | All one line | Approvals (76.41/86.75px), Timecards (76.40/91.61px) |
+
+At 320/200 the restored badge position also exceeds its own tab: Approvals link clientWidth 51px / scrollWidth 70px. This is separate from allowed label ellipsis and appears on every staff route.
+
+## Mid-word breaks
+
+Range client rects were collected for each Unicode letter/number word (apostrophes remain within a word), across rendered buttons, role buttons/tabs, links (including links styled as buttons), headings, rounded spans, status roles and badge classes. Text nodes are deduplicated; hidden/screen-reader and decorative SVG text are excluded. Hyphens separate words. Across the matrix: **23,014 word inspections; 111 word-split occurrences in 16 cases**. Single oversized words may explain the browser behavior, but are still reported under the requested strict assertion.
+
+| Route | Width/text | Words split across line tops |
+| --- | --- | --- |
+| `/admin/approvals?classic=1` | 320/100% | Unscheduled |
+| `/admin/approvals?classic=1` | 390/150% | Unscheduled |
+| `/admin/timecards` | 320/200% | waiting |
+| `/admin/approvals?classic=1` | 320/200% | Approvals, Unscheduled, clock |
+| `/admin/payroll?qaState=locked` | 320/200% | Clocked, earlier, periods, Cornerstone |
+| `/admin/users/7?tab=pay` | 320/200% | Joaquin, Mendiola, Taitano, Guerrero, Active, Personal |
+| `/admin/reports` | 320/200% | progress, payroll |
+| `/kiosk?qaState=nonmanager&qaRole=employee` | 320/200% | Manager, admin, launch, required |
+| `/kiosk` | 320/200% | CLR |
+| `/admin/payroll-link?token=fixture` | 320/200% | Connect, Cornerstone, Payroll |
+| `/admin/settings/departments` | 320/200% | Departments |
+| `/admin/users` | 320/200% | clock, Alexandria |
+| `/admin/payroll/records` | 320/200% | records |
+| `/admin/users/7?tab=time` | 320/200% | Joaquin, Mendiola, Taitano, Guerrero, Active, Personal |
+| `/admin/schedule` | 320/200% | current |
+| `/admin/website/contact?qaState=categories` | 320/200% | Off, Schedules |
+
+Example: classic Approvals at 320/100, “Unscheduled” inside the reason pill has rects at y=2057 and y=2072 (widths 37.21px and 41.25px), confirming an internal word break. Seven repeated employee rows show it. At 390/150 the same word breaks in seven rows.
+
+## Overflow and clipped text
+
+Same per-container scrollWidth threshold (>2px) and text Range checks as the prior round. Intentional horizontal table/filter scrollers are separately recorded, not treated as page overflow. Text rects extending outside a non-scrolling container remain failures, even when an ancestor hides them. Ellipsis is explicitly classified using the owner’s size exception above. The raw check retains its previous cap of 60 issue entries per case; Reports and classic Approvals at 320/200 hit that cap, so their counts are lower bounds.
+
+Page overflow occurs only at 320/200: Payroll records **+179px**, team dashboard **+28px**, legacy Settings **+21px**. Every other case has zero page overflow, which does not imply no local clipping.
+
+Selected precise element measurements below use clientWidth→scrollWidth. Raw JSON includes every recorded element’s CSS selector classes and text, and every split word’s line coordinates.
+
+| Route | Width/text | Representative failing containers |
+| --- | --- | --- |
+| `/admin/approvals?classic=1` | 320/100% | div “Alexandria 5 Santos-De Leon Guerrero UNSCHEDULED CLOCK”: 61→69px; div “Alexandria 6 Santos-De Leon Guerrero UNSCHEDULED CLOCK ”: 61→69px; div “Alexandria 6 Santos-De Leon Guerrero UNSCHEDULED CLOCK”: 61→69px |
+| `/admin/approvals?classic=1` | 390/125% | div “FILTERED PENDING 7 56.00h awaiting review OLDEST — Defa”: 318→353px |
+| `/admin/approvals?classic=1` | 390/150% | div “Alexandria 5 Santos-De Leon Guerrero UNSCHEDULED CLOCK”: 75→104px; div “Alexandria 6 Santos-De Leon Guerrero UNSCHEDULED CLOCK ”: 75→104px; div “Alexandria 6 Santos-De Leon Guerrero UNSCHEDULED CLOCK”: 75→104px |
+| `/admin` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/timecards` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/approvals?classic=1` | 320/200% | div “Alexandria 5 Santos-De Leon Guerrero UNSCHEDULED CLOCK ”: 70→139px; div “Alexandria 5 Santos-De Leon Guerrero UNSCHEDULED CLOCK ”: 70→139px; div “Alexandria 5 Santos-De Leon Guerrero UNSCHEDULED CLOCK ”: 70→139px |
+| `/admin/approvals` | 320/200% | button “Approve 1”: 108→112px; li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/payroll?qaState=locked` | 320/200% | p “Connected to Cornerstone Payroll”: 198→204px; li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/users/7?tab=pay` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/reports` | 320/200% | span “Alexandria 27 Santos-De Leon Guerrero ACTIVE Administra”: 190→369px; button “Alexandria 28 Santos-De Leon Guerrero ACTIVE Administra”: 254→401px; span “Alexandria 28 Santos-De Leon Guerrero ACTIVE Administra”: 190→369px |
+| `/kiosk` | 320/200% | div “CURRENT EMPLOYEE Waiting for PIN Verify a PIN to get st”: 174→221px; div “CURRENT EMPLOYEE Waiting for PIN”: 172→220px; div “CURRENT EMPLOYEE Waiting for PIN”: 92→180px |
+| `/admin/payroll-link?token=fixture` | 320/200% | button “Connect and return to Cornerstone”: 142→157px; li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/pay-stubs?tab=links` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/settings/time-clock` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/settings/departments` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/users` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/payroll/records` | 320/200% | div “Oct 16, 2026–Oct 31, 2026 AIRE-PAY-20261031-OCT Account”: 174→426px; li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/users/7?tab=time` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/schedule` | 320/200% | li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin?qaState=team` | 320/200% | a “Hours Reports Inspect live hour summaries, working expo”: 172→219px; li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+| `/admin/website/contact?qaState=categories` | 320/200% | div “Time categories”: 174→188px; li “Approvals 7”: 51→70px; a “Approvals 7”: 51→70px |
+
+## Refreshed evidence
+
+| Page | 375/100 | 390/150 |
+| --- | --- | --- |
+| Today | [PNG](lead-today-375-100.png) | [PNG](lead-today-390-150.png) |
+| Timecards | [PNG](lead-timecards-375-100.png) | [PNG](lead-timecards-390-150.png) |
+| Approvals | [PNG](lead-approvals-375-100.png) | [PNG](lead-approvals-390-150.png) |
+
+Tab-bar crops: [320/100](lead-tabbar-320-100.png), [390/150](lead-tabbar-390-150.png). Earlier screenshots below are historical.
+
+Physical iPhone Safari/WebKit remain not run on this headless mini. Resized Chromium/root text scaling is an approximation. Lifecycle session `manual-20261117-203450-92835-0216`: task-owned fixture server/browser cleaned before handback, no runtime handoff. PR remains unmerged.
+
+---
+
 # Final review-round QA — November 17, 2026
 
 Application source tested: `0626487`. PR #215 is held, unmerged. The previous initial-pass acceptance missed states found by lead review; this round supersedes it. Historical raw measurements and before screenshots remain available.
