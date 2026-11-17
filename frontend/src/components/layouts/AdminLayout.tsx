@@ -82,7 +82,7 @@ function AdminShell() {
             <button
               type="button"
               onClick={() => setDesktopCollapsed((value) => !value)}
-              className="hidden rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 lg:inline-flex"
+              className="hidden rounded-control p-2 text-slate-600 transition hover:bg-slate-100 lg:inline-flex whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               aria-label={desktopCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {desktopCollapsed ? <PanelLeftOpen className="h-5 w-5" aria-hidden="true" /> : <PanelLeftClose className="h-5 w-5" aria-hidden="true" />}
@@ -148,7 +148,7 @@ function AdminShell() {
                             <>
                               <span className="min-w-0 flex-1 truncate">{navItem.name}</span>
                               {showBadge && (
-                                <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold text-amber-800">
+                                <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold text-amber-800 whitespace-nowrap shrink-0">
                                   {' '}{approvalBadgeText(approvalCount)}
                                 </span>
                               )}
@@ -165,7 +165,7 @@ function AdminShell() {
         </div>
 
         {/* Room for the phone tab bar and the home indicator below the last row. */}
-        <main id="admin-content" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
+        <main id="admin-content" tabIndex={-1} className="min-w-0 flex-1 break-words px-4 pb-[max(calc(6rem+env(safe-area-inset-bottom,0px)),calc(var(--selection-bar-height,0px)+1rem))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
           <Outlet />
         </main>
       </div>

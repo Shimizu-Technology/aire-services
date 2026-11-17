@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { formatBusinessTime, formatDateOnly } from '../../lib/dateUtils'
 import { Link } from 'react-router-dom'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
@@ -116,7 +117,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     return (
       <div className={`${cardClass} animate-pulse`}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-        <div className="p-5 flex-1">
+        <div className="p-2 sm:p-5 flex-1">
           <div className="h-5 bg-neutral-warm rounded w-32 mb-4" />
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
@@ -132,11 +133,11 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     return (
       <div className={cardClass}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-        <div className="p-5 flex-1">
+        <div className="p-2 sm:p-5 flex-1">
           <h3 className="font-semibold text-primary-dark text-base mb-3">Today's Team</h3>
           <div className="text-center py-4">
             <p className="text-sm text-red-600 mb-2">Unable to load team status</p>
-            <button onClick={fetchWorkers} className="text-xs text-primary-dark hover:underline font-medium">
+            <button onClick={fetchWorkers} className="text-xs text-primary-dark hover:underline font-medium whitespace-normal text-balance max-w-full min-h-11 min-w-11">
               Retry
             </button>
           </div>
@@ -156,8 +157,8 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     return (
       <div className={cardClass}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-        <div className="p-5 flex-1 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
+        <div className="p-2 sm:p-5 flex-1 flex flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
             <div className="flex items-center gap-1.5 bg-secondary rounded-full px-2.5 py-1">
               <div className="w-2 h-2 rounded-full bg-neutral-warm" />
@@ -198,22 +199,22 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
   return (
     <div className={cardClass}>
       {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
-      <div className="p-5 flex-1">
-        {fetchError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Team status could not refresh. Showing the last successful snapshot. <button type="button" onClick={fetchWorkers} className="min-h-11 underline">Retry team status</button></div>}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+      <div className="p-2 sm:p-5 flex-1">
+        {fetchError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Team status could not refresh. Showing the last successful snapshot. <button type="button" onClick={fetchWorkers} className="min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">Retry team status</button></div>}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
             {cableConnected && !fetchError && (
-              <span className="flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700 whitespace-nowrap shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse whitespace-nowrap shrink-0" />
                 Live
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={fetchWorkers}
-              className="text-xs text-text-muted hover:text-primary-dark font-medium transition-colors"
+              className="text-xs text-text-muted hover:text-primary-dark font-medium transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               title="Refresh snapshot"
             >
               Refresh snapshot
@@ -242,20 +243,20 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
                   transition={{ duration: 0.2 }}
                 >
                   <div
-                    className={`py-2.5 px-3 rounded-xl transition-colors ${
+                    className={`py-2.5 px-2 sm:px-3 rounded-xl transition-colors ${
                       canExpand
                         ? 'bg-secondary/50 cursor-pointer hover:bg-secondary/70'
                         : 'hover:bg-secondary/30'
                     }`}
                     onClick={() => canExpand && setExpandedId(isExpanded ? null : worker.user.id)}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-2 h-2 rounded-full shrink-0 ${config.dot} ${
                           (worker.status === 'clocked_in' || worker.status === 'on_break') ? 'animate-pulse' : ''
                         }`} />
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-primary-dark truncate">
+                          <div className="text-sm font-medium text-primary-dark break-words">
                             {worker.user.full_name || worker.user.display_name}
                           </div>
                           {worker.schedule && !canExpand && (
@@ -343,7 +344,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         {!showAll && hiddenCount > 0 && (
           <button
             onClick={() => setShowAll(true)}
-            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-lg hover:bg-secondary/40 transition-colors"
+            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-control hover:bg-secondary/40 transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
           >
             {`Show ${hiddenCount} more (off duty)`}
           </button>
@@ -351,7 +352,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         {showAll && workers.some(w => !w.schedule && w.status !== 'clocked_in' && w.status !== 'on_break' && w.status !== 'clocked_out') && (
           <button
             onClick={() => setShowAll(false)}
-            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-lg hover:bg-secondary/40 transition-colors"
+            className="mt-3 w-full text-center text-xs text-text-muted hover:text-primary-dark font-medium py-1.5 rounded-control hover:bg-secondary/40 transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
           >
             Hide off-duty staff
           </button>
@@ -418,7 +419,7 @@ function ExpandedDetails({
       )}
 
       {(isActive || isDone) && (
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 text-center">
           <div className="bg-white rounded-lg py-1.5 px-2 border border-neutral-warm/50">
             <div className="text-xs font-semibold text-primary-dark">{worker.completed_hours}h</div>
             <div className="text-[9px] text-text-muted uppercase tracking-wider mt-0.5">Worked</div>
@@ -437,7 +438,7 @@ function ExpandedDetails({
       )}
 
       {(isActive || isDone) && (
-        <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+        <div className="mt-2 grid grid-cols-1 gap-2 text-center sm:grid-cols-2">
           <div className="bg-white rounded-lg py-1.5 px-2 border border-neutral-warm/50">
             <div className="text-xs font-semibold text-primary-dark">{worker.time_category?.name || '—'}</div>
             <div className="text-[9px] text-text-muted uppercase tracking-wider mt-0.5">{dayEntries.length > 1 ? 'Current Category' : 'Category'}</div>
@@ -601,7 +602,7 @@ function AdminActions({
           <button
             disabled={busy}
             onClick={() => run(() => api.clockIn(userId, true, selectedCatId ? Number(selectedCatId) : undefined))}
-            className="text-xs font-semibold bg-emerald-500 text-white rounded-lg px-3 py-1.5 hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+            className={buttonClasses({ variant: 'primary' })}
           >
             {busy ? 'Clocking In...' : 'Clock In'}
           </button>
@@ -615,7 +616,7 @@ function AdminActions({
               <button
                 disabled={busy}
                 onClick={() => run(() => api.startBreak(userId))}
-                className="text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-200 disabled:opacity-50 transition-colors"
+                className={buttonClasses({ variant: 'secondary' })}
               >
                 Start Break
               </button>
@@ -624,7 +625,7 @@ function AdminActions({
               <button
                 disabled={busy}
                 onClick={() => run(() => api.endBreak(userId))}
-                className="text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg px-3 py-1.5 hover:bg-indigo-200 disabled:opacity-50 transition-colors"
+                className={buttonClasses({ variant: 'secondary' })}
               >
                 End Break
               </button>
@@ -632,13 +633,13 @@ function AdminActions({
             <button
               disabled={busy}
               onClick={() => run(() => api.clockOut(undefined, undefined, userId))}
-              className="text-xs font-semibold bg-red-100 text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-200 disabled:opacity-50 transition-colors"
+              className={buttonClasses({ variant: 'danger-outline' })}
             >
               Clock Out
             </button>
           </div>
           {categories.length > 1 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <select
                 value={switchCatId}
                 onChange={e => setSwitchCatId(e.target.value)}
@@ -652,7 +653,7 @@ function AdminActions({
               <button
                 disabled={busy || !switchCatId}
                 onClick={() => run(() => api.switchCategory(Number(switchCatId), userId))}
-                className="text-xs font-semibold bg-cyan-100 text-cyan-800 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-200 disabled:opacity-50 transition-colors"
+                className={buttonClasses({ variant: 'secondary' })}
               >
                 Switch
               </button>

@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import PayrollLockControl from '../../components/payroll/PayrollLockControl'
 import { useState, useEffect, useCallback } from 'react'
@@ -207,11 +208,11 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
 
       {snapshotError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
         <p>{snapshotError}. {snapshotAt ? `Showing the last successful snapshot from ${snapshotAt.toLocaleTimeString()}. Refresh before making payroll decisions.` : 'Counts and payroll readiness are unavailable.'}</p>
-        <button type="button" disabled={statsLoading} onClick={loadStats} className="mt-2 min-h-11 underline disabled:opacity-50">Retry dashboard snapshot</button>
+        <button type="button" disabled={statsLoading} onClick={loadStats} className="mt-2 min-h-11 underline disabled:opacity-50 whitespace-normal text-balance max-w-full min-w-11">Retry dashboard snapshot</button>
       </div>}
       {!snapshotAt && !snapshotError && <p role="status">Loading dashboard snapshot…</p>}
       {snapshotAt && <>
-      <div className={`grid grid-cols-2 gap-4 ${schedulesEnabled ? 'lg:grid-cols-4' : ''}`}>
+      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${schedulesEnabled ? 'lg:grid-cols-4' : ''}`}>
         <StatCard
           label="Active Right Now"
           value={stats.activeCount.toString()}
@@ -257,7 +258,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
 
       </>}
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Who's Working</h2>
             <p className="mt-0.5 text-sm text-slate-500">Live staffing status for the current Guam workday.</p>
@@ -265,12 +266,12 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
           <button
             onClick={loadStats}
             disabled={statsLoading}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            className={buttonClasses({ variant: 'secondary' })}
           >
             Refresh snapshot
           </button>
         </div>
-        <div className="p-5">
+        <div className="p-2 sm:p-5">
           <WhosWorking alwaysShow dashboardStyle />
         </div>
       </section>

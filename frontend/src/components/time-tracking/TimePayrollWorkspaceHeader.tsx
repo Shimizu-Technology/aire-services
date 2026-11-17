@@ -105,7 +105,7 @@ export default function TimePayrollWorkspaceHeader({
                   <span>{section.label}</span>
                   {showCount && (
                     <span
-                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold leading-none text-amber-700"
+                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold leading-none text-amber-700 whitespace-nowrap shrink-0"
                       title={`${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? '' : 's'}${pendingOvertimeCount > 0 ? ` · ${pendingOvertimeCount} overtime` : ''}`}
                     >
                       {approvalBadge(pendingApprovalCount)}

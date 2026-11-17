@@ -92,7 +92,11 @@ function signIn(role: Role, user: Partial<TestUser> = {}) {
 const sidebar = () => screen.getByRole('navigation', { name: 'Main' })
 const tabBar = () => screen.getByRole('navigation', { name: 'Main tabs' })
 // The visible label of each link, without its badge.
-const names = (container: HTMLElement) => within(container).queryAllByRole('link').map((link) => link.querySelector('.truncate')?.textContent?.trim())
+const names = (container: HTMLElement) => within(container).queryAllByRole('link').map((link) => {
+  const label = link.cloneNode(true) as HTMLElement
+  label.querySelectorAll('[aria-hidden], svg').forEach((decoration) => decoration.remove())
+  return label.textContent?.trim()
+})
 const groupNames = (label: string) => names(within(sidebar()).getByRole('group', { name: label }))
 
 const initialViewportWidth = window.innerWidth

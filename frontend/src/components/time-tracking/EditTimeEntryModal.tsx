@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { ToastContext } from '../ui/toastContext'
 import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { UNSAFE_DataRouterContext } from 'react-router-dom'
@@ -612,7 +613,7 @@ export default function EditTimeEntryModal({
                               setFormData({ ...formData, break_minutes: preset.minutes })
                             }
                           }}
-                          className={`min-h-11 min-w-11 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          className={`whitespace-normal min-h-11 min-w-11 pointer-fine:min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                             (preset.minutes === null && formData.break_minutes === null) ||
                             (preset.minutes === formData.break_minutes) ||
                             (preset.minutes === -1 &&
@@ -652,7 +653,7 @@ export default function EditTimeEntryModal({
                         <button
                           type="button"
                           onClick={() => setBreakRows([...breakRows, { start_time: '12:00', end_time: '12:30' }])}
-                          className="min-h-11 min-w-11 rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-50"
+                          className={buttonClasses({ variant: 'secondary' })}
                         >
                           Add break
                         </button>
@@ -682,7 +683,7 @@ export default function EditTimeEntryModal({
                           <button
                             type="button"
                             onClick={() => setBreakRows(breakRows.filter((_, i) => i !== index))}
-                            className="pointer-coarse:min-h-11 rounded-lg px-2 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                            className={buttonClasses({ variant: 'ghost' })}
                           >
                             Remove
                           </button>
@@ -762,7 +763,7 @@ export default function EditTimeEntryModal({
                   <div role="alert" ref={errorRef} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
                     {needsReload && (
-                      <button type="button" className="mt-2 block min-h-11 underline disabled:opacity-50" disabled={saving} onClick={async () => {
+                      <button type="button" className="mt-2 block min-h-11 underline disabled:opacity-50 whitespace-normal text-balance max-w-full min-w-11" disabled={saving} onClick={async () => {
                         if (reloadBusy.current) return
                         reloadBusy.current = true
                         const generation = ++editGeneration.current
@@ -803,7 +804,7 @@ export default function EditTimeEntryModal({
                       type="button"
                       onClick={handleDelete}
                       disabled={!canDelete || deleting || saving || needsReload}
-                      className={`pointer-coarse:min-h-11 rounded-lg px-4 py-2 transition-colors ${
+                      className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 pointer-coarse:min-h-11 rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
                       title={canDelete ? 'Delete this time entry' : 'You cannot delete this time entry'}
@@ -816,14 +817,14 @@ export default function EditTimeEntryModal({
                     <button
                       type="button"
                       onClick={requestClose}
-                      className="pointer-coarse:min-h-11 rounded-lg px-4 py-2 font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
+                      className={buttonClasses({ variant: 'ghost' })}
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={saving || deleting || needsReload}
-                      className="pointer-coarse:min-h-11 rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                      className={buttonClasses({ variant: 'primary' })}
                     >
                       {saving ? 'Saving...' : reviewAction === 'end_clock' ? 'End clock and submit' : reviewAction === 'resubmit_denied' ? 'Submit for review' : 'Update'}
                     </button>

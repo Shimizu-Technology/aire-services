@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Inbox, Link2, Send } from 'lucide-react'
@@ -18,8 +19,8 @@ type DialogTarget = { request?: PayStubRequest; workerId?: number }
 type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T }
 
 const card = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5'
-const secondary = 'inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 disabled:opacity-60'
-const primary = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:opacity-60 motion-reduce:transition-none'
+const secondary = buttonClasses({ variant: 'secondary' })
+const primary = buttonClasses()
 
 function message(error: unknown, fallback: string) {
   return error instanceof PayStubError ? error.message : fallback
@@ -73,7 +74,7 @@ function RequestCard({ request, onSend, onDismissed }: { request: PayStubRequest
           ? <>Send to <span className="font-medium text-slate-900">{request.recipient_email}</span> ({request.recipient_kind === 'typed' ? 'typed at the kiosk' : 'email on file'})</>
           : request.can_send ? 'No email on file yet.' : 'No email on file.'}
         {request.recipient_kind === 'typed' && (
-          <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not the email on file</span>
+          <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 whitespace-nowrap shrink-0">Not the email on file</span>
         )}
       </p>
 
@@ -169,9 +170,10 @@ function RequestsPanel({ refreshKey, onSend, onChanged }: { refreshKey: number; 
       )}
 
       <div>
-        <button type="button" aria-expanded={showClosed} onClick={() => setShowClosed((value) => !value)} className="min-h-11 rounded-lg px-1 text-sm font-semibold text-cyan-700 hover:text-cyan-900 focus-visible:outline-2 focus-visible:outline-cyan-600">
-          {showClosed ? 'Hide handled requests' : 'Show handled requests (last 30 days)'}
+        <button type="button" aria-label={showClosed ? 'Hide handled requests' : 'Show handled requests (last 30 days)'} aria-expanded={showClosed} onClick={() => setShowClosed((value) => !value)} className={buttonClasses({ variant: 'ghost' })}>
+          {showClosed ? 'Hide handled requests' : 'Show handled requests'}
         </button>
+        <p className="text-body-sm text-ink-muted">(last 30 days)</p>
         {showClosed && <div className="mt-2"><ClosedRequests key={refreshKey} /></div>}
       </div>
 
@@ -217,17 +219,17 @@ function LinkCard({ link, onRevoked }: { link: PayStubLink; onRevoked: (link: Pa
       </p>
       {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
       {link.state === 'active' && (confirming ? (
-        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-between">
           <p className="text-sm text-red-900">Turn this link off now? Nobody will be able to download from it.</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-stretch gap-2">
             <button type="button" className={secondary} onClick={() => setConfirming(false)} disabled={busy}>Keep</button>
-            <button type="button" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-red-700 px-4 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-60" onClick={revoke} disabled={busy}>
+            <button type="button" className={buttonClasses({ variant: 'danger' })} onClick={revoke} disabled={busy}>
               {busy ? 'Revoking…' : 'Revoke link'}
             </button>
           </div>
         </div>
       ) : (
-        <button type="button" className={`${secondary} mt-3`} onClick={() => setConfirming(true)}>Revoke</button>
+        <button type="button" className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 ${secondary} mt-3`} onClick={() => setConfirming(true)}>Revoke</button>
       ))}
     </li>
   )
@@ -300,13 +302,13 @@ export default function PayStubs() {
             Email people a secure link to their pay stubs. You pick pay dates only; amounts never appear here or in the email.
           </p>
         </div>
-        <button type="button" className={`${primary} shrink-0`} onClick={() => setDialog({})}>
+        <button type="button" className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 ${primary} shrink-0`} onClick={() => setDialog({})}>
           <Send className="h-4 w-4" aria-hidden="true" />
           Send a pay stub
         </button>
       </div>
 
-      <div role="tablist" aria-label="Pay stub lists" className="flex gap-1 rounded-xl bg-slate-100 p-1">
+      <div role="tablist" aria-label="Pay stub lists" className="flex gap-1 overflow-x-auto rounded-control bg-slate-100 p-1">
         {tabs.map((item) => (
           <button
             key={item.key}
@@ -314,7 +316,7 @@ export default function PayStubs() {
             role="tab"
             aria-selected={tab === item.key}
             onClick={() => setTab(item.key)}
-            className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-cyan-600 ${tab === item.key ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            className={`min-h-11 min-h-11 shrink-0 flex-1 whitespace-normal text-balance max-w-full rounded-control px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-cyan-600 ${tab === item.key ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
           >
             {item.label}
           </button>

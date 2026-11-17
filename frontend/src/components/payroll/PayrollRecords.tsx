@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { AUTOMATIC_CARRYOVER_NOTICE, CALENDAR_LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { PAUSED_PAYROLL_MESSAGE, type ConnectedPayrollCapability } from '../../lib/connectedPayroll'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
@@ -147,7 +148,7 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
     ['Excluded', payload.summary.exclusion_count],
   ]
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {items.map(([label, value]) => (
         <div key={label} className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
@@ -182,7 +183,7 @@ function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] 
           <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
           <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)}</p>
         </div>
-        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
+        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className} max-w-full whitespace-normal leading-tight break-words`}>{status.label}</span>
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
         <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
@@ -224,7 +225,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
       {error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       {!loading && !error && queue && (
         <>
-          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
               ['Needs approval', queue.summary.awaiting_approval_count],
               ['Ready for the next payroll', queue.summary.ready_for_next_batch_count],
@@ -445,8 +446,8 @@ export function FinalizeDialog({ payload, onClose, onConfirm, submitting, error 
         </label>
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onClose} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Keep reviewing</button>
-          <button type="button" onClick={() => onConfirm(note.trim() || undefined)} disabled={!canSubmit} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Locking…' : 'Lock payroll hours'}</button>
+          <button type="button" onClick={onClose} disabled={submitting} className={buttonClasses({ variant: 'secondary' })}>Keep reviewing</button>
+          <button type="button" onClick={() => onConfirm(note.trim() || undefined)} disabled={!canSubmit} className={buttonClasses({ variant: 'primary' })}>{submitting ? 'Locking…' : 'Lock payroll hours'}</button>
         </div>
       </div>
     </div>
@@ -470,7 +471,7 @@ function PublishedCalendarNotice({ payload, onOpenBatch, activationEnabled }: {
             <p className="font-medium">Period {period.external_pay_period_id} · {formatDate(period.start_date)}–{formatDate(period.end_date)}</p>
             <Link to={`/admin/payroll/periods/${period.start_date}`} className="min-h-11 inline-flex items-center font-semibold underline">Open Pay period</Link>
             <p>Published lock: {formatDateTime(period.cutoff_at)} · {period.status}</p>
-            {period.payroll_batch_id && onOpenBatch && <button type="button" onClick={() => onOpenBatch(period.payroll_batch_id!)} className="mt-2 min-h-11 rounded-lg border border-cyan-300 bg-white px-3 py-2 font-semibold text-primary hover:bg-cyan-100">View published batch</button>}
+            {period.payroll_batch_id && onOpenBatch && <button type="button" onClick={() => onOpenBatch(period.payroll_batch_id!)} className={buttonClasses({ variant: 'secondary', className: 'mt-2' })}>View published batch</button>}
           </li>
         ))}
       </ul>
@@ -571,22 +572,22 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">Hours frozen at
-            <input type="datetime-local" step="1" value={cutoffLocal} onChange={(event) => { cutoffLocalRef.current = event.target.value; setCutoffLocal(event.target.value); invalidateSnapshot() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="datetime-local" step="1" value={cutoffLocal} onChange={(event) => { cutoffLocalRef.current = event.target.value; setCutoffLocal(event.target.value); invalidateSnapshot() }} className="mt-2 block min-h-11 min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
             <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Guam time. Later approvals stay excluded. Reconcile their payment evidence before approving any additional wages.</span>
           </label>
           <label className="text-sm font-medium text-slate-700">Cornerstone processed at
-            <input type="datetime-local" step="1" value={processedLocal} onChange={(event) => setProcessedLocal(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="datetime-local" step="1" value={processedLocal} onChange={(event) => setProcessedLocal(event.target.value)} className="mt-2 block min-h-11 min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
             <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Use the committed timestamp from Cornerstone.</span>
           </label>
         </div>
 
-        <button type="button" onClick={() => void reviewSnapshot()} disabled={reviewing || !cutoffLocal} className="mt-4 min-h-11 w-full rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">{reviewing ? 'Recreating snapshot…' : snapshot ? 'Refresh historical snapshot' : 'Review historical snapshot'}</button>
+        <button type="button" onClick={() => void reviewSnapshot()} disabled={reviewing || !cutoffLocal} className={buttonClasses({ variant: 'primary', className: 'mt-4 w-full' })}>{reviewing ? 'Recreating snapshot…' : snapshot ? 'Refresh historical snapshot' : 'Review historical snapshot'}</button>
 
         {snapshot && <PublishedCalendarNotice payload={snapshot} activationEnabled={snapshot.connected_payroll?.enabled === true} />}
         {snapshot && (
           <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">Snapshot to be recorded</p>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ['Hours', formatHours(snapshot.summary.total_hours)],
                 ['Employees', snapshot.summary.employee_count],
@@ -615,7 +616,7 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">Cornerstone pay period ID
-            <input value={externalPayPeriodId} onChange={(event) => setExternalPayPeriodId(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" placeholder="For example, 61" />
+            <input value={externalPayPeriodId} onChange={(event) => setExternalPayPeriodId(event.target.value)} className="mt-2 block min-h-11 min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" placeholder="For example, 61" />
           </label>
           <label className="text-sm font-medium text-slate-700 sm:col-span-2">Reconciliation note
             <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} className="mt-2 block w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" placeholder="Explain how this snapshot was matched to the payroll already processed…" />
@@ -652,8 +653,8 @@ export function ManualProcessingDialog({ period, onClose, onRecorded }: {
         {snapshot?.connected_payroll?.enabled === false && <p role="status" className="mt-4 text-sm text-slate-700">{PAUSED_PAYROLL_MESSAGE}</p>}
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onClose} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={() => void recordProcessed()} disabled={!canRecord} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Recording…' : 'Record as processed manually'}</button>
+          <button type="button" onClick={onClose} disabled={submitting} className={buttonClasses({ variant: 'secondary' })}>Cancel</button>
+          <button type="button" onClick={() => void recordProcessed()} disabled={!canRecord} className={buttonClasses({ variant: 'primary' })}>{submitting ? 'Recording…' : 'Record as processed manually'}</button>
         </div>
       </div>
     </div>
@@ -921,14 +922,14 @@ export default function PayrollRecords() {
       <CarryoverQueue queue={carryovers} loading={carryoversLoading} error={carryoversError} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <label className="text-sm font-medium text-slate-700">Period start
-            <input type="date" value={startDate} onChange={(event) => updateStartDate(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="date" value={startDate} onChange={(event) => updateStartDate(event.target.value)} className="mt-2 block min-h-11 min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <label className="text-sm font-medium text-slate-700">Period end
-            <input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} className="mt-2 block min-h-11 min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
-          <button type="button" onClick={runPreview} disabled={previewing || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate > endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview hours'}</button>
+          <button type="button" onClick={runPreview} disabled={previewing || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate > endDate} className={buttonClasses({ variant: 'primary' })}>{previewing ? 'Calculating…' : 'Preview hours'}</button>
         </div>
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 text-sm leading-6 text-primary">
           {connectionEnabled ? 'Locking saves the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll lock.' : 'Hours previews, reports and locked CSV downloads remain available. Activation actions are unavailable while the payroll connection is paused or its status cannot be confirmed.'}
@@ -952,9 +953,9 @@ export default function PayrollRecords() {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
-              {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download locked CSV</button>}
-              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
-              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={previewing || !preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Lock these hours</button>}
+              {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className={buttonClasses({ variant: 'secondary' })}>Download locked CSV</button>}
+              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className={buttonClasses({ variant: 'secondary' })}>Record already processed</button>}
+              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={previewing || !preview.can_finalize} className={buttonClasses({ variant: 'primary' })}>Lock these hours</button>}
             </div>
           </div>
           {preview && <PublishedCalendarNotice payload={preview} activationEnabled={connectionEnabled} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
@@ -983,7 +984,7 @@ export default function PayrollRecords() {
                   <p className="font-semibold text-slate-950">{formatDate(batch.start_date)}–{formatDate(batch.end_date)}</p>
                   <p className="mt-1 text-xs text-slate-500">{batch.id}</p>
                 </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>{processingLabel(batch)}</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'} max-w-full whitespace-normal leading-tight break-words`}>{processingLabel(batch)}</span>
               </div>
               <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
                 <span>{formatHours(batch.summary.total_hours)}</span>

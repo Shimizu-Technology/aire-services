@@ -82,7 +82,7 @@ export default function AutoApprovalSettings({ settings, onSaved }: Props) {
       <div className="space-y-4 px-5 py-5">
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
         {message && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</div>}
-        <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4 [&>div]:min-w-0 [&>div]:max-w-full rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
               <h3 id="auto-approve-label" className="text-sm font-semibold text-slate-900">Auto-approve ordinary shifts</h3>

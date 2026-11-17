@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { formatPayDate } from '../../lib/myPayApi'
 import { PayStubError, kioskPayStubsApi, type KioskPayStubChoices, type PayStubScope } from '../../lib/payStubsApi'
@@ -105,7 +106,7 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
     return (
       <div className="mt-8 space-y-3">
         <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</p>
-        <button type="button" onClick={onCancel} className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200">Back</button>
+        <button type="button" onClick={onCancel} className={buttonClasses({ variant: 'secondary' })}>Back</button>
       </div>
     )
   }
@@ -212,12 +213,12 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
       {error && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
 
       <div className="grid gap-3">
-        <button type="submit" disabled={!ready || submitting} className={`min-h-14 rounded-2xl px-5 py-3.5 text-sm font-semibold transition select-none touch-manipulation ${
+        <button type="submit" disabled={!ready || submitting} className={`whitespace-normal text-balance max-w-full min-h-14 rounded-2xl px-5 py-3.5 text-sm font-semibold transition select-none touch-manipulation ${
           !ready || submitting ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-[0.98]'
         }`}>
           {submitting ? 'Sending request…' : 'Send request to the office'}
         </button>
-        <button type="button" onClick={onCancel} disabled={submitting} className="rounded-2xl border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-slate-500">
+        <button type="button" onClick={onCancel} disabled={submitting} className={buttonClasses({ variant: 'secondary' })}>
           Cancel
         </button>
       </div>

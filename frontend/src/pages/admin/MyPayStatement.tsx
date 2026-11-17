@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Mail } from 'lucide-react'
@@ -293,7 +294,7 @@ function DownloadButton({ statementId, payDate }: { statementId: string; payDate
         onClick={download}
         disabled={busy}
         aria-busy={busy}
-        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:opacity-70 motion-reduce:transition-none sm:w-auto"
+        className={buttonClasses({ variant: 'primary', className: 'w-full sm:w-auto' })}
       >
         <Download className="h-4 w-4" aria-hidden="true" />
         {busy ? 'Preparing PDF…' : 'Download PDF stub'}
@@ -325,7 +326,7 @@ function EmailStubButton({ statementId, emailStub }: { statementId: string; emai
         onClick={send}
         disabled={busy}
         aria-busy={busy}
-        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition-[background-color,transform] duration-100 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:opacity-70 motion-reduce:transition-none sm:w-auto"
+        className={buttonClasses({ variant: 'secondary', className: 'w-full sm:w-auto' })}
       >
         <Mail className="h-4 w-4" aria-hidden="true" />
         {busy ? 'Sending…' : 'Email me this stub'}

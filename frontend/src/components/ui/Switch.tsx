@@ -52,7 +52,7 @@ export function Switch({ checked, onChange, label, hideLabel = false, descriptio
 
   return (
     <div className={cx('flex items-center justify-between gap-4', className)}>
-      <div className="min-w-0">
+      <div className="min-w-0 break-words">
         {/* Clicking the words flips the switch, like a native label. */}
         <span id={`${ids}-label`} onClick={() => { if (!disabled && !busy) onChange(!checked) }} className={cx('block text-body-sm font-medium text-ink', !disabled && 'cursor-pointer')}>{label}</span>
         {description && <span id={`${ids}-description`} className="mt-0.5 block text-body-sm text-ink-muted">{description}</span>}

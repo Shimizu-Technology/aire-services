@@ -35,7 +35,7 @@ function RetryLine({ children, onRetry }: { children: string; onRetry: () => voi
   return (
     <p className="text-body-sm text-ink-muted">
       {children}{' '}
-      <button type="button" onClick={onRetry} className="min-h-11 font-semibold text-primary underline pointer-fine:min-h-0">
+      <button type="button" onClick={onRetry} className="relative font-semibold text-primary underline pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']">
         Try again
       </button>
     </p>
@@ -136,7 +136,7 @@ export function PayPeriodCard({
         {periodLoad === 'stale' && <StaleNote what="the hours" loadedAt={periodUpdatedAt} onRetry={onRetryPeriod} />}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 grid grid-cols-1 items-stretch gap-2 sm:grid-cols-2">
         <Link to={approvalsHref(period ? { start_date: period.start_date, end_date: period.end_date } : {})} className={buttonClasses({})}>
           Review approvals
         </Link>

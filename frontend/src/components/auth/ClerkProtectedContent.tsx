@@ -72,7 +72,7 @@ export default function ClerkProtectedContent({ children, requiredRole, required
           <button
             type="button"
             onClick={() => void refreshCurrentUser()}
-            className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+            className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
           >
             Retry connection
           </button>

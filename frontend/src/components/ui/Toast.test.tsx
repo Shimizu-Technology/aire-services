@@ -145,7 +145,7 @@ describe('Toast', () => {
         </ToastProvider>
       </ShellChromeProvider>,
     )
-    expect(screen.getByRole('region', { name: /Notifications/ })).toHaveClass('lg:bottom-24')
+    expect(screen.getByRole('region', { name: /Notifications/ })).toHaveClass('bottom-[calc(var(--selection-bar-height,5rem)+0.75rem)]')
   })
 
   it('lives in a labelled Notifications region, and Alt+T focuses Undo and holds it open', () => {

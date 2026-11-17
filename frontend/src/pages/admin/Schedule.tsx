@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -385,11 +386,11 @@ export default function Schedule() {
   return (
     <div className="space-y-6">
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
-      {selectedUser && <div className="flex flex-wrap items-center gap-3 text-sm"><span>Showing one employee’s schedule</span><button type="button" className="min-h-11 underline" onClick={() => { const next = new URLSearchParams(query); next.delete('user_id'); setQuery(next) }}>Show all employees</button></div>}
+      {selectedUser && <div className="flex flex-wrap items-center gap-3 text-sm"><span>Showing one employee’s schedule</span><button type="button" className="min-h-11 underline whitespace-normal text-balance max-w-full min-w-11" onClick={() => { const next = new URLSearchParams(query); next.delete('user_id'); setQuery(next) }}>Show all employees</button></div>}
       {loadError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
           <p>{loadError}</p>
-          <button type="button" onClick={loadSchedules} className="mt-2 min-h-11 underline">Retry loading schedules</button>
+          <button type="button" onClick={loadSchedules} className="mt-2 min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">Retry loading schedules</button>
         </div>
       )}
       {/* Header */}
@@ -408,12 +409,12 @@ export default function Schedule() {
             className="w-full rounded-xl border border-neutral-warm px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:w-64"
           />
 
-        {canManage && <button type="button" disabled={loading || !!loadError} onClick={() => openAddModal(0, formatDateISO(currentWeekStart))} className="min-h-11 rounded-xl bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50">Add shift</button>}
+        {canManage && <button type="button" disabled={loading || !!loadError} onClick={() => openAddModal(0, formatDateISO(currentWeekStart))} className={buttonClasses({ variant: 'primary' })}>Add shift</button>}
         {/* View Mode Toggle */}
         <div className="flex items-center gap-1 bg-neutral-warm rounded-lg p-1">
           <button
             onClick={() => setViewMode('list')}
-            className={`px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors min-h-[44px] sm:min-h-0 ${
+            className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors ${
               effectiveViewMode === 'list'
                 ? 'bg-white text-primary shadow-sm'
                 : 'text-text-muted hover:text-primary-dark'
@@ -474,7 +475,7 @@ export default function Schedule() {
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={goToPrevWeek}
-            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-control transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center whitespace-normal text-balance max-w-full"
             aria-label="Previous week"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -489,7 +490,7 @@ export default function Schedule() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-4">
               <button
                 onClick={goToCurrentWeek}
-                className="text-sm text-primary hover:text-primary-dark py-1"
+                className="text-sm text-primary hover:text-primary-dark py-1 whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               >
                 Go to current week
               </button>
@@ -503,7 +504,7 @@ export default function Schedule() {
 
           <button
             onClick={goToNextWeek}
-            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="p-3 sm:p-2 hover:bg-neutral-warm rounded-control transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center whitespace-normal text-balance max-w-full"
             aria-label="Next week"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -550,7 +551,7 @@ export default function Schedule() {
                     <div className="flex items-center justify-between">
                       <h3 className={`font-semibold ${isToday ? 'text-primary' : 'text-primary-dark'}`}>
                         {formatDayLong(date)}
-                        {isToday && <span className="ml-2 text-xs bg-primary text-white px-2 py-0.5 rounded-full">Today</span>}
+                        {isToday && <span className="ml-2 text-xs bg-primary text-white px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">Today</span>}
                       </h3>
                       <span className="text-sm text-text-muted">
                         {daySchedules.reduce((sum, s) => sum + s.hours, 0).toFixed(1)}h total
@@ -591,7 +592,7 @@ export default function Schedule() {
                             <div className="flex items-center gap-2 sm:gap-3 ml-13 sm:ml-0">
                               {(canManage || currentUser?.id === schedule.user_id) && <button
                                 onClick={() => handleLogShift(schedule)}
-                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium rounded-lg transition-colors min-h-[44px] sm:min-h-0"
+                                className={buttonClasses({ variant: 'primary', className: 'flex-1 sm:flex-none' })}
                                 title="Log this shift as a time entry"
                               >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -602,7 +603,7 @@ export default function Schedule() {
                               {canManage && <button
                                 aria-label="Edit shift"
                                 onClick={() => openEditModal(schedule)}
-                                className="inline-flex items-center justify-center p-2.5 sm:p-2 text-text-muted hover:text-primary-dark hover:bg-neutral-warm rounded-lg transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
+                                className="inline-flex items-center justify-center p-2.5 sm:p-2 text-text-muted hover:text-primary-dark hover:bg-neutral-warm rounded-control transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 whitespace-normal text-balance max-w-full"
                                 title="Edit shift"
                               >
                                 <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -683,14 +684,14 @@ export default function Schedule() {
                                   key={schedule.id}
                                   disabled={!canManage}
                                   onClick={() => openEditModal(schedule)}
-                                  className="w-full px-2 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium rounded transition-colors"
+                                  className={buttonClasses({ variant: 'primary', className: 'w-full' })}
                                 >
                                   {schedule.formatted_time_range.replace(' AM', 'a').replace(' PM', 'p').replace(' - ', '-')}
                                 </button>
                               ))}
                               {canManage && <button
                                 onClick={() => openAddModal(user.id, dateStr)}
-                                className={`w-full px-2 py-1.5 border-2 border-dashed border-neutral-warm hover:border-primary hover:bg-primary/5 text-text-muted hover:text-primary text-xs rounded transition-colors ${
+                                className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 w-full px-2 py-1.5 border-2 border-dashed border-neutral-warm hover:border-primary hover:bg-primary/5 text-text-muted hover:text-primary text-xs rounded transition-colors ${
                                   cellSchedules.length > 0 ? 'opacity-60 hover:opacity-100' : ''
                                 }`}
                               >
@@ -783,7 +784,7 @@ export default function Schedule() {
                   {leaveLoading && <p role="status" className="text-sm text-text-muted">Checking approved leave…</p>}
                   {leaveError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                     <p>{leaveError}</p>
-                    <button type="button" onClick={() => setLeaveRetry(value => value + 1)} className="mt-2 min-h-11 font-semibold underline">Retry leave check</button>
+                    <button type="button" onClick={() => setLeaveRetry(value => value + 1)} className="mt-2 min-h-11 font-semibold underline whitespace-normal text-balance max-w-full min-w-11">Retry leave check</button>
                   </div>}
                   {!leaveLoading && !leaveError && shiftLeave.length > 0 && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                     <p className="font-semibold">Approved leave overlaps this shift</p>
@@ -807,7 +808,7 @@ export default function Schedule() {
                         key={preset.label}
                         type="button"
                         onClick={() => applyPreset(preset)}
-                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                        className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                           formData.start_time === preset.start_time && formData.end_time === preset.end_time
                             ? 'bg-primary text-white'
                             : 'bg-neutral-warm text-primary-dark hover:bg-primary/20'
@@ -861,24 +862,24 @@ export default function Schedule() {
               </div>
 
               {/* Actions */}
-              <div className="flex justify-between mt-6 pt-4 border-t border-neutral-warm">
+              <div className="flex flex-wrap justify-between gap-3 mt-6 pt-4 border-t border-neutral-warm">
                 <div>
                   {editingSchedule && (
                     <button
                       type="button"
                       onClick={handleDelete}
-                      className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
+                      className={buttonClasses({ variant: 'danger-outline' })}
                     >
                       Delete
                     </button>
                   )}
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap items-stretch gap-3">
                   <button
                     type="button"
                     onClick={closeDialog}
                     disabled={saving}
-                    className="px-4 py-2 text-primary-dark font-medium hover:bg-neutral-warm rounded-lg transition-colors"
+                    className={buttonClasses({ variant: 'ghost' })}
                   >
                     Cancel
                   </button>
@@ -886,7 +887,7 @@ export default function Schedule() {
                     type="button"
                     onClick={handleSave}
                     disabled={saving || leaveLoading || !!leaveError || (shiftLeave.length > 0 && (!leaveConfirmed || !leaveReason.trim()))}
-                    className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 font-medium"
+                    className={buttonClasses({ variant: 'primary' })}
                   >
                     {saving ? 'Saving...' : 'Save'}
                   </button>

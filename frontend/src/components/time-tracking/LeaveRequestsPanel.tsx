@@ -1,3 +1,4 @@
+import { buttonClasses } from '../ui/buttonStyles'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { LeaveRequest, PaginationMeta } from '../../lib/api'
@@ -298,7 +299,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
             aria-expanded={showRequestForm}
             aria-controls="leave-request-form"
             onClick={() => setRequestFormOverride(!showRequestForm)}
-            className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+            className={buttonClasses({ variant: 'secondary', className: 'shrink-0' })}
           >
             {showRequestForm ? 'Hide form' : 'Request leave'}
           </button>
@@ -347,7 +348,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                className={buttonClasses({ variant: 'primary', className: 'w-full' })}
               >
                 {submitting ? 'Submitting…' : 'Submit request'}
               </button>
@@ -397,7 +398,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                         <h4 className="text-base font-semibold text-slate-900">
                           {LEAVE_TYPE_OPTIONS.find((option) => option.value === request.leave_type)?.label ?? request.leave_type}
                         </h4>
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${STATUS_STYLES[request.status]}`}>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${STATUS_STYLES[request.status]} whitespace-nowrap shrink-0`}>
                           {request.status}
                         </span>
                       </div>
@@ -426,7 +427,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                         type="button"
                         disabled={actionLoadingId === request.id}
                         onClick={() => void runReviewAction(request, 'cancel')}
-                        className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                        className={buttonClasses({ variant: 'secondary' })}
                       >
                         {actionLoadingId === request.id ? 'Saving…' : 'Cancel request'}
                       </button>
@@ -442,12 +443,12 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                         placeholder="Optional note for the employee."
                         className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                       />
-                      <div className="flex flex-wrap gap-3">
+                      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
                         <button
                           type="button"
                           disabled={actionLoadingId === request.id}
                           onClick={() => void runReviewAction(request, 'approve')}
-                          className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                          className={buttonClasses({ variant: 'primary' })}
                         >
                           {actionLoadingId === request.id ? 'Saving…' : 'Approve'}
                         </button>
@@ -455,7 +456,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                           type="button"
                           disabled={actionLoadingId === request.id}
                           onClick={() => void runReviewAction(request, 'decline')}
-                          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                          className={buttonClasses({ variant: 'danger-outline' })}
                         >
                           Decline
                         </button>
@@ -469,7 +470,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                         type="button"
                         disabled={actionLoadingId === request.id}
                         onClick={() => void runReviewAction(request, 'cancel')}
-                        className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                        className={buttonClasses({ variant: 'secondary' })}
                       >
                         {actionLoadingId === request.id ? 'Saving…' : 'Cancel request'}
                       </button>
@@ -483,12 +484,12 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                 <span>
                   Page {pagination.current_page} of {pagination.total_pages}
                 </span>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:flex">
                   <button
                     type="button"
                     disabled={pagination.current_page <= 1}
                     onClick={() => changePage(Math.max(1, pagination.current_page - 1))}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'secondary' })}
                   >
                     Previous
                   </button>
@@ -496,7 +497,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                     type="button"
                     disabled={pagination.current_page >= pagination.total_pages}
                     onClick={() => changePage(Math.min(pagination.total_pages, pagination.current_page + 1))}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'secondary' })}
                   >
                     Next
                   </button>
@@ -521,7 +522,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="text-base font-semibold text-slate-900">{requestOwnerName(request)}</h4>
-                      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${STATUS_STYLES[request.status]}`}>
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${STATUS_STYLES[request.status]} whitespace-nowrap shrink-0`}>
                         {request.status}
                       </span>
                     </div>
@@ -544,12 +545,12 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                 <span>
                   Page {reviewedPagination.current_page} of {reviewedPagination.total_pages}
                 </span>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:flex">
                   <button
                     type="button"
                     disabled={reviewedPagination.current_page <= 1}
                     onClick={() => changeReviewedPage(Math.max(1, reviewedPagination.current_page - 1))}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'secondary' })}
                   >
                     Previous
                   </button>
@@ -557,7 +558,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                     type="button"
                     disabled={reviewedPagination.current_page >= reviewedPagination.total_pages}
                     onClick={() => changeReviewedPage(Math.min(reviewedPagination.total_pages, reviewedPagination.current_page + 1))}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                    className={buttonClasses({ variant: 'secondary' })}
                   >
                     Next
                   </button>

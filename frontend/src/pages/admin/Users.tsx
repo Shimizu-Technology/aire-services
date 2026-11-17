@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { UserPlus } from 'lucide-react'
@@ -535,7 +536,7 @@ export default function Users() {
                       resetCreateForm()
                       navigate(employeeWorkspaceHref(createdId, { returnTo: `${location.pathname}${location.search}` }))
                     }}
-                    className="mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    className={buttonClasses({ variant: 'primary', className: 'mt-7 w-full' })}
                   >
                     Open their page
                   </button>
@@ -558,7 +559,7 @@ export default function Users() {
                       <h2 id="create-user-title" className="text-xl font-semibold text-slate-950">Add team member</h2>
                       <p className="mt-1 text-sm text-slate-500">Set up access first, then choose their team and time-tracking details.</p>
                     </div>
-                    <button type="button" aria-label="Close" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                    <button type="button" aria-label="Close" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-control p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 whitespace-normal text-balance max-w-full min-h-11 min-w-11">
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
@@ -650,9 +651,9 @@ export default function Users() {
                   {createError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
                 </div>
 
-                <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
-                  <button type="button" onClick={() => createStep === 2 ? (setCreateStep(1), setCreateError('')) : (setShowCreateModal(false), resetCreateForm())} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">{createStep === 2 ? 'Back' : 'Cancel'}</button>
-                  <button type="submit" disabled={creating || (createStep === 2 && createTimeTracking && activeCategories.length === 0)} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">{createStep === 1 ? 'Continue' : creating ? 'Saving…' : createPersonalAccess && sendInvitationEmail ? 'Add and send invite' : 'Add team member'}</button>
+                <div className="flex flex-col items-stretch gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:justify-between sm:px-7">
+                  <button type="button" onClick={() => createStep === 2 ? (setCreateStep(1), setCreateError('')) : (setShowCreateModal(false), resetCreateForm())} className={buttonClasses({ variant: 'secondary' })}>{createStep === 2 ? 'Back' : 'Cancel'}</button>
+                  <button type="submit" disabled={creating || (createStep === 2 && createTimeTracking && activeCategories.length === 0)} className={buttonClasses({ variant: 'primary' })}>{createStep === 1 ? 'Continue' : creating ? 'Saving…' : createPersonalAccess && sendInvitationEmail ? 'Add and send invite' : 'Add team member'}</button>
                 </div>
               </form>
             )}

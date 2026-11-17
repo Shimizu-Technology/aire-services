@@ -56,13 +56,13 @@ export function BeforeLockChecklist({ sources, now, onRetry, paused = false, ...
       {entries.length > 0 && stale.length > 0 && (
         <p role="status" className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-body-sm text-amber-950">
           Couldn't refresh the checklist{oldest ? ` · Last updated ${timeLabel(oldest)}` : ''}{stale.some(source => !source.loadedAt) ? " · Some lines couldn't load" : ''}. It may not be ready to lock.{' '}
-          <button type="button" onClick={onRetry} className="min-h-11 font-semibold underline pointer-fine:min-h-0">Try again</button>
+          <button type="button" onClick={onRetry} className="font-semibold underline">Try again</button>
         </p>
       )}
       {entries.length > 0 && stale.length === 0 && aged.length > 0 && (
         <p role="status" className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-body-sm text-amber-950">
           Some lines were last updated {timeLabel(aged.map(source => source.loadedAt!).sort((a, b) => a.getTime() - b.getTime())[0])}. It may not be ready to lock.{' '}
-          <button type="button" onClick={onRetry} className="min-h-11 font-semibold underline pointer-fine:min-h-0">Refresh</button>
+          <button type="button" onClick={onRetry} className="font-semibold underline">Refresh</button>
         </p>
       )}
       {entries.length > 0 && !current && stale.length === 0 && aged.length === 0 && (

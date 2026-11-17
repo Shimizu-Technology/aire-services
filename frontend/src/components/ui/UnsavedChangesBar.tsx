@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useRef, type ReactNode } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { cx } from '../../lib/cx'
 import { useSelectionBarRegistration } from '../layouts/shellChrome'
@@ -43,33 +43,35 @@ export function UnsavedChangesBar({
   className,
 }: UnsavedChangesBarProps) {
   const ids = useId()
-  useSelectionBarRegistration(dirty)
+  const barRef = useRef<HTMLDivElement>(null)
+  useSelectionBarRegistration(dirty, barRef)
   return (
     <>
       <p aria-live="polite" className="sr-only">{dirty ? message : ''}</p>
       {dirty && (
         <div
+          ref={barRef}
           role="region"
           aria-label="Unsaved changes"
           className={cx(
-            'z-(--z-tabbar) flex items-center gap-3 bg-surface pt-3 shadow-raised',
+            'z-(--z-tabbar) grid grid-cols-2 items-center gap-3 bg-surface sm:flex pt-3 shadow-raised',
             'fixed inset-x-0 bottom-0 pb-safe-3 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))]',
             'lg:sticky lg:inset-x-auto lg:mt-6 lg:rounded-card lg:border lg:border-line lg:px-5 lg:pb-3',
             className,
           )}
         >
-          <p className="min-w-0 flex-1 text-body-sm">
+          <p className="col-span-2 min-w-0 flex-1 text-body-sm">
             <span className="block font-semibold text-ink">{summary ? 'Unsaved change' : message}</span>
-            {summary && <span className="block truncate text-ink-muted">{summary}</span>}
+            {summary && <span className="block whitespace-normal break-words text-ink-muted">{summary}</span>}
           </p>
-          <Button variant="ghost" onClick={onDiscard} disabled={saving} className="shrink-0">{discardLabel}</Button>
+          <Button variant="ghost" onClick={onDiscard} disabled={saving} className="w-full shrink-0 sm:w-auto">{discardLabel}</Button>
           <Button
             onClick={onSave}
             loading={saving}
             disabled={saveDisabled}
             title={saveDisabled ? saveDisabledReason : undefined}
             aria-describedby={saveDisabled && saveDisabledReason ? `${ids}-reason` : undefined}
-            className="shrink-0"
+            className="w-full shrink-0 sm:w-auto"
           >
             {saveLabel}
           </Button>

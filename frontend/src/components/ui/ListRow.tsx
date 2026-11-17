@@ -105,12 +105,13 @@ export function ListRow({
         onKeyDown={onKeyDown}
         onClick={onClick}
         className={cx(
-          'flex min-h-14 flex-wrap items-center gap-3 px-3.5 py-2.5 pointer-fine:min-h-12 pointer-fine:px-4 pointer-fine:py-2',
+          'flex min-h-14 items-center gap-3 px-3.5 py-2.5 pointer-fine:min-h-12 pointer-fine:px-4 pointer-fine:py-2',
           'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
           (onOpen || expandable) && 'cursor-pointer',
           isSelected ? 'bg-primary/5' : 'hover:bg-surface-muted',
         )}
       >
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
         {checkbox && (
           <Checkbox
             data-list-control
@@ -122,11 +123,11 @@ export function ListRow({
           />
         )}
         {leading}
-        <div className="min-w-[min(9rem,100%)] flex-1">
-          <p id={`${id}-title`} className="whitespace-normal break-normal text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
-          {meta && <p id={`${id}-meta`} className="mt-0.5 whitespace-normal break-normal text-body-sm text-ink-muted">{meta}</p>}
+        <div className="min-w-0 basis-[min(9rem,100%)] flex-1">
+          <p id={`${id}-title`} className="whitespace-normal break-words text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
+          {meta && <p id={`${id}-meta`} className="mt-0.5 whitespace-normal break-words text-body-sm text-ink-muted">{meta}</p>}
         </div>
-        {trailing && <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
+        {trailing && <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
         {action && (
           <Button
             data-list-control
@@ -137,11 +138,12 @@ export function ListRow({
             disabled={action.disabled}
             aria-label={action.ariaLabel}
             title={action.title}
-            className="shrink-0"
+            className="w-full sm:w-auto"
           >
             {action.label}
           </Button>
         )}
+        </div>
         {expandable ? (
           <button
             type="button"
@@ -150,7 +152,7 @@ export function ListRow({
             aria-controls={`${id}-rows`}
             aria-label={expandLabel}
             onClick={toggleExpanded}
-            className="-mr-2 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-ink-subtle hover:bg-surface-muted hover:text-ink pointer-fine:size-9"
+            className="-mr-2 inline-flex size-11 shrink-0 pointer-fine:size-9 items-center justify-center rounded-control text-ink-subtle hover:bg-surface-muted hover:text-ink whitespace-nowrap"
           >
             <ChevronDown aria-hidden="true" className={cx('size-5', !expanded && '-rotate-90')} />
           </button>

@@ -49,7 +49,7 @@ export function SelectionBar({
   // Silent until something has been selected, then "Selection cleared" at 0.
   const [everActive, setEverActive] = useState(active)
   if (active && !everActive) setEverActive(true)
-  useSelectionBarRegistration(active)
+  useSelectionBarRegistration(active, barRef)
 
   // Remember where focus was before it entered the bar (the row checkbox, say),
   // so clearing from the bar returns there instead of dropping it on <body>.
@@ -98,7 +98,7 @@ export function SelectionBar({
           aria-label={label}
           aria-describedby={`${ids}-count`}
           className={cx(
-            'z-(--z-tabbar) flex items-center gap-3 bg-surface pt-3 shadow-raised',
+            'z-(--z-tabbar) flex flex-wrap items-center gap-3 bg-surface pt-3 shadow-raised',
             // Phones: fixed where the tab bar was, clear of the home indicator and side insets.
             'fixed inset-x-0 bottom-0 pb-safe-3 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))]',
             // Desktop: sticks to the bottom of the content column.
@@ -106,12 +106,12 @@ export function SelectionBar({
             className,
           )}
         >
-          <p className="min-w-0 flex-1 text-body-sm text-ink-muted">
+          <p className="min-w-0 flex-1 basis-36 text-body-sm text-ink-muted">
             <span className="text-body font-semibold text-ink">{countText}</span>
-            {summary && <span className="block truncate sm:inline sm:before:mx-1.5 sm:before:content-['·']">{summary}</span>}
+            {summary && <span className="block whitespace-normal break-words sm:inline sm:before:mx-1.5 sm:before:content-['·']">{summary}</span>}
           </p>
           <Button variant="ghost" onClick={onClear} className="shrink-0">{clearLabel}</Button>
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
+          <div className="flex max-w-full flex-wrap items-stretch gap-2">{actions}</div>
         </div>
       )}
     </>

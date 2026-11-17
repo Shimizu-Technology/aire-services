@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type SiteMedia, type SiteMediaInput, type SiteMediaPlacement, type SiteMediaType } from '../../lib/api'
 import { SITE_MEDIA_PLACEMENT_GROUPS, SITE_MEDIA_PLACEMENTS } from '../../lib/siteMedia'
@@ -204,7 +205,7 @@ export default function Media() {
           <button
             type="button"
             onClick={resetForm}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className={buttonClasses({ variant: 'secondary' })}
           >
             New media
           </button>
@@ -252,7 +253,7 @@ export default function Media() {
                 <h2 className="text-xl font-semibold tracking-tight text-slate-900">{editing ? 'Edit media' : 'Add media'}</h2>
                 <p className="mt-1 text-sm leading-relaxed text-slate-500">{selectedPlacement?.helper}</p>
               </div>
-              {editing && <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">Editing</span>}
+              {editing && <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700 whitespace-nowrap shrink-0">Editing</span>}
             </div>
 
             <div className="mt-6 grid gap-4">
@@ -295,7 +296,7 @@ export default function Media() {
                       <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {selectedPlacement.appearsOn.map((location) => (
-                          <span key={location} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{location}</span>
+                          <span key={location} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0">{location}</span>
                         ))}
                       </div>
                     </div>
@@ -431,14 +432,14 @@ export default function Media() {
 
               <div className="flex flex-wrap justify-end gap-3">
                 {editing && (
-                  <button type="button" onClick={resetForm} className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                  <button type="button" onClick={resetForm} className={buttonClasses({ variant: 'secondary' })}>
                     Cancel
                   </button>
                 )}
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className={buttonClasses({ variant: 'primary' })}
                 >
                   {saving ? 'Saving...' : editing ? 'Save changes' : 'Add media'}
                 </button>
@@ -490,7 +491,7 @@ export default function Media() {
                             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{placement?.group || 'Site placement'}</p>
                             <p className="mt-1 text-sm font-semibold text-slate-700">{placement?.shortLabel || item.placement}</p>
                           </div>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-600'} whitespace-nowrap shrink-0`}>
                             {item.active ? 'Active' : 'Hidden'}
                           </span>
                         </div>
@@ -502,11 +503,11 @@ export default function Media() {
                         )}
                         {item.caption && <p className="mt-3 text-sm leading-relaxed text-slate-600">{item.caption}</p>}
                         <div className="mt-4 flex flex-wrap gap-2">
-                          <button onClick={() => loadEdit(item)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-                          <button onClick={() => handleQuickToggle(item)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                          <button onClick={() => loadEdit(item)} className={buttonClasses({ variant: 'secondary' })}>Edit</button>
+                          <button onClick={() => handleQuickToggle(item)} className={buttonClasses({ variant: 'secondary' })}>
                             {item.active ? 'Hide' : 'Show'}
                           </button>
-                          <button onClick={() => handleDelete(item)} className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50">Delete</button>
+                          <button onClick={() => handleDelete(item)} className={buttonClasses({ variant: 'danger-outline' })}>Delete</button>
                         </div>
                       </div>
                     </article>

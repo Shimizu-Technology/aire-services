@@ -41,7 +41,7 @@ export default function EmailChips({
                 type="button"
                 disabled={disabled}
                 aria-label={`Remove ${email}`}
-                className="min-h-11 px-3"
+                className="min-h-11 px-3 whitespace-normal text-balance max-w-full min-w-11"
                 onClick={() => onRemove(email)}
               >
                 ×

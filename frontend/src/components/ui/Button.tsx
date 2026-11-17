@@ -1,6 +1,6 @@
 import type { ComponentPropsWithRef, ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
-import { buttonClasses, type ButtonSize, type ButtonVariant } from './buttonStyles'
+import { buttonClasses, type ButtonLayout, type ButtonSize, type ButtonVariant } from './buttonStyles'
 
 export interface ButtonProps extends ComponentPropsWithRef<'button'> {
   variant?: ButtonVariant
@@ -11,6 +11,7 @@ export interface ButtonProps extends ComponentPropsWithRef<'button'> {
   /** Icon shown before the label. Decorative; the label names the action. */
   icon?: ReactNode
   fullWidth?: boolean
+  layout?: ButtonLayout
 }
 
 export function Button({
@@ -20,6 +21,7 @@ export function Button({
   loadingLabel,
   icon,
   fullWidth,
+  layout,
   className,
   disabled,
   type = 'button',
@@ -32,7 +34,7 @@ export function Button({
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={buttonClasses({ variant, size, fullWidth, className })}
+      className={buttonClasses({ variant, size, fullWidth, layout, className })}
     >
       {loading
         ? <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />

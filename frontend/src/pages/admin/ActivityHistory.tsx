@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
@@ -154,7 +155,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <h2 className="mt-1 text-lg font-semibold text-slate-950">{event.summary}</h2>
           <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)} Guam time</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close event details">
+        <button type="button" onClick={onClose} className="rounded-control p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 whitespace-normal text-balance max-w-full min-h-11 min-w-11" aria-label="Close event details">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -403,14 +404,14 @@ export default function ActivityHistory() {
       {searchParams.get('saved') === '1' && <p role="status">Shift saved.</p>}
       {returnTo && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>{backLabel}</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
-      {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
+      {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline whitespace-normal text-balance max-w-full min-h-11 min-w-11" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Accountability</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Activity History</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">A permanent record of access, time, approvals, schedules, settings, exports, and other important changes in AIRE.</p>
         </div>
-        {globalHistory && <button type="button" onClick={exportEvents} disabled={exporting || loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">
+        {globalHistory && <button type="button" onClick={exportEvents} disabled={exporting || loading} className={buttonClasses({ variant: 'primary' })}>
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></svg>
           {exporting ? 'Preparing CSV…' : 'Export CSV'}
         </button>}
@@ -420,7 +421,7 @@ export default function ActivityHistory() {
         {routeSubjectType && routeSubjectId && (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary-dark">
             <span>Showing history for {formatLabel(routeSubjectType)} #{routeSubjectId}</span>
-            {globalHistory && <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark">Show all</button>}
+            {globalHistory && <button type="button" onClick={clearSubjectScope} className="font-semibold text-primary hover:text-primary-dark whitespace-normal text-balance max-w-full min-h-11 min-w-11">Show all</button>}
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -442,7 +443,7 @@ export default function ActivityHistory() {
           <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">From</span><input aria-label="From date" type="date" value={filters.from || ''} onChange={(event) => updateFilter('from', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
           <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">To</span><input aria-label="To date" type="date" value={filters.to || ''} onChange={(event) => updateFilter('to', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
         </div>
-        {activeFilterCount > 0 && <button type="button" onClick={clearFilters} className="mt-3 text-sm font-semibold text-primary transition hover:text-primary-dark">Clear {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}</button>}
+        {activeFilterCount > 0 && <button type="button" onClick={clearFilters} className="mt-3 text-sm font-semibold text-primary transition hover:text-primary-dark whitespace-normal text-balance max-w-full min-h-11 min-w-11">Clear {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}</button>}
       </section>
 
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -462,7 +463,7 @@ export default function ActivityHistory() {
             <div className="divide-y divide-slate-100">
               {events.map((event) => (
                 <button key={event.id} type="button" onClick={() => selectEvent(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
-                  <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-500 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
+                  <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 whitespace-nowrap shrink-0">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-500 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
                   <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary} {event.outcome !== 'succeeded' && /\.(create|update|delete|destroy)$/.test(event.action) && <span className="ml-2 rounded bg-red-100 px-2 py-1 text-sm font-semibold text-red-900">Not saved</span>}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type}{sourceLabel(event) ? ` · ${sourceLabel(event)}` : ''}</p></div>
                   <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>
                 </button>
@@ -472,9 +473,9 @@ export default function ActivityHistory() {
 
           {pagination.total_pages > 1 && (
             <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4">
-              <button type="button" disabled={pagination.page <= 1 || loading} onClick={() => setFilters((current) => ({ ...current, page: Math.max(1, pagination.page - 1) }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">Previous</button>
+              <button type="button" disabled={pagination.page <= 1 || loading} onClick={() => setFilters((current) => ({ ...current, page: Math.max(1, pagination.page - 1) }))} className={buttonClasses({ variant: 'secondary' })}>Previous</button>
               <span className="text-xs font-medium text-slate-500">Page {pagination.page} of {pagination.total_pages}</span>
-              <button type="button" disabled={pagination.page >= pagination.total_pages || loading} onClick={() => setFilters((current) => ({ ...current, page: pagination.page + 1 }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">Next</button>
+              <button type="button" disabled={pagination.page >= pagination.total_pages || loading} onClick={() => setFilters((current) => ({ ...current, page: pagination.page + 1 }))} className={buttonClasses({ variant: 'secondary' })}>Next</button>
             </div>
           )}
         </section>

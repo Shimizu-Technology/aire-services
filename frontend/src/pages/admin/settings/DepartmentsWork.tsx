@@ -255,13 +255,13 @@ export default function DepartmentsWork() {
       <SettingsCatalogContext.Provider value={catalog}>
         <fieldset
           disabled={saving}
-          className="space-y-4 rounded-card border border-line bg-surface p-4"
+          className="min-w-0 space-y-4 rounded-card border border-line bg-surface p-4"
         >
           <legend className="font-semibold">
             Departments <SettingHelp id="approval_groups" />
           </legend>
           {groups.map((group, index) => (
-            <div key={index} className="flex gap-3">
+            <div key={index} className="grid grid-cols-1 gap-2 sm:flex sm:gap-3">
               <input
                 aria-label={`Department ${index + 1}`}
                 placeholder="Department name"
@@ -278,7 +278,7 @@ export default function DepartmentsWork() {
               <button
                 type="button"
                 onClick={() => setGroups((previous) => previous.filter((_, at) => at !== index))}
-                className="min-h-11"
+                className="min-h-11 whitespace-normal text-balance max-w-full min-w-11"
               >
                 Remove
               </button>
@@ -287,14 +287,14 @@ export default function DepartmentsWork() {
           <button
             type="button"
             onClick={() => setGroups((previous) => [...previous, { key: '', label: '' }])}
-            className="min-h-11 text-primary"
+            className="min-h-11 text-primary whitespace-normal text-balance max-w-full min-w-11"
           >
             Add department
           </button>
         </fieldset>
         <fieldset
           disabled={saving}
-          className="space-y-4 rounded-card border border-line bg-surface p-4"
+          className="min-w-0 space-y-4 rounded-card border border-line bg-surface p-4"
         >
           <legend className="font-semibold">
             Kinds of work <SettingHelp id="time_categories" />
@@ -341,7 +341,7 @@ export default function DepartmentsWork() {
               {(!item.id || savedWork.find((row) => row.id === item.id)?.deletable) && (
                 <button
                   type="button"
-                  className="min-h-11 text-red-700"
+                  className="min-h-11 text-red-700 whitespace-normal text-balance max-w-full min-w-11"
                   onClick={() => setWork((previous) => previous.filter((_, at) => at !== index))}
                 >
                   Delete work category
@@ -354,7 +354,7 @@ export default function DepartmentsWork() {
             onClick={() =>
               setWork((previous) => [...previous, { name: '', description: '', is_active: true }])
             }
-            className="min-h-11 text-primary"
+            className="min-h-11 text-primary whitespace-normal text-balance max-w-full min-w-11"
           >
             Add kind of work
           </button>

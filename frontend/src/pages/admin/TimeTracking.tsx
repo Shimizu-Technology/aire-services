@@ -1,3 +1,4 @@
+import { buttonClasses } from '../../components/ui/buttonStyles'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { lifecycleLabel } from '../../lib/payrollTerms'
@@ -321,7 +322,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
   const accounting = lifecycle.accounting_only && lifecycle.status === 'committed'
   const details = accounting ? ACCOUNTING_CORRECTION_NOTE : [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
     lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
-  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycleLabel(lifecycle)}</span>
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]} max-w-full whitespace-normal leading-tight break-words`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycleLabel(lifecycle)}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
@@ -339,7 +340,7 @@ function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecy
 
 function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
   if (employee.ready && employee.approval_complete) {
-    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Complete</span>
+    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 max-w-full whitespace-normal break-words">Complete</span>
   }
 
   return <span title={employee.issues.uncategorized_count > 0 ? 'Missing category' : undefined} className="inline-flex rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Draft - needs review</span>
@@ -354,7 +355,7 @@ function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) 
         ? 'border-amber-200 bg-amber-50 text-amber-700'
         : 'border-emerald-200 bg-emerald-50 text-emerald-700'
   const label = employee.status === 'terminated' ? 'Terminated' : employee.status.charAt(0).toUpperCase() + employee.status.slice(1)
-  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles}`}>{label}</span>
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles} max-w-full whitespace-normal break-words`}>{label}</span>
 }
 
 const QUALITY_FLAG_LABELS: Record<NonNullable<TimeEntryItem['quality_flags']>[number], string> = {
@@ -370,7 +371,7 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
   return (
     <span className="mt-1 flex flex-wrap gap-1">
       {flags.map((flag) => (
-        <span key={flag} className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+        <span key={flag} className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 max-w-full whitespace-normal break-words">
           {QUALITY_FLAG_LABELS[flag]}
         </span>
       ))}
@@ -1278,7 +1279,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           <button
             onClick={() => openNewEntry()}
             disabled={!optionsReady || searchParams.get('prefill') === 'true'}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-60 hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+            className={buttonClasses({ variant: 'primary' })}
           >
             <PlusIcon />
             <span>Log Time</span>
@@ -1290,7 +1291,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
       {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
         <p>{linkedEntryError}</p>
         {linkedEntry && <p className="mt-1">The last loaded review context is retained. Details may have changed; retry to load the current record.</p>}
-        <button type="button" disabled={linkedEntryLoading} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => setLinkedEntryRetry(revision => revision + 1)}>Retry linked entry</button>
+        <button type="button" disabled={linkedEntryLoading} className="mt-2 min-h-11 underline disabled:opacity-40 whitespace-normal text-balance max-w-full min-w-11" onClick={() => setLinkedEntryRetry(revision => revision + 1)}>Retry linked entry</button>
       </div>}
 
       {activeTab === 'entries' && (
@@ -1362,7 +1363,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           {(entryFilters.user_id || entryFilters.time_category_id) && (
             <button
               onClick={() => { setEntryFilters({ user_id: '', time_category_id: '' }); const next = new URLSearchParams(searchParams); next.delete('user_id'); setSearchParams(next, { replace: true }) }}
-              className="mt-3 text-sm text-primary hover:text-primary-dark font-medium"
+              className="mt-3 text-sm text-primary hover:text-primary-dark font-medium whitespace-normal text-balance max-w-full min-h-11 min-w-11"
             >
               Clear all filters
             </button>
@@ -1374,7 +1375,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
       {viewMode === 'period' && routedPeriod ? <section aria-label="Hours for payroll period" className="rounded-2xl border border-neutral-warm bg-white p-4">
         <h2 className="font-semibold text-primary-dark">{formatDateOnly(routedPeriod.start, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatDateOnly(routedPeriod.end, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
         <p className="mt-1 text-sm text-primary-dark">Total: {periodTotalHours.toFixed(1)} hours</p>
-        <button type="button" className="mt-2 min-h-11 font-medium text-primary underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('start_date'); next.delete('end_date'); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
+        <button type="button" className="mt-2 min-h-11 font-medium text-primary underline whitespace-normal text-balance max-w-full min-w-11" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('start_date'); next.delete('end_date'); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
       </section> : <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
         {/* Mobile Layout */}
         <div className="flex flex-col gap-4 sm:hidden">
@@ -1391,11 +1392,11 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             </div>
           </div>
           {/* Bottom row: Toggle + Navigation */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex rounded-lg overflow-hidden border border-neutral-warm">
               <button
                 onClick={() => setViewMode('day')}
-                className={`px-3 py-2 text-sm font-medium transition-colors ${
+                className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-3 py-2 text-sm font-medium transition-colors ${
                   viewMode === 'day'
                     ? 'bg-primary text-white'
                     : 'bg-white text-primary-dark'
@@ -1405,7 +1406,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </button>
               <button
                 onClick={() => setViewMode('week')}
-                className={`px-3 py-2 text-sm font-medium transition-colors ${
+                className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-3 py-2 text-sm font-medium transition-colors ${
                   viewMode === 'week'
                     ? 'bg-primary text-white'
                     : 'bg-white text-primary-dark'
@@ -1417,13 +1418,13 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <div className="flex items-center gap-1">
               <button
                 onClick={goToPrevious}
-                className="p-2 text-primary-dark hover:bg-neutral-warm rounded-lg"
+                className="p-2 text-primary-dark hover:bg-neutral-warm rounded-control whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               >
                 <ChevronLeftIcon />
               </button>
               <button
                 onClick={goToToday}
-                className={`px-2 py-1 text-sm font-medium rounded-lg ${
+                className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-2 py-1 text-sm font-medium rounded-lg ${
                   currentDate === businessDateISO()
                     ? 'bg-primary text-white'
                     : 'text-primary-dark hover:bg-neutral-warm'
@@ -1433,7 +1434,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               </button>
               <button
                 onClick={goToNext}
-                className="p-2 text-primary-dark hover:bg-neutral-warm rounded-lg"
+                className="p-2 text-primary-dark hover:bg-neutral-warm rounded-control whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               >
                 <ChevronRightIcon />
               </button>
@@ -1447,7 +1448,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           <div className="flex rounded-lg overflow-hidden border border-neutral-warm w-fit">
             <button
               onClick={() => setViewMode('day')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-4 py-2 text-sm font-medium transition-colors ${
                 viewMode === 'day'
                   ? 'bg-primary text-white'
                   : 'bg-white text-primary-dark hover:bg-neutral-warm'
@@ -1457,7 +1458,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             </button>
             <button
               onClick={() => setViewMode('week')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-4 py-2 text-sm font-medium transition-colors ${
                 viewMode === 'week'
                   ? 'bg-primary text-white'
                   : 'bg-white text-primary-dark hover:bg-neutral-warm'
@@ -1471,13 +1472,13 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           <div className="flex items-center justify-center gap-2">
             <button
               onClick={goToPrevious}
-              className="p-2 text-primary-dark hover:text-primary hover:bg-neutral-warm rounded-lg transition-colors"
+              className="p-2 text-primary-dark hover:text-primary hover:bg-neutral-warm rounded-control transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
             >
               <ChevronLeftIcon />
             </button>
             <button
               onClick={goToToday}
-              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                 currentDate === businessDateISO()
                   ? 'bg-primary text-white'
                   : 'text-primary-dark hover:text-primary hover:bg-neutral-warm'
@@ -1487,7 +1488,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             </button>
             <button
               onClick={goToNext}
-              className="p-2 text-primary-dark hover:text-primary hover:bg-neutral-warm rounded-lg transition-colors"
+              className="p-2 text-primary-dark hover:text-primary hover:bg-neutral-warm rounded-control transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
             >
               <ChevronRightIcon />
             </button>
@@ -1515,7 +1516,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
         <div className="flex items-center justify-end">
           <button
             onClick={() => setShowDenied(!showDenied)}
-            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+            className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
               showDenied
                 ? 'bg-red-50 border-red-200 text-red-700'
                 : 'bg-white border-neutral-warm text-text-muted hover:text-primary-dark hover:border-primary/30'
@@ -1536,39 +1537,39 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
       {/* Error Display */}
       {optionsError && searchParams.get('prefill') !== 'true' && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
         <p>{optionsError}</p>
-        <button type="button" onClick={() => void loadOptions()} className="mt-2 min-h-11 underline">Retry people and categories</button>
+        <button type="button" onClick={() => void loadOptions()} className="mt-2 min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">Retry people and categories</button>
       </div>}
       {searchParams.get('prefill') === 'true' && (
         <div role={prefillError || optionsError ? 'alert' : 'status'} className="rounded-xl border border-slate-200 bg-white p-4">
           <p>{prefillError || optionsError || 'Loading the scheduled shift and employee…'}</p>
           {(prefillError || optionsError) && (
-            <button type="button" onClick={() => { if (!optionsReady) void loadOptions(); else setPrefillRetry((value) => value + 1) }} className="mt-2 min-h-11 text-primary underline">Retry scheduled shift</button>
+            <button type="button" onClick={() => { if (!optionsReady) void loadOptions(); else setPrefillRetry((value) => value + 1) }} className="mt-2 min-h-11 text-primary underline whitespace-normal text-balance max-w-full min-w-11">Retry scheduled shift</button>
           )}
         </div>
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
           {error}
-          <button type="button" onClick={() => void loadEntries()} className="ml-3 min-h-11 underline">Retry time entries</button>
+          <button type="button" onClick={() => void loadEntries()} className="ml-3 min-h-11 underline whitespace-normal text-balance max-w-full min-w-11">Retry time entries</button>
         </div>
       )}
 
       {entryMeta && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
         <p>{entryMeta.summary.entry_count} entries · {(viewMode === 'period' ? periodTotalHours : Number(entryMeta.summary.total_hours)).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
-        {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
+        {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40 whitespace-normal text-balance max-w-full min-w-11" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40 whitespace-normal text-balance max-w-full min-w-11" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
       </div>}
       {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
         <p className="font-semibold">Entry #{linkedEntry.id} · {formatDate(linkedEntry.work_date)} · {ownerLabel(linkedEntry)}</p>
         <p className="mt-1">{Number(linkedEntry.hours).toFixed(2)}h · {linkedEntry.time_category?.name || 'No category'} · {linkedEntry.approval_status || 'Standard approval'}</p>
         <p className="mt-1 break-words">{linkedEntry.description || 'No description recorded.'}</p>
-        <button type="button" disabled={linkedEntryLoading || !!linkedEntryError} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
+        <button type="button" disabled={linkedEntryLoading || !!linkedEntryError} className="mt-2 min-h-11 underline disabled:opacity-40 whitespace-normal text-balance max-w-full min-w-11" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
       </section>}
       {/* Loading Skeleton */}
       {error ? null : loading ? (
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           {/* Header skeleton */}
           <div className="p-4 border-b border-neutral-warm">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Skeleton height={20} className="w-32" />
               <Skeleton height={32} className="w-24 rounded-lg" />
             </div>
@@ -1612,7 +1613,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               <button
                 onClick={() => openNewEntry()}
                 disabled={!optionsReady || routedPrefill === 'true'}
-                className="mt-4 text-primary hover:text-primary-dark font-semibold"
+                className="mt-4 text-primary hover:text-primary-dark font-semibold whitespace-normal text-balance max-w-full min-h-11 min-w-11"
               >
                 Log your first entry
               </button>
@@ -1626,7 +1627,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       {(viewMode === 'period' || (!canManageTeamTime && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3 max-w-full whitespace-normal break-words">
                           <ClockIcon />
                           {entry.hours}h
                         </span>
@@ -1691,7 +1692,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => openEditEntry(entry)}
-                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary"
+                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control p-2 text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary whitespace-normal text-balance max-w-full"
                         title="Edit entry"
                       >
                         <EditIcon />
@@ -1699,7 +1700,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       <button
                         onClick={() => handleDelete(entry)}
                         disabled={!canDeleteEntry(entry)}
-                        className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${!canDeleteEntry(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
+                        className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 p-2 rounded-lg transition-colors flex items-center justify-center ${!canDeleteEntry(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
                         title={!canDeleteEntry(entry) ? 'You cannot delete this entry' : 'Delete entry'}
                       >
                         <TrashIcon />
@@ -1888,7 +1889,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                             setFormData({ ...formData, break_minutes: preset.minutes })
                           }
                         }}
-                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                        className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                           (preset.minutes === null && formData.break_minutes === null) ||
                           (preset.minutes === formData.break_minutes) ||
                           (preset.minutes === -1 && formData.break_minutes !== null && !BREAK_PRESETS.slice(0, -1).some(p => p.minutes === formData.break_minutes))
@@ -1964,14 +1965,14 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     <button
                       type="button"
                       onClick={closeCreateModal}
-                      className="px-4 py-2 text-primary-dark font-medium hover:bg-neutral-warm rounded-lg transition-colors"
+                      className={buttonClasses({ variant: 'ghost' })}
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={saving}
-                      className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
+                      className={buttonClasses({ variant: 'primary' })}
                     >
                       {saving ? 'Saving...' : 'Save'}
                     </button>
@@ -2021,7 +2022,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     const period = reportPresetRange(preset)
                     setReportFilters((current) => ({ ...current, start_date: period.start, end_date: period.end }))
                   }}
-                  className="pointer-coarse:min-h-11 rounded-full border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary-dark transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className={buttonClasses({ variant: 'secondary', size: 'sm' })}
                 >
                   {label}
                 </button>
@@ -2169,7 +2170,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
               {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (
-                <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className="mt-3 pointer-coarse:min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition hover:bg-red-100">
+                <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className={buttonClasses({ variant: 'danger-outline', className: 'mt-3' })}>
                   Show entries missing categories
                 </button>
               )}
@@ -2203,7 +2204,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     These checks do not change payroll totals or lock readiness. They highlight entries that may need a note or a quick accuracy check.
                   </p>
                 </div>
-                <span className="inline-flex w-fit rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">Quality review</span>
+                <span className="inline-flex w-fit rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 max-w-full whitespace-normal break-words">Quality review</span>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <ReportMetric label="Missing categories" value={String(hoursReport.quality.missing_category_count)} tone={hoursReport.quality.missing_category_count > 0 ? 'warning' : 'normal'} />
@@ -2251,7 +2252,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect entries, work categories and weekly overtime.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an OT pill to inspect entries, work categories and weekly overtime.</p>
             </div>
             {/* Eight columns need the full desktop width; narrower screens get the person cards. */}
             <div className="divide-y divide-neutral-warm xl:hidden">
@@ -2281,7 +2282,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     </span>
                     <PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} />
                   </span>
-                  <span className="mt-3 grid grid-cols-3 gap-2">
+                  <span className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
                       <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved regular</span>
                       <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}h</span>
@@ -2364,7 +2365,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                               event.stopPropagation()
                               setSelectedReportEmployee(employee)
                             }}
-                            className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-1.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                            className="inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-1 text-xs font-semibold leading-tight text-amber-900"
                             title="View weekly overtime breakdown"
                           >
                             <span>{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
@@ -2554,7 +2555,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
               </p>
               <p className="mt-1 text-xs text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)} to ${formatDate(employee.last_work_date)}` : ''}{employee.termination_effective_on ? ` · Terminated effective ${formatDate(employee.termination_effective_on)}` : ''}</p>
             </div>
-            <button ref={closeButtonRef} type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+            <button ref={closeButtonRef} type="button" onClick={onClose} className={buttonClasses({ variant: 'secondary' })}>Close</button>
           </div>
         </div>
 
@@ -2683,7 +2684,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         )}
                         {entry.breaks.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
-                            {entry.breaks.map((brk, index) => <span key={`${entry.id}-${index}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">Break {brk.start_time}–{brk.end_time} ({brk.duration_minutes}m)</span>)}
+                            {entry.breaks.map((brk, index) => <span key={`${entry.id}-${index}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 max-w-full whitespace-normal break-words">Break {brk.start_time}–{brk.end_time} ({brk.duration_minutes}m)</span>)}
                           </div>
                         )}
                       </div>
@@ -2787,7 +2788,7 @@ function DetailedEntriesTable({
                 <div className="min-w-0"><dt className="text-xs text-text-muted">Categories</dt><dd className="break-words">{categories.join(', ')}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-text-muted">Sources</dt><dd className="break-words uppercase">{sources.join(', ')}</dd></div>
               </dl>
-              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.auto_approved ? 'auto' : entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : status === 'auto' ? 'Auto-approved' : `${status} approval`}</span>)}</div>
+              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.auto_approved ? 'auto' : entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700 max-w-full whitespace-normal break-words">{status === 'standard' ? 'Standard approval' : status === 'auto' ? 'Auto-approved' : `${status} approval`}</span>)}</div>
               <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
               <div id={detailId} hidden={multiple && !expanded} className="space-y-3">
                 {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
@@ -2803,7 +2804,7 @@ function DetailedEntriesTable({
                   <PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} />
                   {entry.payroll_lifecycle && (entry.payroll_lifecycle.payment_reference || entry.payroll_lifecycle.payment_effective_on || entry.payroll_lifecycle.accounting_only) && <p className="break-words text-xs text-text-muted">{entry.payroll_lifecycle.accounting_only ? ACCOUNTING_CORRECTION_NOTE : [entry.payroll_lifecycle.payment_method?.replaceAll('_', ' '), entry.payroll_lifecycle.payment_reference ? `Reference ${entry.payroll_lifecycle.payment_reference}` : null, entry.payroll_lifecycle.payment_effective_on ? `Paid ${formatDate(entry.payroll_lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')}</p>}
                   {(entry.breaks || []).map((item, index) => <p key={index} className="break-words text-xs text-text-muted">Break {item.start_time || '—'}–{item.end_time || '—'} · {item.duration_minutes ?? '—'}m</p>)}
-                  {canManageTeamTime && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
+                  {canManageTeamTime && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className={buttonClasses({ variant: 'secondary', size: 'sm', className: 'w-full' })}>Edit</button>}
                 </div>)}
               </div>
             </article>
@@ -2887,7 +2888,7 @@ function DetailedEntriesTable({
                       </td>
                       {canManageTeamTime && (
                         <td className="px-4 py-3 text-right">
-                          {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className="pointer-coarse:min-h-11 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button>}
+                          {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>Edit</button>}
                         </td>
                       )}
                     </tr>
@@ -2909,7 +2910,7 @@ function DetailedEntriesTable({
                           <EntryQualityFlags flags={entry.quality_flags} />
                         </td>
                         <td className="px-4 py-2 text-xs"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></td>
-                        {canManageTeamTime && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="pointer-coarse:min-h-11 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
+                        {canManageTeamTime && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>Edit</button></td>}
                       </tr>
                     ))}
                   </Fragment>
@@ -2921,7 +2922,7 @@ function DetailedEntriesTable({
       </div>
         {groupList.length > visibleGroupCount && (
           <div className="border-t border-neutral-warm px-4 py-4 text-center">
-            <button type="button" onClick={() => setVisibleGroupCount((count) => Math.min(count + 100, groupList.length))} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-cyan-50">
+            <button type="button" onClick={() => setVisibleGroupCount((count) => Math.min(count + 100, groupList.length))} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>
               Show {Math.min(100, groupList.length - visibleGroupCount)} more groups
             </button>
             <div className="mt-2 text-xs text-text-muted">Showing {visibleGroupCount} of {groupList.length}</div>
@@ -2974,7 +2975,7 @@ function PersonDayModalContent({
         </div>
         <button
           onClick={onClose}
-          className="p-1 text-text-muted hover:text-primary-dark rounded-lg hover:bg-neutral-warm transition-colors"
+          className="p-1 text-text-muted hover:text-primary-dark rounded-control hover:bg-neutral-warm transition-colors whitespace-normal text-balance max-w-full min-h-11 min-w-11"
           title="Close"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3003,7 +3004,7 @@ function PersonDayModalContent({
       {Object.keys(catSummary).length > 1 && (
         <div className="flex flex-wrap gap-2 mb-5">
           {Object.entries(catSummary).map(([cat, hrs]) => (
-            <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full">
+            <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full max-w-full whitespace-normal break-words">
               {cat}
               <span className="text-primary/60">{hrs.toFixed(2)}h</span>
             </span>
@@ -3038,21 +3039,21 @@ function PersonDayModalContent({
                         {entry.formatted_start_time || '—'} – {entry.formatted_end_time || 'Active'}
                       </span>
                       {entry.status === 'clocked_in' && (
-                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded-full">Active</span>
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded-full max-w-full whitespace-normal break-words">Active</span>
                       )}
                       {entry.status === 'on_break' && (
-                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded-full">On Break</span>
+                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded-full max-w-full whitespace-normal break-words">On Break</span>
                       )}
                     </div>
 
                     {/* Category */}
                     <div className="flex items-center gap-2 mb-1">
                       {entry.time_category ? (
-                        <span className="inline-flex items-center px-2 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded-full">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded-full max-w-full whitespace-normal break-words">
                           {entry.time_category.name}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 bg-neutral-warm text-text-muted text-xs rounded-full">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-neutral-warm text-text-muted text-xs rounded-full max-w-full whitespace-normal break-words">
                           No category
                         </span>
                       )}
@@ -3076,19 +3077,19 @@ function PersonDayModalContent({
                     <div className="flex items-center gap-2 mt-1">
                       {entry.approval_status === 'pending' && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 max-w-full whitespace-normal break-words" />
                           Pending approval
                         </span>
                       )}
                       {entry.approval_status === 'approved' && (entry.approved_by || entry.auto_approved) && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 max-w-full whitespace-normal break-words" />
                           {entry.auto_approved ? 'Auto-approved' : `Approved by ${entry.approved_by?.full_name}`}
                         </span>
                       )}
                       {entry.approval_status === 'denied' && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-red-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 max-w-full whitespace-normal break-words" />
                           Denied
                         </span>
                       )}
@@ -3102,7 +3103,7 @@ function PersonDayModalContent({
                   <div className="flex flex-col gap-1 shrink-0">
                     <button
                       onClick={(e) => { e.stopPropagation(); onEditEntry(entry) }}
-                      className="rounded-lg p-1.5 text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary"
+                      className="rounded-control p-1.5 text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary whitespace-normal text-balance max-w-full min-h-11 min-w-11"
                       title="Edit entry"
                     >
                       <EditIcon />
@@ -3110,7 +3111,7 @@ function PersonDayModalContent({
                     <button
                       onClick={(e) => { e.stopPropagation(); onDeleteEntry(entry) }}
                       disabled={!canDelete(entry)}
-                      className={`p-1.5 rounded-lg transition-colors ${!canDelete(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
+                      className={`whitespace-normal text-balance max-w-full min-h-11 min-w-11 p-1.5 rounded-lg transition-colors ${!canDelete(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
                       title={!canDelete(entry) ? 'Cannot delete' : 'Delete entry'}
                     >
                       <TrashIcon />
@@ -3127,14 +3128,14 @@ function PersonDayModalContent({
       <div className="flex justify-between items-center pt-3 border-t border-neutral-warm">
         <button
           onClick={onAddEntry}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary hover:text-primary-dark hover:bg-primary/10 rounded-lg transition-colors"
+          className={buttonClasses({ variant: 'primary' })}
         >
           <PlusIcon />
           Add Entry
         </button>
         <button
           onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-primary-dark hover:bg-neutral-warm rounded-lg transition-colors"
+          className={buttonClasses({ variant: 'ghost' })}
         >
           Close
         </button>
