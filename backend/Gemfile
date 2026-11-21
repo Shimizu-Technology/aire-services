@@ -80,7 +80,7 @@ group :test do
   gem "pdf-reader", "~> 2.15", require: false
 end
 
-gem "roo", "~> 3.0"
+gem "roo", "~> 4.0"
 
 # Re-mark stored PDFs at the staging artifact boundary.
 gem "combine_pdf"
