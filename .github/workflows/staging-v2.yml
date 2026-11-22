@@ -44,7 +44,7 @@ jobs:
         run: |
           "$GITHUB_WORKSPACE/.github/scripts/apt-refresh.sh"
           sudo apt-get install --no-install-recommends -y libvips-tools fonts-dejavu-core
-      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
         with:
           working-directory: backend
           bundler-cache: true
