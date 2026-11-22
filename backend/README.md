@@ -2,6 +2,8 @@
 
 ## Setup
 
+Use Ruby 3.3.14 (see `.ruby-version`).
+
 ```bash
 bundle install
 rails db:create db:migrate db:seed
